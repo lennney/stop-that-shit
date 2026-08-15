@@ -1,0 +1,11 @@
+{
+  "id": "STS-H-003-G",
+  "kind": "good",
+  "family": "H",
+  "title": "Just-in-time disclosure for a reachable user decision",
+  "input": {
+    "contract": { "mode": "change", "level": "guard", "agentBudget": 0, "agentsUsed": 0 },
+    "action": { "mutability": "write", "duplicate": false, "reachability": "reachable" }
+  },
+  "expected": { "outcome": "allow", "family": null, "reasonCode": "WITHIN_CONTRACT" }
+}

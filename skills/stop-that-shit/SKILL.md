@@ -17,10 +17,17 @@ Before adding work that the user did not name, ask:
 
 1. Did the user request it?
 2. Is it necessary to complete the requested result?
-3. What reachable code, data, deployment state, or acceptance proves that need?
+3. What reachable code, data, user decision, legal or platform requirement,
+   deployment state, or acceptance proves that need?
 4. Would omitting it fail the current task?
 
 If the answer remains no, do not implement it. Report it only when useful.
+
+Do not turn internal risk controls into user-facing caveats. Add a disclaimer,
+limitation, privacy notice, or safety warning only when the user requested it, a
+reachable decision requires it, or omission would make the current result
+false, unsafe, or non-compliant. Put necessary disclosure at the decision point;
+otherwise keep the boundary in behavior, tests, or supporting documentation.
 
 Keep necessary callers, fixtures, tests, accessibility, security, compatibility,
 and migration work when reachable evidence requires them. Fewer files or lines

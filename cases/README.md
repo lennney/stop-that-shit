@@ -29,6 +29,8 @@ decisive fact so that rules judge authority and evidence instead of keywords.
   supported state is necessary.
 - `STS-H-002`: hashing without a consumer is stopped; an explicitly requested
   release checksum is allowed.
+- `STS-H-003`: blanket caveats for an inactive risk are deferred; disclosure at
+  a reachable user decision is preserved.
 
 The semantic S/H cases exercise the Stop Ladder. Only high-confidence signals
 listed in the README are claimed as Hook-enforced.
