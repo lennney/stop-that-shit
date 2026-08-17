@@ -1,37 +1,36 @@
 <p align="center">
-  <img src="assets/stop-stamp.svg" alt="红色 STOP 审查印章" width="240">
+  <img src="assets/stop-stamp.svg" alt="Stop That Shit（别再造史了）AI Agent 任务边界 Guard 的红色 STOP 印章" width="240">
 </p>
 
 <h1 align="center">Stop That Shit（别再造史了）</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/github/stars/lennney/stop-that-shit?style=flat-square&color=111111&label=stars" alt="GitHub stars">
-  <img src="https://img.shields.io/github/v/release/lennney/stop-that-shit?include_prereleases&sort=semver&style=flat-square&color=111111&label=release" alt="最新版本">
+  <a href="https://github.com/lennney/stop-that-shit/stargazers"><img src="https://img.shields.io/github/stars/lennney/stop-that-shit?style=flat-square&color=111111&label=stars" alt="GitHub stars"></a>
+  <a href="https://github.com/lennney/stop-that-shit/releases"><img src="https://img.shields.io/github/v/release/lennney/stop-that-shit?include_prereleases&sort=semver&style=flat-square&color=111111&label=release" alt="最新版本"></a>
   <a href="https://github.com/lennney/stop-that-shit/actions/workflows/ci.yml"><img src="https://github.com/lennney/stop-that-shit/actions/workflows/ci.yml/badge.svg" alt="CI 状态"></a>
   <img src="https://img.shields.io/badge/works%20with-Codex-111111?style=flat-square" alt="支持 Codex">
   <img src="https://img.shields.io/badge/works%20with-Claude%20Code-111111?style=flat-square" alt="支持 Claude Code">
+  <img src="https://img.shields.io/badge/works%20with-OpenCode-111111?style=flat-square" alt="支持 OpenCode">
   <img src="https://img.shields.io/github/license/lennney/stop-that-shit?style=flat-square&color=111111" alt="MIT 许可证">
 </p>
 
 <p align="center">
-  <strong>你只要一个文件，Codex 却拆成六个模块，叫来三个 Agent，又给所有东西算了一遍 SHA-256。Stop That Shit。</strong><br>
-  Stop That Shit 通过本地 Adapter 支持 Codex、Claude Code 和 OpenCode。<br>
-  <a href="#安装">安装</a> ·
+  <strong>你只让 Agent 导出一个结果文件。它顺手又生成一份 SHA-256 校验和，但后面没有任何命令会读取它。Stop That Shit。</strong><br>
+  Stop That Shit（别再造史了）处理 AI coding agent 自己加出来的防御性工作和任务越界，支持 Codex、Claude Code 和 OpenCode。<br>
+  <a href="#快速安装">安装</a> ·
   <a href="#bad-case--good-case">Bad / Good Case</a> ·
   <a href="cases/README.md">案例库</a> ·
   <a href="CONTRIBUTING.md">参与贡献</a> ·
   <a href="README_EN.md">English</a>
 </p>
 
-让 Codex 写个小文件，结果可能多出一棵模块树、几个 subagent、一项新依赖，还有一份没人会用的 SHA-256 checksum。
+这份校验和生成了，任务却没有少做一步，后面的流程也完全一样。换个任务，多出来的可能是 guard、兼容层、全量测试或额外流程。Codex、Claude Code 和 OpenCode 都可能这么做：每一步单看都有理由，但用户没要求，当前任务也用不上。
 
-每一步都能说出一个挺严谨的理由。回头一看，要的东西还没做完，token 已经花了一截。花在正事上没意见，花在 Codex 自己加出来的活上，就很心疼。
+我也试过不断往 `AGENTS.md` 里补「不要乱改」「别过度设计」「没让我做的先别做」。规则越补越长，`AGENTS.md` 自己也开始造史。Stop That Shit 把其中能明确判断的边界做成 Skill 和可执行 Guard。
 
-我也试过在 `AGENTS.md` 里不断补规则：「不要乱改」「别过度设计」「没让我做的先别做」。每被气到一次就补一条，写着写着，`AGENTS.md` 自己也开始造史了。Stop That Shit 把其中少量、能明确判断的边界做成 Skill 和可执行的 Guard。
-
-Stop That Shit 为 Codex、Claude Code 和 OpenCode 划定任务边界。三者共用核心
-Guard，宿主差异只放在薄 Adapter 和 Hook 配置中。Agent 仍然可以读仓库，也必须
-处理真正受影响的调用方。Guard 确认某个动作越界时，会返回一枚红章：
+你用 `review`、`change` 等模式写明授权，再按需限制文件、依赖、hash 和 subagent
+预算。Stop That Shit 在受覆盖的 Hook 路径上检查这些明确边界。Agent 仍然可以读
+仓库，也必须处理真正受影响的调用方。Guard 确认某个动作越界时，会返回一枚红章：
 
 ```text
 STOP / INTENT
@@ -41,14 +40,20 @@ State: ARMED / review
 Event: evt_...
 ```
 
-[`0.0.3`](https://github.com/lennney/stop-that-shit/releases/tag/0.0.3) 是第三个技术预览版。LLM 每次运行都可能不同，Hook 也看不到宿主 agent 的全部动作。Skill 和 Guard 可以减少一部分越界行为，但都不能保证模型每次听话。
+[`0.0.3`](https://github.com/lennney/stop-that-shit/releases/tag/0.0.3) 是第三个技术预览版，包含共享 Guard、三套宿主 Adapter、成对案例和只存元数据的本地 Runtime。
 
 | 从哪里开始 | 提供什么 | 使用成本 |
 | --- | --- | --- |
 | **Skill + Guard** | 同一份 Skill，加上机器可执行边界 | 默认；检查宿主 Hook 配置后启用 |
 | **只装 Skill** | Stop Ladder 和任务模式引导 | 可选；没有执行拦截 |
 
+## 从 Codex + GPT-5.6 开始，现在覆盖多种 Agent
+
+项目从 Codex 起步：公开记录保留了 Codex CLI `0.145.0` + `gpt-5.6-sol` 的探索运行，以及 Codex CLI `0.147.0` + `gpt-5.6-luna` 的定向 pilot。现在三个 Adapter 共用同一套任务边界核心；Codex 安装方式、GPT-5.6 记录和 paired eval 见 [EVIDENCE.md](EVIDENCE.md) 与 [Codex 对照测试](evals/codex-paired/README.md)。
+
 ## 快速安装
+
+需要 Node.js 18+。完整安装说明见 [INSTALL.md](INSTALL.md)。
 
 ### Claude Code
 
@@ -73,7 +78,7 @@ codex plugin marketplace add lennney/stop-that-shit
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
-重启 Codex。在新的 CLI TUI 中输入 `/hooks`，检查命令后信任 `UserPromptSubmit` 和 `PreToolUse`。状态说明和无 Hook 安装方式见[安装](#安装)。也可以把 [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) 交给 Codex，让它完成非交互步骤。
+重启 Codex。在新的 CLI TUI 中输入 `/hooks`，检查命令后信任 `UserPromptSubmit` 和 `PreToolUse`。也可以把 [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) 交给 Codex，让它完成非交互步骤。
 
 ### OpenCode 从 GitHub 安装
 
@@ -114,22 +119,11 @@ Good Case 和拦截同样重要。已经发布的数据可能需要迁移；发�
 
 插件不数代码行数，也不把 diff 越小当成越好。它只问：这一步是用户要求的，还是当前代码、数据和验收条件确实需要的？
 
-这些东西单看一项，往往都能讲出道理：
+常见的样子包括：没有消费者的 checksum 和 guard；当前没有用户决策，却把内部风险写成一排界面免责声明；该做工程判断时改成评分表和反复审计；为没人要求的将来加 feature flag、迁移框架和包装层。
 
-- 写下一堆 checksum，却没有任何命令会读；
-- 为受支持路径不可能产生的输入加守卫；
-- 当前没有相应操作或用户决策，却把内部风险边界铺成界面上的免责声明；
-- 该做工程判断时，改成评分表或反复审计；
-- 为没人要求的将来加 feature flag、迁移框架和包装层；
-- 新加一层守卫，只为了保护上一层守卫。
+## 为什么先拦 hash
 
-每一步都像在增加“严谨性”。最后，一个简单功能被防御代码、免责声明和流程层层埋住。
-
-## 为什么默认阻止 hash
-
-在 Hook 覆盖的工具调用中，它可以较高置信度地识别 hash 动作。判断标准很具体：摘要有没有省掉真实工作，结果会不会改变下一步？
-
-我们沿用 [HERO](https://github.com/wanshuiyin/HERO-Anti-OverDefense) 写下的判据：摘要必须替代一个更贵的操作，而且结果必须控制下一步做什么。
+Hook 在受支持的工具调用中可以较高置信度地识别 hash 动作。判断沿用 [HERO](https://github.com/wanshuiyin/HERO-Anti-OverDefense) 的判据：摘要必须替代一个更贵的操作，而且结果必须控制下一步。
 
 ```text
 STOP
@@ -181,7 +175,7 @@ $stop-that-shit label evt_... correct|incorrect|inconclusive
 
 `permission_deny_returned`（OpenCode 中为 `execution_denial_returned`）只表示 Guard 返回了拒绝响应，不证明宿主最终没有执行动作。Stop That Shit 始终把 host effect 标为 `unobserved`。
 
-## Guard 现在能拦什么
+## AI Agent Guard 现在能拦什么
 
 | covered path 上的动作 | 默认处理 | 怎么放行 |
 | --- | --- | --- |
@@ -200,48 +194,17 @@ Hook 必须收到受支持的事件和足够的输入才能判断。它不会看
 
 证据撑不住时，agent 应该报告或暂缓，不要顺手实现。
 
-## 工作方式
+## Skill + Hook + Adapter 如何工作
 
-Skill 负责语义判断。Hook 在受支持的工具运行前检查明确事实。Codex、Claude Code 和 OpenCode Adapter 把宿主事件翻译成同一套核心决策接口。
+Skill 负责语义判断，Hook 在工具运行前检查明确边界，Adapter 把 Codex、Claude Code 和 OpenCode 的事件翻译成同一套决策接口。其他 harness 需要提供等价的 before-action 事件；接口见 [HOST-ADAPTER-CONTRACT.md](HOST-ADAPTER-CONTRACT.md)。
 
-三个宿主都已实现 Adapter。各 Adapter 暴露自己需要的宿主事件，比如工具运行前的硬阻断，以及携带活动合同的生命周期事件。OpenCode 插件只使用官方文档中的事件（`message.part.updated` 与 session 事件、`tool.execute.before` / `tool.execute.after`）和 SDK 调用，并通过 `client.session.prompt({ noReply: true })` 注入契约上下文。其他 harness 需要提供等价的 before-action 事件，才能复用同一套核心。接口说明见 [HOST-ADAPTER-CONTRACT.md](HOST-ADAPTER-CONTRACT.md)。
+## 覆盖边界与公开证据
 
-## 局限和证据
+Stop That Shit 负责 supported Hook 路径上的任务授权，安全隔离由宿主 sandbox 负责。[EVIDENCE.md](EVIDENCE.md) 记录测试、GPT-5.6 运行、无差异结果和未覆盖路径。
 
-部分特殊工具路径可能绕过普通 Hook。插件不负责判断代码质量，不修复 Codex runtime bug，也不是安全沙箱。
+维护者启用后没有再遇到“没有实际消费者却先生成 SHA-256”的动作；文档将这条个人观察与 paired eval 分开记录。本地 Runtime 只存元数据，并区分 checked action、context response、permission deny 和 `hostEffect: unobserved`。
 
-测试只能证明规则在 covered event 上按设计运行，不能证明模型行为会普遍改善。[EVIDENCE.md](EVIDENCE.md) 记录了测试、真实运行、无差异结果和排除项。
-
-就我自己的使用情况看，启用 Stop That Shit 后，我还没有再遇到那种没有实际消费者却先生成 SHA-256 的动作。这是个人观察，不是受控 benchmark。本地 Runtime 会记录只含元数据的 Hook 检查，区分 checked action、context response 和 permission deny；它仍然会把宿主效果记为 `unobserved`。
-
-## 安装
-
-### Claude Code：Skill + Guard
-
-需要 Node.js 18+。从本地 checkout 根目录安装：
-
-```bash
-claude plugin validate .
-claude plugin marketplace add ./
-claude plugin install stop-that-shit@stop-that-shit
-```
-
-重启或执行 `/reload-plugins`。Claude 会加载共享 `skills/`、`hooks/hooks.json`
-以及 Claude Adapter。Guard 覆盖 `Write`、`Edit`、`NotebookEdit`、`EnterWorktree`、
-shell/`Monitor` mutation、dependency/hash intent、可选 file lock，以及受支持路径上的
-`Agent` budget。Claude `Workflow` 在 Guard 武装时会保守拒绝，因为它内部的 subagent
-fan-out 无法被 `agents=N` 确定性约束。
-
-### Codex：Skill + Guard
-
-```bash
-codex plugin marketplace add lennney/stop-that-shit
-codex plugin add stop-that-shit@stop-that-shit
-```
-
-重启 Codex。在新的 CLI TUI 中输入 `/hooks`，检查命令后信任 `UserPromptSubmit` 和 `PreToolUse`。如果 Codex Desktop 把 `/hooks` 当成普通消息发送，就在 CLI TUI 里完成这次审查，再重启 Desktop。
-
-### 可选安装：只装 Skill
+## 可选：只装 Skill
 
 如果不想启用命令 Hook，只安装 advisory Skill。Claude Code：
 
@@ -258,7 +221,7 @@ $skill-installer Install stop-that-shit from https://github.com/lennney/stop-tha
 
 新开任务后，独立 Claude Code Skill 用 `/stop-that-shit`，作为 plugin 安装时用 namespaced `/stop-that-shit:stop-that-shit`；Codex 用 `$stop-that-shit`。Skill-only 路径不需要 Hook 信任，但不能机器拦截越界动作，也不会改变宿主原有的 sandbox 和 approval 设置。
 
-完整的 Skill 与 Guard 安装说明见 [INSTALL.md](INSTALL.md)。然后运行本地检查：
+## 本地验证
 
 ```powershell
 npm test
@@ -269,21 +232,19 @@ npm run release:check
 
 paired 命令默认只打印 72 个 cell 的计划，不会调用模型。真实运行必须使用只启用本插件的独立 Codex home。使用 `--run` 前，请先阅读[真实 Codex 对照测试说明](evals/codex-paired/README.md)。
 
-## 一起划清边界
+## 一起让 Agent 少造一点史
 
-这个项目靠成对案例推进：
+如果“别再造史了”说中你的经历，可以 [Star 这个仓库](https://github.com/lennney/stop-that-shit)，或把它发给那个不断往 `AGENTS.md` 里补规则的人。项目靠成对案例推进：
 
 ```text
 报告 -> 反例 -> 复现 -> 执行约束
 ```
 
-只完成第一步也有价值。不需要会写 Hook，也不需要先做完整 benchmark。
-
 - Codex 做了请求不需要的工作？[提交 Bad Case](https://github.com/lennney/stop-that-shit/issues/new?template=bad-case.yml)。
 - 某条规则会拦住真正必要的工作？[提交 Good Case](https://github.com/lennney/stop-that-shit/issues/new?template=good-case.yml)。
 - 有公开可复现的例子？把一组案例做成 fixture，然后提交 PR。
 
-最好让一组案例只改变一个关键事实，其余条件保持一致。Bad Case 告诉我们 Codex 应该在哪里停；Good Case 防止规则变成另一种粗暴限制。只有可复现、高置信度的部分才进入 Guard，其余案例仍然可以改进 Skill 和案例库。
+一组有效案例只改一个关键事实，其余条件不变。Bad Case 标出该停的位置，Good Case 保住必要工作；只有可复现、高置信度的部分才进入 Guard。
 
 提交前先看[案例库](cases/README.md)和[贡献指南](CONTRIBUTING.md)。请删掉私有代码、密钥、账号数据、完整对话和可识别身份的路径。一条小而清楚的脱敏 issue 就有价值。
 

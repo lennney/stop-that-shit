@@ -1,43 +1,44 @@
 <p align="center">
-  <img src="assets/stop-stamp.svg" alt="A red STOP audit stamp" width="240">
+  <img src="assets/stop-stamp.svg" alt="Stop That Shit red STOP stamp for an AI coding agent task-boundary Guard" width="240">
 </p>
 
 <h1 align="center">Stop That Shit（别再造史了）</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/github/stars/lennney/stop-that-shit?style=flat-square&color=111111&label=stars" alt="GitHub stars">
-  <img src="https://img.shields.io/github/v/release/lennney/stop-that-shit?include_prereleases&sort=semver&style=flat-square&color=111111&label=release" alt="Latest release">
+  <a href="https://github.com/lennney/stop-that-shit/stargazers"><img src="https://img.shields.io/github/stars/lennney/stop-that-shit?style=flat-square&color=111111&label=stars" alt="GitHub stars"></a>
+  <a href="https://github.com/lennney/stop-that-shit/releases"><img src="https://img.shields.io/github/v/release/lennney/stop-that-shit?include_prereleases&sort=semver&style=flat-square&color=111111&label=release" alt="Latest release"></a>
   <a href="https://github.com/lennney/stop-that-shit/actions/workflows/ci.yml"><img src="https://github.com/lennney/stop-that-shit/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
   <img src="https://img.shields.io/badge/works%20with-Codex-111111?style=flat-square" alt="Works with Codex">
   <img src="https://img.shields.io/badge/works%20with-Claude%20Code-111111?style=flat-square" alt="Works with Claude Code">
+  <img src="https://img.shields.io/badge/works%20with-OpenCode-111111?style=flat-square" alt="Works with OpenCode">
   <img src="https://img.shields.io/github/license/lennney/stop-that-shit?style=flat-square&color=111111" alt="MIT license">
 </p>
 
 <p align="center">
-  <strong>You asked for one file. Codex split it into six modules, called in three agents, and added SHA-256 checksums. Stop That Shit.</strong><br>
-  Stop That Shit runs locally through adapters for Codex, Claude Code, and OpenCode.<br>
-  <a href="#install">Install</a> ·
+  <strong>You asked an agent for one output file. It also generated a SHA-256 checksum that no later command reads. Stop That Shit.</strong><br>
+  Stops unrequested defensive work and task-boundary drift invented by AI coding agents. Supports Codex, Claude Code, and OpenCode.<br>
+  <a href="#quick-install">Install</a> ·
   <a href="#bad-case--good-case">Bad / Good Case</a> ·
   <a href="cases/README.md">Cases</a> ·
   <a href="CONTRIBUTING.md">Contribute</a> ·
   <a href="README.md">中文</a>
 </p>
 
-Ask Codex for one small file and you may get a module tree, several subagents,
-a new dependency, and a SHA-256 checksum nobody uses.
+The checksum gets generated, but it saves no work and leaves the rest of the task
+unchanged. On another task, the extra work might be a guard, a compatibility
+layer, a full test run, or another process step. Codex, Claude Code, and OpenCode
+can all do this: each step sounds reasonable on its own, but the user did not ask
+for it and the task does not need it.
 
-Every step comes with a careful explanation. The requested work is still not
-finished, and a noticeable part of the token budget went to work Codex invented
-for itself.
+I tried adding “do not edit,” “do not overengineer,” and “ask before doing extra
+work” to `AGENTS.md`. The file kept growing. Stop That Shit turns those checkable
+boundaries into a Skill and an executable Guard.
 
-Adding “do not overengineer” to `AGENTS.md` helps until the file becomes a
-history of every behavior that annoyed you. Stop That Shit turns the small,
-high-confidence part of that history into a Skill and an executable Guard.
-
-Stop That Shit gives Codex, Claude Code, and OpenCode a task boundary. They
-share one core Guard; thin adapters translate each host's events. Each agent
-still reads the repository and follows necessary consequences. When the Guard
-can prove that an action crossed the boundary, it returns a red stamp:
+You choose a mode such as `review` or `change`, then add file, dependency, hash,
+or subagent limits when the task needs them. Stop That Shit checks those explicit
+boundaries on covered Hook paths. The agent still reads the repository and
+follows necessary consequences. When the Guard can prove that an action crossed
+the boundary, it returns a red stamp:
 
 ```text
 STOP / INTENT
@@ -48,16 +49,25 @@ Event: evt_...
 ```
 
 Version [`0.0.3`](https://github.com/lennney/stop-that-shit/releases/tag/0.0.3)
-is Technical Preview 3. LLM runs vary, and Hooks see only part of a host agent
-run. The Skill and Guard can reduce some unwanted work. Neither can guarantee
-how the model will behave.
+is Technical Preview 3. It includes the shared Guard, three host Adapters,
+paired cases, and a metadata-only local Runtime.
 
 | Start with | What it adds | Friction |
 | --- | --- | --- |
 | **Skill + Guard** | Stop Ladder plus machine-enforced boundaries | Default; review the host Hook configuration |
 | **Skill only** | The Stop Ladder and task-mode guidance | Optional; no enforcement |
 
+## Started with Codex and GPT-5.6, now works across agents
+
+The project started with Codex. Public records include exploratory runs on Codex
+CLI `0.145.0` with `gpt-5.6-sol` and a directional pilot on Codex CLI `0.147.0`
+with `gpt-5.6-luna`. Three Adapters now share the same task-boundary core. The
+Codex install path, GPT-5.6 records, and paired eval remain in
+[EVIDENCE.md](EVIDENCE.md) and the [paired Codex eval](evals/codex-paired/README.md).
+
 ## Quick install
+
+Requires Node.js 18 or newer. See [INSTALL.md](INSTALL.md) for the full setup.
 
 ### Claude Code
 
@@ -83,10 +93,9 @@ codex plugin add stop-that-shit@stop-that-shit
 ```
 
 Restart Codex. In a fresh CLI TUI, enter `/hooks` and trust
-`UserPromptSubmit` and `PreToolUse` after you inspect their commands. See
-[Install](#install) for expected status and the no-Hook option. You can also
-give [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) to Codex and let it run
-the non-interactive steps.
+`UserPromptSubmit` and `PreToolUse` after inspecting their commands. You can
+also give [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) to Codex for the
+non-interactive steps.
 
 ### OpenCode from GitHub
 
@@ -135,28 +144,17 @@ The plugin does not count lines or reward smaller diffs. It asks whether each
 extra action is requested or required by reachable code, data, and acceptance
 criteria.
 
-The pain tends to look reasonable one decision at a time:
-
-- checksum files that no command reads;
-- guards for inputs that no supported path can produce;
-- user-facing caveats copied from internal risk notes when no current decision
-  needs them;
-- a rubric or audit loop where the task needs an engineering decision;
-- feature flags, migration frameworks, and wrappers for a future no one asked for;
-- one more guard whose only reason is to protect the previous guard.
-
-Each piece has an explanation. Together they can bury a small feature under
-defensive code, caveats, and process.
+Common examples include checksums and guards with no consumer; user-facing
+caveats copied from inactive internal risks; rubrics and audit loops where the
+task needs an engineering decision; and feature flags, migrations, or wrappers
+for a future nobody requested.
 
 ## Why hashing is blocked by default
 
-Hashing is concrete enough for the Hook to recognize on covered tool paths. It
-also has a clean question: does the digest save real work and change the next
-action?
-
-We use the test documented by
-[HERO](https://github.com/wanshuiyin/HERO-Anti-OverDefense): the digest must
-replace a costlier operation, and its result must control what happens next.
+The Hook can recognize hashing with high confidence on covered tool paths. It
+uses the test documented by [HERO](https://github.com/wanshuiyin/HERO-Anti-OverDefense):
+the digest must replace a costlier operation, and its result must control what
+happens next.
 
 ```text
 STOP
@@ -216,7 +214,7 @@ $stop-that-shit label evt_... correct|incorrect|inconclusive
 `permission_deny_returned` describes the Guard response, not a proven host
 effect. Stop That Shit reports host effect as `unobserved`.
 
-## What the Guard stops
+## What the AI agent Guard stops
 
 | Covered host action | Default | You can allow it with |
 | --- | --- | --- |
@@ -238,62 +236,25 @@ questions:
 
 The agent reports or defers the extra work when the answers do not support it.
 
-## How it works
+## How the Skill, Hooks, and Adapters work
 
-The Skill guides semantic choices. Hooks enforce explicit facts before supported
-tools run. Small host Adapters translate each host's events into the same core
-decision interface. Each Adapter exposes the host events it needs, for example
-hard denial before tool use and lifecycle events that carry the active
-contract. See [HOST-ADAPTER-CONTRACT.md](HOST-ADAPTER-CONTRACT.md).
+The Skill handles semantic choices, Hooks check explicit boundaries before tool
+use, and Adapters translate Codex, Claude Code, and OpenCode events into one
+decision interface. Other harnesses need an equivalent before-action event; see
+[HOST-ADAPTER-CONTRACT.md](HOST-ADAPTER-CONTRACT.md).
 
-## Limits and evidence
+## Coverage and public evidence
 
-Specialized tool paths can bypass normal Hooks. The plugin does not judge code
-quality, repair Codex runtime bugs, or act as a security sandbox.
+Stop That Shit governs task authority on supported Hook paths; the host sandbox
+handles security isolation. [EVIDENCE.md](EVIDENCE.md) records tests, GPT-5.6
+runs, null results, and uncovered paths.
 
-The test suite proves policy behavior on covered events. It does not prove a
-general improvement in model behavior. [EVIDENCE.md](EVIDENCE.md) records the
-tests, live runs, null results, and exclusions.
+The maintainer has not seen the unused SHA-256 behavior recur since enabling the
+plugin; the document records this as a field observation, separate from paired
+eval. The local Runtime stores metadata only and separates checked actions,
+context responses, permission denies, and `hostEffect: unobserved`.
 
-In my own use, I have not seen the unnecessary SHA-256 behavior recur since
-enabling Stop That Shit. That is a personal observation, not a controlled
-benchmark. The local Runtime records metadata-only Hook checks and separates
-checked actions, context responses, and permission denies. It still reports
-host effect as `unobserved`.
-
-## Install
-
-### Claude Code: Skill + Guard
-
-Requires Node.js 18 or newer. From the local checkout root:
-
-```bash
-claude plugin validate .
-claude plugin marketplace add ./
-claude plugin install stop-that-shit@stop-that-shit
-```
-
-Restart or `/reload-plugins`. Claude loads `skills/`, `hooks/hooks.json`, and the
-Claude adapter. The Guard covers `Write`, `Edit`, `NotebookEdit`, `EnterWorktree`,
-shell/`Monitor` mutation, dependency/hash intent, optional file locks, and
-`Agent` budgets on supported Hook paths. Claude `Workflow` is conservatively
-denied while the Guard is armed because its internal subagent fan-out cannot be
-bounded by `agents=N`.
-
-### Codex: Skill + Guard
-
-```bash
-codex plugin marketplace add lennney/stop-that-shit
-codex plugin add stop-that-shit@stop-that-shit
-```
-
-Restart Codex. Open a fresh Codex CLI TUI, enter `/hooks`, and review the two
-Stop That Shit handlers. A trusted installation shows `Active 1 / Review 0` for
-`UserPromptSubmit` and `PreToolUse`. `Stop 0` is expected because the plugin
-does not install a Stop handler. If Codex Desktop sends `/hooks` as a normal
-message, use the CLI TUI for this review, then restart Desktop.
-
-### Optional: Skill only
+## Optional: Skill only
 
 If you do not want command Hooks, install only the advisory Skill. For Claude Code:
 
@@ -312,8 +273,7 @@ Start a new task, then invoke the host-native Skill form. A standalone Claude Co
 but it cannot enforce a task boundary or change the host sandbox and approval
 settings.
 
-See [INSTALL.md](INSTALL.md) for the complete Skill and Guard paths. Run the
-local checks:
+## Local verification
 
 ```powershell
 npm test
@@ -326,26 +286,23 @@ The paired command prints a 72-cell plan and starts no model runs by default.
 Live runs require a dedicated Codex home with only this plugin enabled. See
 [the paired Codex eval](evals/codex-paired/README.md) before using `--run`.
 
-## Help define the boundary
+## Help coding agents stop at the boundary
 
-This project grows through case pairs, not through more prohibitions:
+If you have hit this problem, [star the repository](https://github.com/lennney/stop-that-shit)
+or send it to the teammate whose `AGENTS.md` keeps growing. The project grows
+through case pairs:
 
 ```text
 report -> counterexample -> reproduction -> enforcement
 ```
 
-A report can stop at the first step and still be useful. You do not need to
-write Hook code or build a benchmark. Enforcement comes last, and only when the
-evidence is reproducible and the decision is reliable.
-
 - Codex did work the request did not need? [Report a Bad Case](https://github.com/lennney/stop-that-shit/issues/new?template=bad-case.yml).
 - A guard would stop work that was actually necessary? [Report a Good Case](https://github.com/lennney/stop-that-shit/issues/new?template=good-case.yml).
 - Have a public reproduction? Turn one case pair into a fixture and open a PR.
 
-A useful pair changes one fact and keeps the rest of the task the same. The Bad
-Case shows where Codex crossed the boundary. The Good Case keeps the rule from
-becoming another blunt restriction. Only reproducible, high-confidence parts
-belong in the Guard; the rest can improve the Skill and case catalogue.
+In a useful pair, one fact changes and the rest of the task stays the same. The
+Bad Case marks where Codex should stop; the Good Case preserves necessary work.
+Only reproducible, high-confidence parts enter the Guard.
 
 Start with the [case catalogue](cases/README.md) and
 [contribution guide](CONTRIBUTING.md). Remove private code, secrets, account
