@@ -1,6 +1,6 @@
 {
   "name": "stop-that-shit",
-  "displayName": "Stop That Shit",
+  "displayName": "Stop That Shit（别再造史了）",
   "version": "0.0.3",
   "description": "Keep Claude Code on task with local-first mode, scope, dependency, hash, and delegation guardrails.",
   "author": {
