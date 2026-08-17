@@ -67,7 +67,10 @@ test('installed OpenCode plugin denies a write under a review contract', { skip:
       smoke: {
         npm: '@ai-sdk/openai-compatible',
         name: 'Smoke Provider',
-        options: { baseURL: `http://127.0.0.1:${llm.port}/v1`, apiKey: 'test-key' },
+        options: {
+          baseURL: `http://127.0.0.1:${llm.port}/v1`,
+          apiKey: process.env.STS_TEST_PROVIDER_KEY || ''
+        },
         models: { smoke: { name: 'Smoke Model' } }
       }
     },

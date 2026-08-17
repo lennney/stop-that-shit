@@ -107,7 +107,7 @@ function buildCodexArgs(cell, { model, reasoning, workspace, dangerFullAccess = 
     '-a', 'never'
   );
   if (model) args.push('-m', model);
-  if (reasoning) args.push('-c', `model_reasoning_effort="${reasoning}"`);
+  if (reasoning) args.push('-c', 'model_reasoning_effort="' + reasoning + '"');
   args.push('exec', '--json', '--ephemeral', '--color', 'never', cell.prompt);
   return args;
 }
