@@ -22,5 +22,13 @@ jobs:
           mode: scan
           min_score: 80
           fail_on_severity: high
-          format: text
+          format: markdown
+          output: hol-scan.md
           upload_sarif: false
+      - name: Print HOL scanner report
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ -f hol-scan.md ]; then
+            cat hol-scan.md
+          fi
