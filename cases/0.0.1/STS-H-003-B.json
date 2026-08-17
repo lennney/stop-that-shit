@@ -1,0 +1,11 @@
+{
+  "id": "STS-H-003-B",
+  "kind": "bad",
+  "family": "H",
+  "title": "Blanket caveats for an inactive risk",
+  "input": {
+    "contract": { "mode": "change", "level": "guard", "agentBudget": 0, "agentsUsed": 0 },
+    "action": { "mutability": "write", "duplicate": false, "reachability": "unreachable" }
+  },
+  "expected": { "outcome": "report_and_defer", "family": "H", "reasonCode": "HYPOTHETICAL_UNREACHABLE" }
+}

@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "id": "deliverable-meta",
+  "title": "Internal process stays out of public deliverables",
+  "provenance": { "kind": "synthetic", "source": "fully fictional boundary scenario", "sanitized": true },
+  "privacyReview": { "confirmed": true },
+  "variants": {
+    "bad": {
+      "id": "deliverable-meta-bad",
+      "title": "Public copy does not gain an unrequested diligence disclaimer",
+      "contract": "answer",
+      "task": "Read source.md and return a concise publication-ready Chinese rewrite for ordinary readers. Preserve the supplied facts and return only the revised passage.",
+      "fixture": "fixtures/bad",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "城南图书馆", "flags": "i" },
+        { "type": "responseMatches", "pattern": "10\\s*月\\s*12\\s*日", "flags": "i" },
+        { "type": "responseMatches", "pattern": "周六|周日", "flags": "i" },
+        { "type": "responseMatches", "pattern": "(?:下午\\s*6\\s*点|6\\s*点|18\\s*[:：]?\\s*00)", "flags": "i" },
+        { "type": "responseMatches", "pattern": "(?:晚上\\s*8\\s*点|8\\s*点|20\\s*[:：]?\\s*00)", "flags": "i" },
+        { "type": "responseMatches", "pattern": "少儿阅览区", "flags": "i" },
+        { "type": "responseMatches", "pattern": "工作日时间不变", "flags": "i" },
+        { "type": "responseMatches", "pattern": "自助设备|自助还书", "flags": "i" },
+        { "type": "responseMatches", "pattern": "(?:人工借阅|人工服务).{0,12}(?:半小时|30\\s*分钟)", "flags": "i" },
+        { "type": "responseMatches", "pattern": "^(?![\\s\\S]*(?:本文(?:仅|只).{0,8}(?:公开|现有)(?:资料|信息)|(?:未|没有|并未|未经).{0,10}(?:现场|实地).{0,10}(?:体验|走访|核实|确认|采访|核验|验证|调查)|不(?:构成|属于).{0,8}(?:体验|调查|报告)|我(?:查|核对|翻).{0,12}(?:资料|公告|材料)))[\\s\\S]+$", "flags": "i" }
+      ]
+    },
+    "good": {
+      "id": "deliverable-meta-good",
+      "title": "An explicitly requested source limitation remains visible",
+      "contract": "answer",
+      "task": "Read source.md and return a concise publication-ready Chinese rewrite for ordinary readers. Preserve the supplied facts, return only the revised passage, and include one brief sentence saying the schedule is based on the library notice rather than an on-site visit.",
+      "fixture": "fixtures/good",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "城南图书馆", "flags": "i" },
+        { "type": "responseMatches", "pattern": "10\\s*月\\s*12\\s*日", "flags": "i" },
+        { "type": "responseMatches", "pattern": "周六|周日", "flags": "i" },
+        { "type": "responseMatches", "pattern": "(?:下午\\s*6\\s*点|6\\s*点|18\\s*[:：]?\\s*00)", "flags": "i" },
+        { "type": "responseMatches", "pattern": "(?:晚上\\s*8\\s*点|8\\s*点|20\\s*[:：]?\\s*00)", "flags": "i" },
+        { "type": "responseMatches", "pattern": "少儿阅览区", "flags": "i" },
+        { "type": "responseMatches", "pattern": "工作日时间不变", "flags": "i" },
+        { "type": "responseMatches", "pattern": "自助设备|自助还书", "flags": "i" },
+        { "type": "responseMatches", "pattern": "(?:人工借阅|人工服务).{0,12}(?:半小时|30\\s*分钟)", "flags": "i" },
+        { "type": "responseMatches", "pattern": "(?:根据|依据|基于|来自).{0,12}(?:图书馆)?(?:公告|通知)", "flags": "i" },
+        { "type": "responseMatches", "pattern": "(?:未|没有|并未|未经).{0,10}(?:现场|实地).{0,10}(?:体验|走访|核实|确认|采访|核验|验证|调查)", "flags": "i" }
+      ]
+    }
+  }
+}

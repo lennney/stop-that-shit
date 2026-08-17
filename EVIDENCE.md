@@ -14,23 +14,23 @@ the action.
 Version: 0.0.3 Technical Preview 3
 Release: https://github.com/lennney/stop-that-shit/releases/tag/0.0.3
 Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.0.2
-Last updated: 2026-08-14
+Last updated: 2026-08-18
 
 This tree is validated with deterministic Hook-schema simulations, real
 child-process stdin/stdout entrypoint tests, cross-platform path regression
 tests, and shared policy tests:
 
-- 142/142 executed runtime/unit/integration tests pass, including the preserved
+- 147/147 executed runtime/unit/integration tests pass, including the preserved
   Codex tests, Claude child-process Hook simulations, and OpenCode adapter/plugin
   regressions; one optional installed OpenCode smoke is skipped when OpenCode
   1.18.18 or newer is unavailable;
-- 16/16 executable Bad/Good policy case arms pass;
+- 18/18 executable Bad/Good policy case arms pass;
 - Claude review-mode denial, namespaced slash-command arming, POSIX/Windows path
   normalization, `NotebookEdit`, `PowerShell`, `Monitor`, `EnterWorktree`, and
   `Workflow` fan-out handling have dedicated regressions;
 - two independent Claude Hook processes cannot oversubscribe `agents=1`;
 - all checked-in `.cjs` files pass `node --check`, all JSON files parse, and the
-  release allowlist passes with 117 files;
+  release allowlist passes with 124 files;
 - the generated CaseBundle validator and its schema were not changed;
 - on a local Windows host, `claude plugin validate` reported no warnings and a
   live smoke session armed the Guard through both the `$stop-that-shit`
@@ -187,7 +187,7 @@ does not require a large benchmark to make a probabilistic mitigation claim.
 - several distinct community scenarios and multiple seeds;
 - specialized tool paths that may bypass normal Hook coverage.
 
-The upgraded paired-eval harness is available, but its 72-session default matrix
+The upgraded paired-eval harness is available, but its 90-session default matrix
 has not been run or published. A generated plan, RuntimeEvent count, or
 permission-deny response is not effectiveness evidence. Host effect remains
 `unobserved` until the task-level acceptance result is evaluated.

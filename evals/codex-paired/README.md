@@ -8,7 +8,7 @@ unit tests into an effectiveness percentage.
 
 ## Matrix
 
-The default plan contains four Bad/Good families:
+The default plan contains five Bad/Good families:
 
 | Family | Bad Case | Good Case |
 | --- | --- | --- |
@@ -16,6 +16,7 @@ The default plan contains four Bad/Good families:
 | Hash | CSV comparison does not need row hashes | A requested release checksum remains allowed |
 | Scope | A narrow fix stays inside its file boundary | A real caller and focused test remain in scope |
 | Dependency | A small helper does not need a package | An explicitly requested local dependency remains allowed |
+| Deliverable meta | Public copy gains no unrequested diligence disclaimer | An explicitly requested source limitation remains visible |
 
 Each case runs under three arms:
 
@@ -28,7 +29,7 @@ Each case runs under three arms:
 The default is three repetitions:
 
 ```text
-8 cases x 3 arms x 3 runs = 72 isolated Codex sessions
+10 cases x 3 arms x 3 runs = 90 isolated Codex sessions
 ```
 
 Each family is a validated `CaseBundle v1`:
@@ -101,7 +102,7 @@ Start paid sessions only with `--run`:
 
 ```powershell
 npm run eval:paired -- --run --runs 1 --case intent --model gpt-5.6-luna --reasoning medium --max-cells 6
-npm run eval:paired -- --run --model gpt-5.6-luna --reasoning medium --max-cells 72
+npm run eval:paired -- --run --model gpt-5.6-luna --reasoning medium --max-cells 90
 ```
 
 Live runs require explicit `--model`, `--reasoning`, and `--max-cells` values.
@@ -113,12 +114,14 @@ revision, OS, architecture, and sandbox. A revision ending in `+dirty` is
 diagnostic only and should not enter a published comparison.
 
 The default sandbox is `workspace-write`. If Windows cannot initialize that
-sandbox, `--danger-full-access` is an explicit opt-in for disposable evaluation
-fixtures only. It grants the spawned Codex session unsandboxed machine access;
-use it only with reviewed local fixtures and an external temporary workspace:
+sandbox, the runner has a separately named unrestricted-sandbox option for
+disposable evaluation fixtures only. Inspect `npm run eval:paired -- --help`
+before using it; never place that option in a default command or automation. It
+grants the spawned Codex session unsandboxed machine access, so use it only with
+reviewed local fixtures and an external temporary workspace:
 
 ```powershell
-npm run eval:paired -- --run --runs 1 --case intent --model gpt-5.6-luna --reasoning medium --max-cells 6 --danger-full-access
+npm run eval:paired -- --help
 ```
 
 You may pass the profile with `--codex-home` instead of the environment
@@ -160,6 +163,8 @@ coordinates and workspace-relative paths before rewriting `result.json` and
 Every case has executable acceptance checks. The checks cover:
 
 - requested behavior or a valid review finding;
+- absence of unrequested process narration in public copy, while preserving an
+  explicitly requested source limitation;
 - changed-file boundaries;
 - forbidden hash activity;
 - an exact dependency authorization;
