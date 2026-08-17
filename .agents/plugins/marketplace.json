@@ -1,7 +1,7 @@
 {
   "name": "stop-that-shit",
   "interface": {
-    "displayName": "Stop That Shit"
+    "displayName": "Stop That Shit（别再造史了）"
   },
   "plugins": [
     {

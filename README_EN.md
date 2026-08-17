@@ -2,7 +2,7 @@
   <img src="assets/stop-stamp.svg" alt="A red STOP audit stamp" width="240">
 </p>
 
-<h1 align="center">Stop That Shit</h1>
+<h1 align="center">Stop That Shit（别再造史了）</h1>
 
 <p align="center">
   <img src="https://img.shields.io/github/stars/lennney/stop-that-shit?style=flat-square&color=111111&label=stars" alt="GitHub stars">

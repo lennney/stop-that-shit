@@ -18,7 +18,7 @@
   "skills": "./skills/",
   "hooks": "./hooks/codex-hooks.json",
   "interface": {
-    "displayName": "Stop That Shit",
+    "displayName": "Stop That Shit（别再造史了）",
     "shortDescription": "Stop small Codex tasks from growing extra machinery.",
     "longDescription": "Stop That Shit runs locally and blocks unneeded scope, subagents, dependencies, and hashes in Codex tasks.",
     "developerName": "Stop That Shit contributors",
