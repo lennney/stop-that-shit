@@ -93,8 +93,8 @@ test('CaseBundle rejects path escape, Agent instructions, symlinks, and unknown 
   }
 });
 
-test('the public corpus loads four CaseBundle families', () => {
+test('the public corpus loads five CaseBundle families', () => {
   const bundles = loadCaseBundles(path.resolve(__dirname, '..'));
-  assert.deepEqual(bundles.map((entry) => entry.id), ['dependency', 'hash', 'intent', 'scope']);
-  assert.equal(bundles.flatMap((entry) => entry.cases).length, 8);
+  assert.deepEqual(bundles.map((entry) => entry.id), ['deliverable-meta', 'dependency', 'hash', 'intent', 'scope']);
+  assert.equal(bundles.flatMap((entry) => entry.cases).length, 10);
 });

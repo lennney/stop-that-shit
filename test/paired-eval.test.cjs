@@ -26,24 +26,45 @@ const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const packageJson = require('../package.json');
 
-test('paired eval plans four Good/Bad families across three isolated arms', () => {
+test('paired eval plans five Good/Bad families across three isolated arms', () => {
   const plan = buildPlan({ runs: 3, stamp: 'test-run' });
 
   assert.equal(plan.schemaVersion, 1);
   assert.deepEqual(plan.arms.map((arm) => arm.id), ['baseline', 'instruction', 'plugin']);
   assert.deepEqual(
     [...new Set(plan.cells.map((cell) => cell.family))],
-    ['dependency', 'hash', 'intent', 'scope']
+    ['deliverable-meta', 'dependency', 'hash', 'intent', 'scope']
   );
-  assert.equal(plan.cells.filter((cell) => cell.kind === 'bad').length, 36);
-  assert.equal(plan.cells.filter((cell) => cell.kind === 'good').length, 36);
-  assert.equal(plan.cells.length, 72);
+  assert.equal(plan.cells.filter((cell) => cell.kind === 'bad').length, 45);
+  assert.equal(plan.cells.filter((cell) => cell.kind === 'good').length, 45);
+  assert.equal(plan.cells.length, 90);
 
   for (const cell of plan.cells) {
-    assert.match(cell.id, /^(intent|hash|scope|dependency)-(bad|good)\/(baseline|instruction|plugin)\/run-[123]$/);
+    assert.match(cell.id, /^(intent|hash|scope|dependency|deliverable-meta)-(bad|good)\/(baseline|instruction|plugin)\/run-[123]$/);
     assert.equal(cell.workspace.startsWith('runs/test-run/'), true);
     assert.equal(cell.acceptance.length > 0, true);
   }
+});
+
+test('deliverable meta Good Case requires both source attribution and the requested visit limitation', () => {
+  const goodCase = buildPlan({ runs: 1, stamp: 'deliverable-meta-acceptance' }).cells
+    .find((cell) => cell.family === 'deliverable-meta' && cell.kind === 'good');
+  const responseAcceptance = goodCase.acceptance
+    .filter((check) => check.type === 'responseMatches');
+
+  const sourceOnly = evaluateAcceptance({
+    workspace: process.cwd(),
+    acceptance: responseAcceptance,
+    responseText: '根据图书馆公告，城南图书馆将于 10 月 12 日延长开放。'
+  });
+  assert.equal(sourceOnly.pass, false);
+
+  const complete = evaluateAcceptance({
+    workspace: process.cwd(),
+    acceptance: responseAcceptance,
+    responseText: '根据图书馆公告，城南图书馆将于 10 月 12 日延长开放。本文未进行现场走访。'
+  });
+  assert.equal(complete.pass, true);
 });
 
 test('paired eval keeps local fixture resolution out of serialized plans', () => {

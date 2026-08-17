@@ -29,9 +29,11 @@
     ],
     "websiteURL": "https://github.com/lennney/stop-that-shit",
     "privacyPolicyURL": "https://github.com/lennney/stop-that-shit/blob/main/PRIVACY.md",
+    "termsOfServiceURL": "https://github.com/lennney/stop-that-shit/blob/main/LICENSE",
     "brandColor": "#D92D20",
     "composerIcon": "./assets/stop-icon.svg",
     "logo": "./assets/stop-icon.svg",
+    "screenshots": "./assets/stop-stamp.svg",
     "defaultPrompt": [
       "$stop-that-shit review -- Review this diff. Report findings; do not edit.",
       "$stop-that-shit change -- Fix the failing test only.",

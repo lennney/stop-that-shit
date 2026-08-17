@@ -48,7 +48,7 @@ test('local Claude marketplace points at the plugin root and leaves version to p
 });
 
 test('Claude local install docs use an explicit relative marketplace path', () => {
-  for (const file of ['README.md', 'README_CN.md', 'INSTALL.md', 'INSTALL_FOR_AGENTS.md']) {
+  for (const file of ['README.md', 'README_EN.md', 'INSTALL.md', 'INSTALL_FOR_AGENTS.md']) {
     const contents = fs.readFileSync(path.join(root, file), 'utf8');
     const commands = (contents.match(/^\s*claude plugin marketplace add .*$/gm) || [])
       .map((command) => command.trim());

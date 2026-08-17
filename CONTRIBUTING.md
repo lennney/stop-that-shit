@@ -26,7 +26,7 @@ unnecessary or necessary action, and the reason it should be stopped or kept.
 | Reproducible model evaluation | `evals/codex-paired/cases/<family>/` |
 | Regression coverage | `test/` |
 
-User-facing setup belongs in `README.md`, `README_CN.md`, `INSTALL.md`, or
+User-facing setup belongs in `README.md`, `README_EN.md`, `INSTALL.md`, or
 `INSTALL_FOR_AGENTS.md`. Keep raw sessions, private repositories, and launch
 material out of this repository.
 
