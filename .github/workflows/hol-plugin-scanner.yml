@@ -22,5 +22,5 @@ jobs:
           mode: scan
           min_score: 80
           fail_on_severity: high
-          format: sarif
-          upload_sarif: true
+          format: text
+          upload_sarif: false
