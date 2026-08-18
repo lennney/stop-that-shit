@@ -135,8 +135,12 @@ function handlePrompt(event, options) {
 function handleBeforeAction(event, options) {
   const evaluate = () => {
     const state = readState(event.sessionId, options.dataDir);
+    const delegationCount = event.action.mutability === 'delegate'
+      ? (Number.isInteger(event.action.delegationCount) ? event.action.delegationCount : 1)
+      : 0;
     const action = {
       mutability: event.action.mutability,
+      delegationCount,
       hashIntent: Boolean(event.action.hashIntent),
       reachability: event.action.reachability,
       authorization: event.action.authorization,
@@ -147,7 +151,7 @@ function handleBeforeAction(event, options) {
     const result = decide({ contract: state.contract, action, state });
 
     if (event.action.mutability === 'delegate' && result.outcome === 'allow') {
-      state.contract.agentsUsed += 1;
+      state.contract.agentsUsed += delegationCount;
       writeState(event.sessionId, state, options.dataDir);
     }
     return { state, result };

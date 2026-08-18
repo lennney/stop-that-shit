@@ -75,6 +75,21 @@ test('runtime audit appends metadata-only decisions with stable outcome dimensio
   }
 });
 
+test('runtime audit records delegation count without task input', (t) => {
+  const directory = dataDir(t);
+  recordDecision(facts({
+    action: {
+      name: 'delegate_task',
+      mutability: 'delegate',
+      delegationCount: 2,
+      input: { tasks: [{ goal: 'PRIVATE_DELEGATION_GOAL' }] }
+    }
+  }), { dataDir: directory });
+  const runtime = readRuntime({ sessionId: 'private-session-id' }, { dataDir: directory });
+  assert.equal(runtime.events[0].action.delegationCount, 2);
+  assert.equal(JSON.stringify(runtime).includes('PRIVATE_DELEGATION_GOAL'), false);
+});
+
 test('runtime reader tolerates a damaged final JSONL record', (t) => {
   const directory = dataDir(t);
   const event = recordDecision(facts(), { dataDir: directory });

@@ -46,3 +46,31 @@ test('classification precedence chooses H before file-scope S', () => {
   assert.equal(actual.family, 'H');
   assert.equal(actual.reasonCode, 'HASH_NOT_AUTHORIZED');
 });
+
+test('delegation budget checks the complete requested child count', () => {
+  const allowed = decide({
+    contract: { mode: 'change', level: 'guard', agentBudget: 3, agentsUsed: 1 },
+    action: { mutability: 'delegate', delegationCount: 2 }
+  });
+  const denied = decide({
+    contract: { mode: 'change', level: 'guard', agentBudget: 2, agentsUsed: 1 },
+    action: { mutability: 'delegate', delegationCount: 2 }
+  });
+  const legacy = decide({
+    contract: { mode: 'change', level: 'guard', agentBudget: 2, agentsUsed: 1 },
+    action: { mutability: 'delegate' }
+  });
+
+  assert.equal(allowed.outcome, 'allow');
+  assert.equal(denied.reasonCode, 'AGENT_BUDGET_EXHAUSTED');
+  assert.match(denied.explanation, /requires 2/);
+  assert.equal(legacy.outcome, 'allow');
+});
+
+test('unbounded delegation takes precedence over a finite requested count', () => {
+  const actual = decide({
+    contract: { mode: 'change', level: 'guard', agentBudget: 1, agentsUsed: 1 },
+    action: { mutability: 'delegate', delegationCount: 1, unboundedDelegation: true }
+  });
+  assert.equal(actual.reasonCode, 'UNBOUNDED_DELEGATION');
+});

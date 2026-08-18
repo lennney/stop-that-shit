@@ -60,7 +60,7 @@ def _prompt(**kwargs: Any) -> dict[str, Any] | None:
 def _tool(**kwargs: Any) -> dict[str, Any] | None:
     result = _invoke({
         "hook_event_name": "pre_tool_call",
-        "session_id": kwargs.get("task_id") or kwargs.get("session_id", ""),
+        "session_id": kwargs.get("session_id", ""),
         "tool_call_id": kwargs.get("tool_call_id"),
         "tool_name": kwargs.get("tool_name"),
         "tool_input": kwargs.get("args") or {},

@@ -127,6 +127,30 @@ test('protocol rejects unknown versions and kinds', () => {
   assert.throws(() => assertControlEvent({ protocolVersion: 1, kind: 'model.changed', sessionId: 's' }), /kind/);
 });
 
+test('protocol accepts only non-negative integer delegation counts', () => {
+  const event = {
+    protocolVersion: 1,
+    kind: 'action.before',
+    sessionId: 'session-1',
+    action: { name: 'delegate_task', input: {}, mutability: 'delegate' }
+  };
+  assert.doesNotThrow(() => assertControlEvent(event));
+  assert.doesNotThrow(() => assertControlEvent({
+    ...event,
+    action: { ...event.action, delegationCount: 0 }
+  }));
+  assert.doesNotThrow(() => assertControlEvent({
+    ...event,
+    action: { ...event.action, delegationCount: 2 }
+  }));
+  for (const delegationCount of [-1, 1.5, '2']) {
+    assert.throws(() => assertControlEvent({
+      ...event,
+      action: { ...event.action, delegationCount }
+    }), /delegationCount/);
+  }
+});
+
 test('Codex Adapter renders a normalized deny result back to PreToolUse JSON', () => {
   const output = fromControlResult('PreToolUse', {
     kind: 'deny',

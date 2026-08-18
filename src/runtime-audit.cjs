@@ -38,6 +38,7 @@ function recordDecision(facts, options = {}) {
     action: {
       toolName: String(action.name || 'unknown'),
       mutability: String(action.mutability || 'unknown'),
+      delegationCount: Number.isInteger(action.delegationCount) ? action.delegationCount : 0,
       pathCount: Array.isArray(action.affectedPaths) ? action.affectedPaths.length : 0,
       hashIntent: Boolean(action.hashIntent),
       dependencyIntent: Boolean(action.dependencyIntent),

@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const test = require('node:test');
+const { readState } = require('../src/state.cjs');
 
 const root = path.join(__dirname, '..');
 const pluginRoot = path.join(root, '.hermes-plugin');
@@ -150,4 +151,21 @@ test('parallel Hermes hook processes cannot oversubscribe agents=1', async (t) =
   const parsed = results.map((result) => result.stdout.trim() ? JSON.parse(result.stdout) : null);
   assert.equal(parsed.filter((value) => value === null).length, 1);
   assert.equal(parsed.filter((value) => value?.action === 'block' && /AGENT_BUDGET_EXHAUSTED/.test(value.message)).length, 1);
+});
+
+test('parallel Hermes batches reserve all child agents atomically', async (t) => {
+  const home = temporaryHome(t);
+  const session = 'parallel-batch-budget';
+  const armed = runHook(home, JSON.stringify(prompt(session, '$stop-that-shit change agents=2 -- one complete batch')));
+  assert.equal(armed.status, 0, armed.stderr);
+
+  const payload = pre(session, 'delegate_task', {
+    tasks: [{ goal: 'inspect A' }, { goal: 'inspect B' }]
+  });
+  const results = await Promise.all([runHookAsync(home, payload), runHookAsync(home, payload)]);
+  assert.deepEqual(results.map((result) => result.code), [0, 0], results.map((result) => result.stderr).join('\n'));
+  const parsed = results.map((result) => result.stdout.trim() ? JSON.parse(result.stdout) : null);
+  assert.equal(parsed.filter((value) => value === null).length, 1);
+  assert.equal(parsed.filter((value) => value?.action === 'block' && /AGENT_BUDGET_EXHAUSTED/.test(value.message)).length, 1);
+  assert.equal(readState(session, path.join(home, 'stop-that-shit')).contract.agentsUsed, 2);
 });

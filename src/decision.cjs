@@ -109,12 +109,15 @@ function decide({ contract, action, state = {} }) {
     );
   }
 
-  if (action.mutability === 'delegate' && contract.agentsUsed >= contract.agentBudget) {
+  const delegationCount = action.mutability === 'delegate'
+    ? (Number.isInteger(action.delegationCount) ? action.delegationCount : 1)
+    : 0;
+  if (action.mutability === 'delegate' && contract.agentsUsed + delegationCount > contract.agentBudget) {
     return decision(
       controlledOutcome(level),
       'S',
       'AGENT_BUDGET_EXHAUSTED',
-      `The active contract allows ${contract.agentBudget} subagent(s), with ${contract.agentsUsed} already used.`,
+      `The active contract allows ${contract.agentBudget} subagent(s), with ${contract.agentsUsed} already used, and this action requires ${delegationCount}.`,
       'Continue locally or obtain an explicit agents=N contract.'
     );
   }

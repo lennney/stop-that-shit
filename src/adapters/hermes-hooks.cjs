@@ -4,6 +4,7 @@ const { PROTOCOL_VERSION } = require('../control-protocol.cjs');
 const { handleControlEvent } = require('../controller.cjs');
 const {
   classifyHermesTool,
+  countHermesDelegation,
   detectDependencyIntent,
   detectHashIntent,
   extractAffectedPaths
@@ -44,6 +45,7 @@ function toControlEvent(input) {
       name: String(input.tool_name || 'unknown'),
       input: input.tool_input,
       mutability: classifyHermesTool(input.tool_name, input.tool_input),
+      delegationCount: countHermesDelegation(input.tool_name, input.tool_input),
       hashIntent: detectHashIntent(input.tool_name, input.tool_input),
       dependencyIntent: detectDependencyIntent(input.tool_name, input.tool_input),
       affectedPaths: extractAffectedPaths(input.tool_name, input.tool_input, input.cwd),

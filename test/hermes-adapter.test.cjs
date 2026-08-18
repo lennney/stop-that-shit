@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { readState } = require('../src/state.cjs');
 
 const root = path.join(__dirname, '..');
 
@@ -82,12 +83,40 @@ test('classifies only the explicit Hermes tool table and reuses shell evidence',
   assert.equal(classifyHermesTool('write_file', { path: 'x' }), 'write');
   assert.equal(classifyHermesTool('patch', { path: 'x' }), 'write');
   assert.equal(classifyHermesTool('delegate_task', { goal: 'inspect' }), 'delegate');
+  assert.equal(classifyHermesTool('delegate_task', { action: 'list' }), 'control');
+  assert.equal(classifyHermesTool('delegate_task', { action: 'steer' }), 'control');
+  assert.equal(classifyHermesTool('delegate_task', { action: 'stop' }), 'control');
   assert.equal(classifyHermesTool('todo', { todos: [] }), 'control');
   assert.equal(classifyHermesTool('terminal', { command: 'git diff --stat' }), 'read');
   assert.equal(classifyHermesTool('terminal', { command: 'printf x > output.txt' }), 'write');
   assert.equal(classifyHermesTool('terminal', { command: 'node scripts/custom.js' }), 'unknown');
   assert.equal(classifyHermesTool('mcp__filesystem__read_file', { path: 'x' }), 'unknown');
   assert.equal(classifyHermesTool('execute_code', { code: 'print(1)' }), 'unknown');
+});
+
+test('maps Hermes delegate_task inputs to the number of new child agents', () => {
+  const { toControlEvent } = adapter();
+  const single = toControlEvent(pre('count-session', 'delegate_task', { goal: 'inspect A' }));
+  const batch = toControlEvent(pre('count-session', 'delegate_task', {
+    tasks: [{ goal: 'inspect A' }, { goal: 'inspect B' }]
+  }));
+  const empty = toControlEvent(pre('count-session', 'delegate_task', { tasks: [] }));
+
+  assert.equal(single.action.mutability, 'delegate');
+  assert.equal(single.action.delegationCount, 1);
+  assert.equal(batch.action.mutability, 'delegate');
+  assert.equal(batch.action.delegationCount, 2);
+  assert.equal(empty.action.mutability, 'delegate');
+  assert.equal(empty.action.delegationCount, 0);
+
+  for (const action of ['list', 'steer', 'stop']) {
+    const control = toControlEvent(pre('count-session', 'delegate_task', {
+      action,
+      goal: 'must not count'
+    }));
+    assert.equal(control.action.mutability, 'control');
+    assert.equal(control.action.delegationCount, 0);
+  }
 });
 
 test('extracts write_file, default replace, and every real Hermes V4A patch target', () => {
@@ -213,15 +242,33 @@ test('Hermes dependency declarations are detected across every real file mutatio
   }
 });
 
-test('one delegate_task call consumes one agent unit even when tasks is a batch', (t) => {
+test('delegate_task reserves the complete batch or leaves the budget unchanged', (t) => {
   const { handleHermesHook } = adapter();
   const options = workspace(t);
-  handleHermesHook(prompt('delegate-budget', '$stop-that-shit change agents=1 -- delegate once'), options);
-  assert.equal(handleHermesHook(pre('delegate-budget', 'delegate_task', {
+  handleHermesHook(prompt('batch-denied', '$stop-that-shit change agents=1 -- delegate once'), options);
+  const denied = handleHermesHook(pre('batch-denied', 'delegate_task', {
+    tasks: [{ goal: 'inspect A' }, { goal: 'inspect B' }]
+  }), options);
+  assert.match(denied.message, /S\/AGENT_BUDGET_EXHAUSTED/);
+  assert.equal(readState('batch-denied', options.dataDir).contract.agentsUsed, 0);
+
+  handleHermesHook(prompt('batch-allowed', '$stop-that-shit change agents=2 -- delegate twice'), options);
+  assert.equal(handleHermesHook(pre('batch-allowed', 'delegate_task', {
     tasks: [{ goal: 'inspect A' }, { goal: 'inspect B' }]
   }), options), null);
-  const blocked = handleHermesHook(pre('delegate-budget', 'delegate_task', { goal: 'inspect C' }), options);
-  assert.match(blocked.message, /S\/AGENT_BUDGET_EXHAUSTED/);
+  assert.equal(readState('batch-allowed', options.dataDir).contract.agentsUsed, 2);
+});
+
+test('Hermes delegation control actions do not consume agent budget', (t) => {
+  const { handleHermesHook } = adapter();
+  const options = workspace(t);
+  handleHermesHook(prompt('delegate-control', '$stop-that-shit change agents=1 -- manage delegation'), options);
+  for (const action of ['list', 'steer', 'stop']) {
+    assert.equal(handleHermesHook(pre('delegate-control', 'delegate_task', { action }), options), null);
+    assert.equal(readState('delegate-control', options.dataDir).contract.agentsUsed, 0);
+  }
+  assert.equal(handleHermesHook(pre('delegate-control', 'delegate_task', { goal: 'inspect' }), options), null);
+  assert.equal(readState('delegate-control', options.dataDir).contract.agentsUsed, 1);
 });
 
 test('unknown hook events and empty payloads are not applicable', () => {

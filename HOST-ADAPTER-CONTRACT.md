@@ -142,9 +142,9 @@ path.
 | Class | Explicit coverage | Behavior |
 | --- | --- | --- |
 | `write` | `write_file`, `patch` | Extracts real targets for file locks; missing targets remain unproven. |
-| `delegate` | `delegate_task` | One tool call reserves one `agents=N` unit. |
+| `delegate` | `delegate_task` with one `goal` or a `tasks` batch | Reserves the number of child agents that will be started: one for `goal`, or `tasks.length` for a batch. The complete count is checked and reserved atomically before the tool runs. |
 | `read` | `read_file`, `search_files`, `web_search`, `web_extract`, `vision_analyze` | Known read-only allowlist. |
-| `control` | `clarify`, `todo` | Control operations; not repository writes. |
+| `control` | `clarify`, `todo`, and `delegate_task` with `action=list`, `action=steer`, or `action=stop` | Control operations; do not reserve `agents=N` units and are not repository writes. |
 | shell-derived | `terminal` | Reuses the existing shell classifier: explicit reads are `read`, explicit writes are `write`, and unproven commands are `unknown`. |
 | `unknown` | `execute_code`, browser/computer-use, memory, cron, Skill management, message sending, and every unlisted built-in, plugin, or MCP tool | Fail open before an explicit contract; under `review`/`answer`/`monitor`, block as `MUTABILITY_UNPROVEN`. |
 

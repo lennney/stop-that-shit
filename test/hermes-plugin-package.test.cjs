@@ -162,11 +162,11 @@ class Ctx:
     def register_hook(self, name, callback): self.hooks[name] = callback
 ctx = Ctx(); mod.register(ctx)
 os.environ['HERMES_HOME'] = ${JSON.stringify(home)}
-context = ctx.hooks['pre_llm_call'](session_id='native-session', user_message='$stop-that-shit review -- inspect only', model='test', platform='cli')
+context = ctx.hooks['pre_llm_call'](session_id='native-session', task_id='prompt-task', user_message='$stop-that-shit review -- inspect only', model='test', platform='cli')
 assert isinstance(context, dict) and 'context' in context
-blocked = ctx.hooks['pre_tool_call'](tool_name='write_file', args={'path': 'blocked.txt', 'content': 'x'}, task_id='native-session')
+blocked = ctx.hooks['pre_tool_call'](tool_name='write_file', args={'path': 'blocked.txt', 'content': 'x'}, session_id='native-session', task_id='tool-task')
 assert blocked['action'] == 'block'
-allowed = ctx.hooks['pre_tool_call'](tool_name='read_file', args={'path': 'README.md'}, task_id='native-session')
+allowed = ctx.hooks['pre_tool_call'](tool_name='read_file', args={'path': 'README.md'}, session_id='native-session', task_id='tool-task')
 assert allowed is None
 print('behavior-ok')
 `);

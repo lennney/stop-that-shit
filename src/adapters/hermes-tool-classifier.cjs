@@ -17,11 +17,27 @@ const READ_TOOLS = new Set([
 const WRITE_TOOLS = new Set(['write_file', 'patch']);
 const DELEGATE_TOOLS = new Set(['delegate_task']);
 const CONTROL_TOOLS = new Set(['clarify', 'todo']);
+const DELEGATE_CONTROL_ACTIONS = new Set(['list', 'steer', 'stop']);
+
+function isHermesDelegationControl(toolName, toolInput) {
+  const action = toolInput && typeof toolInput === 'object' ? toolInput.action : null;
+  return toolName === 'delegate_task'
+    && DELEGATE_CONTROL_ACTIONS.has(String(action || '').toLowerCase());
+}
+
+function countHermesDelegation(toolName, toolInput) {
+  if (toolName !== 'delegate_task' || isHermesDelegationControl(toolName, toolInput)) return 0;
+  const input = toolInput && typeof toolInput === 'object' ? toolInput : {};
+  if (Array.isArray(input.tasks)) return input.tasks.length;
+  if (typeof input.goal === 'string' && input.goal.trim()) return 1;
+  return 0;
+}
 
 function classifyHermesTool(toolName, toolInput) {
   const name = String(toolName || '');
   if (READ_TOOLS.has(name)) return 'read';
   if (WRITE_TOOLS.has(name)) return 'write';
+  if (isHermesDelegationControl(name, toolInput)) return 'control';
   if (DELEGATE_TOOLS.has(name)) return 'delegate';
   if (CONTROL_TOOLS.has(name)) return 'control';
   if (name === 'terminal') return classifyShell(toolInput && toolInput.command);
@@ -169,7 +185,9 @@ function detectHashIntent(toolName, toolInput) {
 
 module.exports = {
   classifyHermesTool,
+  countHermesDelegation,
   extractAffectedPaths,
   detectDependencyIntent,
-  detectHashIntent
+  detectHashIntent,
+  isHermesDelegationControl
 };

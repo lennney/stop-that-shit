@@ -38,6 +38,12 @@ function assertControlEvent(event) {
     if (!MUTABILITIES.has(event.action.mutability)) {
       throw new TypeError(`Unsupported action mutability: ${event.action.mutability}.`);
     }
+    if (
+      event.action.delegationCount !== undefined
+      && (!Number.isInteger(event.action.delegationCount) || event.action.delegationCount < 0)
+    ) {
+      throw new TypeError('ControlEvent action.delegationCount must be a non-negative integer.');
+    }
   }
 
   return event;

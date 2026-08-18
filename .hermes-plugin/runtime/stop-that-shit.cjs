@@ -10,6 +10,7 @@ const { PROTOCOL_VERSION } = __require("src/control-protocol.cjs");
 const { handleControlEvent } = __require("src/controller.cjs");
 const {
   classifyHermesTool,
+  countHermesDelegation,
   detectDependencyIntent,
   detectHashIntent,
   extractAffectedPaths
@@ -50,6 +51,7 @@ function toControlEvent(input) {
       name: String(input.tool_name || 'unknown'),
       input: input.tool_input,
       mutability: classifyHermesTool(input.tool_name, input.tool_input),
+      delegationCount: countHermesDelegation(input.tool_name, input.tool_input),
       hashIntent: detectHashIntent(input.tool_name, input.tool_input),
       dependencyIntent: detectDependencyIntent(input.tool_name, input.tool_input),
       affectedPaths: extractAffectedPaths(input.tool_name, input.tool_input, input.cwd),
@@ -120,6 +122,12 @@ function assertControlEvent(event) {
     nonEmptyString(event.action.name, 'action.name');
     if (!MUTABILITIES.has(event.action.mutability)) {
       throw new TypeError(`Unsupported action mutability: ${event.action.mutability}.`);
+    }
+    if (
+      event.action.delegationCount !== undefined
+      && (!Number.isInteger(event.action.delegationCount) || event.action.delegationCount < 0)
+    ) {
+      throw new TypeError('ControlEvent action.delegationCount must be a non-negative integer.');
     }
   }
 
@@ -272,8 +280,12 @@ function handlePrompt(event, options) {
 function handleBeforeAction(event, options) {
   const evaluate = () => {
     const state = readState(event.sessionId, options.dataDir);
+    const delegationCount = event.action.mutability === 'delegate'
+      ? (Number.isInteger(event.action.delegationCount) ? event.action.delegationCount : 1)
+      : 0;
     const action = {
       mutability: event.action.mutability,
+      delegationCount,
       hashIntent: Boolean(event.action.hashIntent),
       reachability: event.action.reachability,
       authorization: event.action.authorization,
@@ -284,7 +296,7 @@ function handleBeforeAction(event, options) {
     const result = decide({ contract: state.contract, action, state });
 
     if (event.action.mutability === 'delegate' && result.outcome === 'allow') {
-      state.contract.agentsUsed += 1;
+      state.contract.agentsUsed += delegationCount;
       writeState(event.sessionId, state, options.dataDir);
     }
     return { state, result };
@@ -603,12 +615,15 @@ function decide({ contract, action, state = {} }) {
     );
   }
 
-  if (action.mutability === 'delegate' && contract.agentsUsed >= contract.agentBudget) {
+  const delegationCount = action.mutability === 'delegate'
+    ? (Number.isInteger(action.delegationCount) ? action.delegationCount : 1)
+    : 0;
+  if (action.mutability === 'delegate' && contract.agentsUsed + delegationCount > contract.agentBudget) {
     return decision(
       controlledOutcome(level),
       'S',
       'AGENT_BUDGET_EXHAUSTED',
-      `The active contract allows ${contract.agentBudget} subagent(s), with ${contract.agentsUsed} already used.`,
+      `The active contract allows ${contract.agentBudget} subagent(s), with ${contract.agentsUsed} already used, and this action requires ${delegationCount}.`,
       'Continue locally or obtain an explicit agents=N contract.'
     );
   }
@@ -670,6 +685,7 @@ function recordDecision(facts, options = {}) {
     action: {
       toolName: String(action.name || 'unknown'),
       mutability: String(action.mutability || 'unknown'),
+      delegationCount: Number.isInteger(action.delegationCount) ? action.delegationCount : 0,
       pathCount: Array.isArray(action.affectedPaths) ? action.affectedPaths.length : 0,
       hashIntent: Boolean(action.hashIntent),
       dependencyIntent: Boolean(action.dependencyIntent),
@@ -1043,11 +1059,27 @@ const READ_TOOLS = new Set([
 const WRITE_TOOLS = new Set(['write_file', 'patch']);
 const DELEGATE_TOOLS = new Set(['delegate_task']);
 const CONTROL_TOOLS = new Set(['clarify', 'todo']);
+const DELEGATE_CONTROL_ACTIONS = new Set(['list', 'steer', 'stop']);
+
+function isHermesDelegationControl(toolName, toolInput) {
+  const action = toolInput && typeof toolInput === 'object' ? toolInput.action : null;
+  return toolName === 'delegate_task'
+    && DELEGATE_CONTROL_ACTIONS.has(String(action || '').toLowerCase());
+}
+
+function countHermesDelegation(toolName, toolInput) {
+  if (toolName !== 'delegate_task' || isHermesDelegationControl(toolName, toolInput)) return 0;
+  const input = toolInput && typeof toolInput === 'object' ? toolInput : {};
+  if (Array.isArray(input.tasks)) return input.tasks.length;
+  if (typeof input.goal === 'string' && input.goal.trim()) return 1;
+  return 0;
+}
 
 function classifyHermesTool(toolName, toolInput) {
   const name = String(toolName || '');
   if (READ_TOOLS.has(name)) return 'read';
   if (WRITE_TOOLS.has(name)) return 'write';
+  if (isHermesDelegationControl(name, toolInput)) return 'control';
   if (DELEGATE_TOOLS.has(name)) return 'delegate';
   if (CONTROL_TOOLS.has(name)) return 'control';
   if (name === 'terminal') return classifyShell(toolInput && toolInput.command);
@@ -1195,9 +1227,11 @@ function detectHashIntent(toolName, toolInput) {
 
 module.exports = {
   classifyHermesTool,
+  countHermesDelegation,
   extractAffectedPaths,
   detectDependencyIntent,
-  detectHashIntent
+  detectHashIntent,
+  isHermesDelegationControl
 };
 
 },
