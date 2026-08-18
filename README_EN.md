@@ -11,12 +11,13 @@
   <img src="https://img.shields.io/badge/works%20with-Codex-111111?style=flat-square" alt="Works with Codex">
   <img src="https://img.shields.io/badge/works%20with-Claude%20Code-111111?style=flat-square" alt="Works with Claude Code">
   <img src="https://img.shields.io/badge/works%20with-OpenCode-111111?style=flat-square" alt="Works with OpenCode">
+  <img src="https://img.shields.io/badge/works%20with-Hermes%20Agent%20CLI-111111?style=flat-square" alt="Works with Hermes Agent CLI">
   <img src="https://img.shields.io/github/license/lennney/stop-that-shit?style=flat-square&color=111111" alt="MIT license">
 </p>
 
 <p align="center">
   <strong>You asked an agent for one output file. It also generated a SHA-256 checksum that no later command reads. Stop That Shit.</strong><br>
-  Stops unrequested defensive work and task-boundary drift invented by AI coding agents. Supports Codex, Claude Code, and OpenCode.<br>
+  Stops unrequested defensive work and task-boundary drift invented by AI coding agents. Supports Codex, Claude Code, OpenCode, and Hermes Agent CLI.<br>
   <a href="#quick-install">Install</a> ·
   <a href="#bad-case--good-case">Bad / Good Case</a> ·
   <a href="cases/README.md">Cases</a> ·
@@ -26,7 +27,7 @@
 
 The checksum gets generated, but it saves no work and leaves the rest of the task
 unchanged. On another task, the extra work might be a guard, a compatibility
-layer, a full test run, or another process step. Codex, Claude Code, and OpenCode
+layer, a full test run, or another process step. Codex, Claude Code, OpenCode, and Hermes Agent CLI
 can all do this: each step sounds reasonable on its own, but the user did not ask
 for it and the task does not need it.
 
@@ -49,8 +50,9 @@ Event: evt_...
 ```
 
 Version [`0.0.3`](https://github.com/lennney/stop-that-shit/releases/tag/0.0.3)
-is Technical Preview 3. It includes the shared Guard, three host Adapters,
-paired cases, and a metadata-only local Runtime.
+is Technical Preview 3. The current unreleased branch adds a fourth, Hermes
+Agent CLI Adapter to the released shared Guard, three host Adapters, paired
+cases, and metadata-only local Runtime.
 
 | Start with | What it adds | Friction |
 | --- | --- | --- |
@@ -61,7 +63,7 @@ paired cases, and a metadata-only local Runtime.
 
 The project started with Codex. Public records include exploratory runs on Codex
 CLI `0.145.0` with `gpt-5.6-sol` and a directional pilot on Codex CLI `0.147.0`
-with `gpt-5.6-luna`. Three Adapters now share the same task-boundary core. The
+with `gpt-5.6-luna`. Four Adapters now share the same task-boundary core. The
 Codex install path, GPT-5.6 records, and paired eval remain in
 [EVIDENCE.md](EVIDENCE.md) and the [paired Codex eval](evals/codex-paired/README.md).
 
@@ -109,6 +111,27 @@ Restart OpenCode and use `$stop-that-shit review -- ...`. The command installs
 the Guard; the bundled Skill and optional `/sts` alias are not registered
 automatically. See [INSTALL.md](INSTALL.md#opencode-install-from-github) for
 details.
+
+### Hermes Agent CLI
+
+Requires Node.js 18+.
+
+```fish
+hermes plugins install lennney/stop-that-shit/.hermes-plugin --no-enable
+hermes plugins enable stop-that-shit
+hermes plugins list
+```
+
+After enabling it, CLI users need to start a new Hermes CLI process or session;
+Gateway users need to run:
+
+```fish
+hermes gateway restart
+```
+
+These steps are not required every time the plugin is used. The corresponding
+Hermes process only needs to be restarted after enabling, disabling, updating,
+rolling back, or reinstalling the plugin.
 
 ## Bad Case / Good Case
 
@@ -239,7 +262,7 @@ The agent reports or defers the extra work when the answers do not support it.
 ## How the Skill, Hooks, and Adapters work
 
 The Skill handles semantic choices, Hooks check explicit boundaries before tool
-use, and Adapters translate Codex, Claude Code, and OpenCode events into one
+use, and Adapters translate Codex, Claude Code, OpenCode, and Hermes Agent CLI events into one
 decision interface. Other harnesses need an equivalent before-action event; see
 [HOST-ADAPTER-CONTRACT.md](HOST-ADAPTER-CONTRACT.md).
 

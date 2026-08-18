@@ -62,6 +62,27 @@ The other events, including `Stop`, should show zero installed Hooks. An update
 can require another review because Codex records trust for the Hook definition.
 Do not disable or work around this review.
 
+## Hermes Agent CLI
+
+Requires Node.js 18 or newer.
+
+```fish
+hermes plugins install lennney/stop-that-shit/.hermes-plugin --no-enable
+hermes plugins enable stop-that-shit
+hermes plugins list
+```
+
+After enabling, CLI users must start a new Hermes CLI process or session. Gateway
+users must run:
+
+```fish
+hermes gateway restart
+```
+
+These steps are not required every time the plugin is used. Restart the
+corresponding Hermes process only after enabling, disabling, updating, rolling
+back, or reinstalling the plugin.
+
 ## Smoke test
 
 Use a disposable repository. Do not run the write test in the user's active

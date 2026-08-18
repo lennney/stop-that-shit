@@ -90,6 +90,25 @@ opencode plugin github:lennney/stop-that-shit -g
 
 重启 OpenCode 后用 `$stop-that-shit review -- ...` 设置契约。该命令安装 Guard；内置 Skill 和可选 `/sts` 别名不会自动注册。详见 [INSTALL.md](INSTALL.md#opencode-install-from-github)。
 
+### Hermes Agent CLI
+
+需要 Node.js 18+。
+
+```fish
+hermes plugins install lennney/stop-that-shit/.hermes-plugin --no-enable
+hermes plugins enable stop-that-shit
+hermes plugins list
+```
+
+启用后，CLI 用户需要启动新的 Hermes CLI 进程或会话；Gateway 用户需要执行：
+
+```fish
+hermes gateway restart
+```
+
+这些操作不需要每次使用插件时重复。只有启用、禁用、更新、回滚或重装插件后，
+才需要重启对应的 Hermes 进程。
+
 ## Bad Case / Good Case
 
 ```text

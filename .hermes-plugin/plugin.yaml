@@ -1,0 +1,9 @@
+name: stop-that-shit
+version: "0.0.3"
+description: "Stop That Shit Hermes Agent plugin skeleton."
+author: "Stop That Shit contributors"
+license: MIT
+manifest_version: 1
+hooks:
+  - pre_llm_call
+  - pre_tool_call

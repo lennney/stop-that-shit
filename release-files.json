@@ -4,6 +4,7 @@
     ".agents",
     ".claude-plugin",
     ".codex-plugin",
+    ".hermes-plugin",
     ".github",
     ".gitignore",
     "ARCHITECTURE.md",

@@ -168,6 +168,27 @@ in `stop-that-shit/`. OpenCode currently has no external-plugin uninstall
 subcommand; remove `github:lennney/stop-that-shit` from the global
 configuration's `plugin` list, then restart OpenCode.
 
+## Hermes Agent CLI
+
+Requires Node.js 18 or newer.
+
+```fish
+hermes plugins install lennney/stop-that-shit/.hermes-plugin --no-enable
+hermes plugins enable stop-that-shit
+hermes plugins list
+```
+
+After enabling, CLI users must start a new Hermes CLI process or session. Gateway
+users must run:
+
+```fish
+hermes gateway restart
+```
+
+These steps are not required every time the plugin is used. Restart the
+corresponding Hermes process only after enabling, disabling, updating, rolling
+back, or reinstalling the plugin.
+
 ## Optional: Skill only
 
 If you do not want command Hooks, install only the advisory Skill. For Claude
