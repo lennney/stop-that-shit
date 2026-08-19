@@ -23,7 +23,13 @@ for (const entry of releaseManifest.include) {
   if (source !== root && !source.startsWith(`${root}${path.sep}`)) {
     throw new Error(`release entry escapes repository: ${entry}`);
   }
-  fs.cpSync(source, path.join(target, entry), { recursive: true });
+  fs.cpSync(source, path.join(target, entry), {
+    recursive: true,
+    filter: (candidate) => {
+      const name = path.basename(candidate);
+      return name !== '__pycache__' && !name.endsWith('.pyc');
+    }
+  });
 }
 
 process.stdout.write(`${target}\n`);

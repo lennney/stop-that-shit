@@ -10,6 +10,7 @@ const test = require('node:test');
 const root = path.join(__dirname, '..');
 const pluginRoot = path.join(root, '.hermes-plugin');
 const runtimePath = path.join(pluginRoot, 'runtime', 'stop-that-shit.cjs');
+const pythonCommand = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
 
 function pythonPluginEnv(extra = {}) {
   return {
@@ -33,8 +34,9 @@ function readManifest() {
 
 test('Hermes plugin skeleton has a discoverable manifest and one host entrypoint', () => {
   const manifest = readManifest();
+  const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   assert.equal(manifest.name, 'stop-that-shit');
-  assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+  assert.equal(manifest.version, packageJson.version);
   assert.ok(manifest.description);
   assert.ok(fs.statSync(path.join(pluginRoot, '__init__.py')).isFile());
   assert.ok(fs.statSync(path.join(pluginRoot, 'README.md')).isFile());
@@ -135,7 +137,7 @@ ctx = Ctx(); mod.register(ctx)
 assert set(ctx.hooks) == {'pre_llm_call', 'pre_tool_call'}
 print('registered')
 `);
-  const result = spawnSync('python3', [script], { encoding: 'utf8', env: pythonPluginEnv() });
+  const result = spawnSync(pythonCommand, [script], { encoding: 'utf8', env: pythonPluginEnv() });
   fs.rmSync(script, { force: true });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), 'registered');
@@ -152,7 +154,7 @@ assert mod._prompt(session_id='s', user_message='review') is None
 assert mod._tool(tool_name='write_file', args={'path': 'x'}, session_id='s', task_id='tool-task') is None
 print('fail-open-ok')
 `);
-  const result = spawnSync('python3', [script], { encoding: 'utf8', env: pythonPluginEnv(), timeout: 10000 });
+  const result = spawnSync(pythonCommand, [script], { encoding: 'utf8', env: pythonPluginEnv(), timeout: 10000 });
   fs.rmSync(script, { force: true });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), 'fail-open-ok');
@@ -178,7 +180,7 @@ allowed = ctx.hooks['pre_tool_call'](tool_name='read_file', args={'path': 'READM
 assert allowed is None
 print('behavior-ok')
 `);
-  const result = spawnSync('python3', [script], {
+  const result = spawnSync(pythonCommand, [script], {
     encoding: 'utf8',
     env: pythonPluginEnv({ STS_TEST_HERMES_HOME: home }),
     timeout: 10000

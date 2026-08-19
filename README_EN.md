@@ -49,10 +49,10 @@ State: ARMED / review
 Event: evt_...
 ```
 
-Version [`0.0.3`](https://github.com/lennney/stop-that-shit/releases/tag/0.0.3)
-is Technical Preview 3. The current unreleased branch adds a fourth, Hermes
-Agent CLI Adapter to the released shared Guard, three host Adapters, paired
-cases, and metadata-only local Runtime.
+Version [`0.1.0`](https://github.com/lennney/stop-that-shit/releases/tag/0.1.0)
+is the first multi-platform release. Codex, Claude Code, OpenCode, and Hermes
+Agent CLI now share the same Guard, Skill, paired cases, and metadata-only local
+Runtime through four host Adapters.
 
 | Start with | What it adds | Friction |
 | --- | --- | --- |
@@ -187,7 +187,7 @@ ALLOW
 Use a digest to skip rereading an unchanged large file.
 ```
 
-`0.0.3` denies a recognized new hash operation by default. Use `hash=allow`
+`0.1.0` denies a recognized new hash operation by default. Use `hash=allow`
 when the user or the repository supplies the missing job. The Hook does not try
 to infer that job from code it has not seen.
 
@@ -289,7 +289,7 @@ cp skills/stop-that-shit/SKILL.md ~/.claude/skills/stop-that-shit/SKILL.md
 For Codex, the remote Skill Installer path is:
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.0.3/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.1.0/skills/stop-that-shit
 ```
 
 Start a new task, then invoke the host-native Skill form. A standalone Claude Code skill is `/stop-that-shit`; an installed plugin skill is namespaced as `/stop-that-shit:stop-that-shit`; Codex uses `$stop-that-shit`. This path needs no Hook trust,

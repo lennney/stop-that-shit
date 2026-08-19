@@ -7,8 +7,8 @@ untrusted Hook definitions, host bugs, or direct user actions may bypass it.
 
 ## Supported version
 
-`0.0.3` is a pre-release. Security and compatibility support are best effort
-until the first stable release.
+`0.1.0` is the first multi-platform release in the pre-1.0 line. Security and
+compatibility support remain best effort.
 
 ## Reporting a vulnerability
 

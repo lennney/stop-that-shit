@@ -5,3 +5,5 @@ node_modules/
 .DS_Store
 Thumbs.db
 .claude/
+__pycache__/
+*.pyc

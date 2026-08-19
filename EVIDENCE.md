@@ -11,26 +11,26 @@ actions, context responses, and permission denies. It records host effect as
 `unobserved`; a returned permission deny is not evidence that the host skipped
 the action.
 
-Version: 0.0.3 Technical Preview 3
-Release: https://github.com/lennney/stop-that-shit/releases/tag/0.0.3
-Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.0.2
-Last updated: 2026-08-18
+Version: 0.1.0 First Multi-platform Release
+Release: https://github.com/lennney/stop-that-shit/releases/tag/0.1.0
+Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.0.3
+Last updated: 2026-08-20
 
 This tree is validated with deterministic Hook-schema simulations, real
 child-process stdin/stdout entrypoint tests, cross-platform path regression
 tests, and shared policy tests:
 
-- 147/147 executed runtime/unit/integration tests pass, including the preserved
-  Codex tests, Claude child-process Hook simulations, and OpenCode adapter/plugin
-  regressions; one optional installed OpenCode smoke is skipped when OpenCode
-  1.18.18 or newer is unavailable;
+- 180/180 executed runtime/unit/integration tests pass, including the preserved
+  Codex tests, Claude child-process Hook simulations, OpenCode adapter/plugin
+  regressions, and Hermes native-plugin/runtime tests; one optional installed
+  OpenCode smoke is skipped when OpenCode 1.18.18 or newer is unavailable;
 - 18/18 executable Bad/Good policy case arms pass;
 - Claude review-mode denial, namespaced slash-command arming, POSIX/Windows path
   normalization, `NotebookEdit`, `PowerShell`, `Monitor`, `EnterWorktree`, and
   `Workflow` fan-out handling have dedicated regressions;
 - two independent Claude Hook processes cannot oversubscribe `agents=1`;
 - all checked-in `.cjs` files pass `node --check`, all JSON files parse, and the
-  release allowlist passes with 124 files;
+  release allowlist passes with 135 files;
 - the generated CaseBundle validator and its schema were not changed;
 - on a local Windows host, `claude plugin validate` reported no warnings and a
   live smoke session armed the Guard through both the `$stop-that-shit`

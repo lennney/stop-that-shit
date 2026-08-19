@@ -18,6 +18,7 @@ function walk(target) {
   const stat = fs.statSync(target);
   if (stat.isFile()) return [target];
   return fs.readdirSync(target, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.name === '__pycache__' || entry.name.endsWith('.pyc')) return [];
     const child = path.join(target, entry.name);
     return entry.isDirectory() ? walk(child) : [child];
   });
@@ -47,12 +48,15 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 
 const codexPlugin = JSON.parse(fs.readFileSync(path.join(root, '.codex-plugin', 'plugin.json'), 'utf8'));
 const claudePlugin = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'plugin.json'), 'utf8'));
 const claudeMarketplace = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'marketplace.json'), 'utf8'));
+const hermesPluginText = fs.readFileSync(path.join(root, '.hermes-plugin', 'plugin.yaml'), 'utf8');
 const expectedVersion = packageJson.version;
 if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(expectedVersion)) {
   fail(`package version is not semver: ${expectedVersion}`);
 }
 if (expectedVersion !== codexPlugin.version) fail('package and Codex plugin versions differ');
 if (expectedVersion !== claudePlugin.version) fail('package and Claude plugin versions differ');
+const hermesVersion = hermesPluginText.match(/^version:\s*["']?([^"'\s]+)["']?\s*$/m)?.[1];
+if (expectedVersion !== hermesVersion) fail('package and Hermes plugin versions differ');
 if (!claudeMarketplace.plugins || claudeMarketplace.plugins[0]?.name !== claudePlugin.name || claudeMarketplace.plugins[0]?.source !== './') {
   fail('Claude marketplace does not point at the root plugin');
 }

@@ -41,7 +41,7 @@ State: ARMED / review
 Event: evt_...
 ```
 
-[`0.0.3`](https://github.com/lennney/stop-that-shit/releases/tag/0.0.3) 是第三个技术预览版，包含共享 Guard、三套宿主 Adapter、成对案例和只存元数据的本地 Runtime。当前未发布分支在这些能力之上增加了第四套 Hermes Agent CLI Adapter。
+[`0.1.0`](https://github.com/lennney/stop-that-shit/releases/tag/0.1.0) 是首个多平台正式版本：Codex、Claude Code、OpenCode 和 Hermes Agent CLI 四套 Adapter 共用同一套 Guard、Skill、成对案例与只存元数据的本地 Runtime。
 
 | 从哪里开始 | 提供什么 | 使用成本 |
 | --- | --- | --- |
@@ -50,7 +50,7 @@ Event: evt_...
 
 ## 从 Codex + GPT-5.6 开始，现在覆盖多种 Agent
 
-项目从 Codex 起步：公开记录保留了 Codex CLI `0.145.0` + `gpt-5.6-sol` 的探索运行，以及 Codex CLI `0.147.0` + `gpt-5.6-luna` 的定向 pilot。现在三个 Adapter 共用同一套任务边界核心；Codex 安装方式、GPT-5.6 记录和 paired eval 见 [EVIDENCE.md](EVIDENCE.md) 与 [Codex 对照测试](evals/codex-paired/README.md)。
+项目从 Codex 起步：公开记录保留了 Codex CLI `0.145.0` + `gpt-5.6-sol` 的探索运行，以及 Codex CLI `0.147.0` + `gpt-5.6-luna` 的定向 pilot。现在四个 Adapter 共用同一套任务边界核心；Codex 安装方式、GPT-5.6 记录和 paired eval 见 [EVIDENCE.md](EVIDENCE.md) 与 [Codex 对照测试](evals/codex-paired/README.md)。
 
 ## 快速安装
 
@@ -153,7 +153,7 @@ ALLOW
 用 digest 跳过一个未变化大文件的重复读取。
 ```
 
-`0.0.3` 默认拒绝可识别的新 hash 操作。用户明确要求，或仓库中的代码与发布流程证明它确实必要时，就用 `hash=allow` 放行。Hook 不会根据自己没读过的代码猜测这个用途。
+`0.1.0` 默认拒绝可识别的新 hash 操作。用户明确要求，或仓库中的代码与发布流程证明它确实必要时，就用 `hash=allow` 放行。Hook 不会根据自己没读过的代码猜测这个用途。
 
 ## 怎么用
 
@@ -236,7 +236,7 @@ cp skills/stop-that-shit/SKILL.md ~/.claude/skills/stop-that-shit/SKILL.md
 Codex 仍可使用远程 Skill Installer：
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.0.3/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.1.0/skills/stop-that-shit
 ```
 
 新开任务后，独立 Claude Code Skill 用 `/stop-that-shit`，作为 plugin 安装时用 namespaced `/stop-that-shit:stop-that-shit`；Codex 用 `$stop-that-shit`。Skill-only 路径不需要 Hook 信任，但不能机器拦截越界动作，也不会改变宿主原有的 sandbox 和 approval 设置。
