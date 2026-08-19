@@ -59,10 +59,12 @@ memory, cron, Skill management, message sending, and all other unlisted
 built-in/plugin/MCP tools remain `unknown`; an armed contract blocks unknown
 mutability rather than guessing.
 
-A Hermes `delegate_task` call with a `tasks=[...]` batch consumes one
-`agents=N` budget unit because accounting is per tool call. The adapter does
-not claim to cap the number of child tasks inside that batch. Per-child
-charging requires a separately reviewed multi-unit reservation in the core.
+A Hermes `delegate_task` call reserves `agents=N` budget by the number of child
+agents it can start: one for a non-empty `goal`, or `tasks.length` for a batch.
+The complete count is checked and reserved atomically before the tool runs; an
+insufficient budget rejects the whole batch without consuming any units.
+`action=list`, `action=steer`, and `action=stop` are control operations and
+consume zero budget units.
 
 The OpenCode plugin can load from a local file or GitHub package and uses only
 documented hooks: `message.part.updated` and session events through `event`, plus

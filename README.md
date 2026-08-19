@@ -11,12 +11,13 @@
   <img src="https://img.shields.io/badge/works%20with-Codex-111111?style=flat-square" alt="支持 Codex">
   <img src="https://img.shields.io/badge/works%20with-Claude%20Code-111111?style=flat-square" alt="支持 Claude Code">
   <img src="https://img.shields.io/badge/works%20with-OpenCode-111111?style=flat-square" alt="支持 OpenCode">
+  <img src="https://img.shields.io/badge/works%20with-Hermes%20Agent%20CLI-111111?style=flat-square" alt="支持 Hermes Agent CLI">
   <img src="https://img.shields.io/github/license/lennney/stop-that-shit?style=flat-square&color=111111" alt="MIT 许可证">
 </p>
 
 <p align="center">
   <strong>你只让 Agent 导出一个结果文件。它顺手又生成一份 SHA-256 校验和，但后面没有任何命令会读取它。Stop That Shit。</strong><br>
-  Stop That Shit（别再造史了）处理 AI coding agent 自己加出来的防御性工作和任务越界，支持 Codex、Claude Code 和 OpenCode。<br>
+  Stop That Shit（别再造史了）处理 AI coding agent 自己加出来的防御性工作和任务越界，支持 Codex、Claude Code、OpenCode 和 Hermes Agent CLI。<br>
   <a href="#快速安装">安装</a> ·
   <a href="#bad-case--good-case">Bad / Good Case</a> ·
   <a href="cases/README.md">案例库</a> ·
@@ -24,7 +25,7 @@
   <a href="README_EN.md">English</a>
 </p>
 
-这份校验和生成了，任务却没有少做一步，后面的流程也完全一样。换个任务，多出来的可能是 guard、兼容层、全量测试或额外流程。Codex、Claude Code 和 OpenCode 都可能这么做：每一步单看都有理由，但用户没要求，当前任务也用不上。
+这份校验和生成了，任务却没有少做一步，后面的流程也完全一样。换个任务，多出来的可能是 guard、兼容层、全量测试或额外流程。Codex、Claude Code、OpenCode 和 Hermes Agent CLI 都可能这么做：每一步单看都有理由，但用户没要求，当前任务也用不上。
 
 我也试过不断往 `AGENTS.md` 里补「不要乱改」「别过度设计」「没让我做的先别做」。规则越补越长，`AGENTS.md` 自己也开始造史。Stop That Shit 把其中能明确判断的边界做成 Skill 和可执行 Guard。
 
@@ -40,7 +41,7 @@ State: ARMED / review
 Event: evt_...
 ```
 
-[`0.0.3`](https://github.com/lennney/stop-that-shit/releases/tag/0.0.3) 是第三个技术预览版，包含共享 Guard、三套宿主 Adapter、成对案例和只存元数据的本地 Runtime。
+[`0.0.3`](https://github.com/lennney/stop-that-shit/releases/tag/0.0.3) 是第三个技术预览版，包含共享 Guard、三套宿主 Adapter、成对案例和只存元数据的本地 Runtime。当前未发布分支在这些能力之上增加了第四套 Hermes Agent CLI Adapter。
 
 | 从哪里开始 | 提供什么 | 使用成本 |
 | --- | --- | --- |
@@ -215,7 +216,7 @@ Hook 必须收到受支持的事件和足够的输入才能判断。它不会看
 
 ## Skill + Hook + Adapter 如何工作
 
-Skill 负责语义判断，Hook 在工具运行前检查明确边界，Adapter 把 Codex、Claude Code 和 OpenCode 的事件翻译成同一套决策接口。其他 harness 需要提供等价的 before-action 事件；接口见 [HOST-ADAPTER-CONTRACT.md](HOST-ADAPTER-CONTRACT.md)。
+Skill 负责语义判断，Hook 在工具运行前检查明确边界，Adapter 把 Codex、Claude Code、OpenCode 和 Hermes Agent CLI 的事件翻译成同一套决策接口。其他 harness 需要提供等价的 before-action 事件；接口见 [HOST-ADAPTER-CONTRACT.md](HOST-ADAPTER-CONTRACT.md)。
 
 ## 覆盖边界与公开证据
 
