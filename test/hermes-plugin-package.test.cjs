@@ -11,6 +11,14 @@ const root = path.join(__dirname, '..');
 const pluginRoot = path.join(root, '.hermes-plugin');
 const runtimePath = path.join(pluginRoot, 'runtime', 'stop-that-shit.cjs');
 
+function pythonPluginEnv(extra = {}) {
+  return {
+    ...process.env,
+    STS_PLUGIN_ENTRY: path.join(pluginRoot, '__init__.py'),
+    ...extra
+  };
+}
+
 function readManifest() {
   const manifestPath = path.join(pluginRoot, 'plugin.yaml');
   assert.ok(fs.existsSync(manifestPath), 'Hermes plugin manifest must exist');
@@ -117,8 +125,8 @@ test('hermes:check is invariant to CRLF checkout conversion', (t) => {
 test('native plugin registers pre_llm_call and pre_tool_call callbacks', () => {
   const script = path.join(os.tmpdir(), `sts-plugin-register-${process.pid}.py`);
   fs.writeFileSync(script, `
-import importlib.util
-spec = importlib.util.spec_from_file_location('sts_plugin', ${JSON.stringify(path.join(pluginRoot, '__init__.py'))})
+import importlib.util, os
+spec = importlib.util.spec_from_file_location('sts_plugin', os.environ['STS_PLUGIN_ENTRY'])
 mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
 class Ctx:
     def __init__(self): self.hooks = {}
@@ -127,7 +135,7 @@ ctx = Ctx(); mod.register(ctx)
 assert set(ctx.hooks) == {'pre_llm_call', 'pre_tool_call'}
 print('registered')
 `);
-  const result = spawnSync('python3', [script], { encoding: 'utf8', env: process.env });
+  const result = spawnSync('python3', [script], { encoding: 'utf8', env: pythonPluginEnv() });
   fs.rmSync(script, { force: true });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), 'registered');
@@ -136,15 +144,15 @@ print('registered')
 test('native hook failures and timeouts fail open', () => {
   const script = path.join(os.tmpdir(), `sts-plugin-fail-open-${process.pid}.py`);
   fs.writeFileSync(script, `
-import importlib.util
-spec = importlib.util.spec_from_file_location('sts_plugin', ${JSON.stringify(path.join(pluginRoot, '__init__.py'))})
+import importlib.util, os
+spec = importlib.util.spec_from_file_location('sts_plugin', os.environ['STS_PLUGIN_ENTRY'])
 mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
 mod._RUNTIME = mod._PLUGIN_ROOT / 'runtime' / 'missing.cjs'
 assert mod._prompt(session_id='s', user_message='review') is None
-assert mod._tool(tool_name='write_file', args={'path': 'x'}, task_id='s') is None
+assert mod._tool(tool_name='write_file', args={'path': 'x'}, session_id='s', task_id='tool-task') is None
 print('fail-open-ok')
 `);
-  const result = spawnSync('python3', [script], { encoding: 'utf8', env: process.env, timeout: 10000 });
+  const result = spawnSync('python3', [script], { encoding: 'utf8', env: pythonPluginEnv(), timeout: 10000 });
   fs.rmSync(script, { force: true });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), 'fail-open-ok');
@@ -155,13 +163,13 @@ test('native pre_llm_call returns context and pre_tool_call returns block or no-
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-plugin-home-'));
   fs.writeFileSync(script, `
 import importlib.util, os
-spec = importlib.util.spec_from_file_location('sts_plugin', ${JSON.stringify(path.join(pluginRoot, '__init__.py'))})
+spec = importlib.util.spec_from_file_location('sts_plugin', os.environ['STS_PLUGIN_ENTRY'])
 mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
 class Ctx:
     def __init__(self): self.hooks = {}
     def register_hook(self, name, callback): self.hooks[name] = callback
 ctx = Ctx(); mod.register(ctx)
-os.environ['HERMES_HOME'] = ${JSON.stringify(home)}
+os.environ['HERMES_HOME'] = os.environ['STS_TEST_HERMES_HOME']
 context = ctx.hooks['pre_llm_call'](session_id='native-session', task_id='prompt-task', user_message='$stop-that-shit review -- inspect only', model='test', platform='cli')
 assert isinstance(context, dict) and 'context' in context
 blocked = ctx.hooks['pre_tool_call'](tool_name='write_file', args={'path': 'blocked.txt', 'content': 'x'}, session_id='native-session', task_id='tool-task')
@@ -170,7 +178,11 @@ allowed = ctx.hooks['pre_tool_call'](tool_name='read_file', args={'path': 'READM
 assert allowed is None
 print('behavior-ok')
 `);
-  const result = spawnSync('python3', [script], { encoding: 'utf8', env: process.env, timeout: 10000 });
+  const result = spawnSync('python3', [script], {
+    encoding: 'utf8',
+    env: pythonPluginEnv({ STS_TEST_HERMES_HOME: home }),
+    timeout: 10000
+  });
   fs.rmSync(script, { force: true });
   fs.rmSync(home, { recursive: true, force: true });
   assert.equal(result.status, 0, result.stderr);
