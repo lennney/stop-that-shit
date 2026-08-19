@@ -49,6 +49,7 @@ const codexPlugin = JSON.parse(fs.readFileSync(path.join(root, '.codex-plugin', 
 const claudePlugin = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'plugin.json'), 'utf8'));
 const claudeMarketplace = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'marketplace.json'), 'utf8'));
 const hermesPluginText = fs.readFileSync(path.join(root, '.hermes-plugin', 'plugin.yaml'), 'utf8');
+const evidenceText = fs.readFileSync(path.join(root, 'EVIDENCE.md'), 'utf8');
 const expectedVersion = packageJson.version;
 if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(expectedVersion)) {
   fail(`package version is not semver: ${expectedVersion}`);
@@ -57,6 +58,35 @@ if (expectedVersion !== codexPlugin.version) fail('package and Codex plugin vers
 if (expectedVersion !== claudePlugin.version) fail('package and Claude plugin versions differ');
 const hermesVersion = hermesPluginText.match(/^version:\s*["']?([^"'\s]+)["']?\s*$/m)?.[1];
 if (expectedVersion !== hermesVersion) fail('package and Hermes plugin versions differ');
+if (!evidenceText.includes(`Version: ${expectedVersion} `)) {
+  fail('EVIDENCE.md does not identify the package version');
+}
+if (!evidenceText.includes(`/releases/tag/${expectedVersion}`)) {
+  fail('EVIDENCE.md does not point at the package release tag');
+}
+if (!evidenceText.includes(`The defensible ${expectedVersion} claim is:`)) {
+  fail('EVIDENCE.md claim version differs from the package version');
+}
+const codexScreenshots = codexPlugin.interface?.screenshots;
+if (codexScreenshots !== undefined) {
+  if (!Array.isArray(codexScreenshots)) {
+    fail('Codex plugin screenshots must be an array');
+  } else {
+    const assetsRoot = path.join(root, 'assets');
+    for (const screenshot of codexScreenshots) {
+      const absolute = typeof screenshot === 'string' ? path.resolve(root, screenshot) : '';
+      if (
+        typeof screenshot !== 'string' ||
+        !screenshot.startsWith('./assets/') ||
+        path.extname(screenshot).toLowerCase() !== '.png' ||
+        !absolute.startsWith(`${assetsRoot}${path.sep}`) ||
+        !fs.existsSync(absolute)
+      ) {
+        fail(`invalid Codex plugin screenshot: ${String(screenshot)}`);
+      }
+    }
+  }
+}
 if (!claudeMarketplace.plugins || claudeMarketplace.plugins[0]?.name !== claudePlugin.name || claudeMarketplace.plugins[0]?.source !== './') {
   fail('Claude marketplace does not point at the root plugin');
 }

@@ -18,6 +18,22 @@ test('Codex plugin manifest and its preserved hook discovery paths exist', () =>
   assert.deepEqual(Object.keys(hooks.hooks).sort(), ['PreToolUse', 'UserPromptSubmit']);
 });
 
+test('Codex presentation metadata uses valid local assets', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, '.codex-plugin', 'plugin.json'), 'utf8'));
+  for (const field of ['composerIcon', 'logo']) {
+    const asset = manifest.interface[field];
+    assert.match(asset, /^\.\/assets\//);
+    assert.ok(fs.existsSync(path.join(root, asset)), `${field} must point at a packaged asset`);
+  }
+  if (manifest.interface.screenshots !== undefined) {
+    assert.ok(Array.isArray(manifest.interface.screenshots), 'screenshots must be an array');
+    for (const screenshot of manifest.interface.screenshots) {
+      assert.match(screenshot, /^\.\/assets\/.*\.png$/i);
+      assert.ok(fs.existsSync(path.join(root, screenshot)), 'screenshot must point at a packaged PNG');
+    }
+  }
+});
+
 test('the packaged Skill remains useful without the Guard hooks', () => {
   const skill = fs.readFileSync(path.join(root, 'skills', 'stop-that-shit', 'SKILL.md'), 'utf8');
   assert.match(skill, /works without the Guard/i);

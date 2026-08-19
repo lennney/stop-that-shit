@@ -20,7 +20,7 @@ This tree is validated with deterministic Hook-schema simulations, real
 child-process stdin/stdout entrypoint tests, cross-platform path regression
 tests, and shared policy tests:
 
-- 180/180 executed runtime/unit/integration tests pass, including the preserved
+- 181/181 executed runtime/unit/integration tests pass, including the preserved
   Codex tests, Claude child-process Hook simulations, OpenCode adapter/plugin
   regressions, and Hermes native-plugin/runtime tests; one optional installed
   OpenCode smoke is skipped when OpenCode 1.18.18 or newer is unavailable;
@@ -178,7 +178,7 @@ were run after the null result.
 
 ## Not yet verified
 
-The following are explicit limitations, not 0.0.3 release blockers. The project
+The following are explicit limitations, not 0.1.0 release blockers. The project
 does not require a large benchmark to make a probabilistic mitigation claim.
 
 - a multi-scenario live baseline/plugin matrix for the reduced candidate;
@@ -237,9 +237,12 @@ leading synthetic fixtures.
 Do not claim that Stop That Shit solves overengineering across coding agents or
 publish an improvement percentage from unit tests or this single scenario.
 
-The defensible 0.0.3 claim is:
+The defensible 0.1.0 claim is:
 
-> In Codex, Claude Code, and OpenCode, Stop That Shit provides a short
-> on-demand decision ladder and enforces a few explicit task-authority rules on
-> covered Hook paths. It may reduce some forms of execution drift, but it does
-> not guarantee an effect on stochastic model behavior.
+> In Codex, Claude Code, OpenCode, and Hermes Agent CLI, Stop That Shit provides
+> a short on-demand decision ladder and enforces a few explicit task-authority
+> rules on covered host action paths. Hermes 0.1.0 coverage is limited to the
+> native Plugin callbacks `pre_llm_call` and `pre_tool_call`; Gateway support
+> refers to the restart lifecycle after plugin changes, not coverage of every
+> Hermes surface. It may reduce some forms of execution drift, but it does not
+> guarantee an effect on stochastic model behavior.
