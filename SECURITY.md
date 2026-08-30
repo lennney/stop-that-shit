@@ -23,7 +23,8 @@ trust state, minimal reproduction, expected boundary, and observed result.
 ## Maintainer release requirements
 
 - Review executable Hook commands and their transitive local modules.
-- Keep all runtime paths inside the installed plugin root or `PLUGIN_DATA`.
+- Keep runtime code inside the installed plugin root and state inside the
+  host-owned data or configuration directory.
 - Test denial and Good Case completion together.
 - Document known Hook bypasses and failed conformance cases.
 - Never describe advisory `watch` behavior as enforcement.

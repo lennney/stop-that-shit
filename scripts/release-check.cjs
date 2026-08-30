@@ -105,6 +105,31 @@ if (!packageJson.files?.includes('opencode/') || !packageJson.files?.includes('s
 if (!packageJson.engines?.opencode) fail('package does not declare its OpenCode engine');
 if (!fs.existsSync(path.join(root, openCodeEntrypoint))) fail('OpenCode package entrypoint is missing');
 
+const piEntrypoint = './pi/stop-that-shit.ts';
+const piSkill = './skills/stop-that-shit';
+const testedPiVersion = '0.84.4';
+if (!packageJson.keywords?.includes('pi-package')) fail('package keywords omit pi-package');
+if (packageJson.pi?.extensions?.length !== 1 || packageJson.pi.extensions[0] !== piEntrypoint) {
+  fail('Pi package manifest does not point at the single Pi Extension entrypoint');
+}
+if (packageJson.pi?.skills?.length !== 1 || packageJson.pi.skills[0] !== piSkill) {
+  fail('Pi package manifest does not point at the shared Skill');
+}
+if (packageJson.peerDependencies?.['@earendil-works/pi-coding-agent'] !== '*') {
+  fail('Pi core package must use the loader-provided * peer dependency');
+}
+if (!packageJson.peerDependenciesMeta?.['@earendil-works/pi-coding-agent']?.optional) {
+  fail('Pi peer dependency must stay optional for non-Pi host installs');
+}
+if (!packageJson.files?.includes('pi/')) fail('package files omit the Pi Extension');
+for (const piPath of [piEntrypoint, piSkill]) {
+  if (!fs.existsSync(path.join(root, piPath))) fail(`Pi release path is missing: ${piPath}`);
+}
+const hostContractText = fs.readFileSync(path.join(root, 'HOST-ADAPTER-CONTRACT.md'), 'utf8');
+if (!hostContractText.includes(`@earendil-works/pi-coding-agent\` \`${testedPiVersion}`)) {
+  fail(`HOST-ADAPTER-CONTRACT.md does not identify tested Pi version ${testedPiVersion}`);
+}
+
 const hermesPluginRoot = './.hermes-plugin';
 const hermesManifest = './.hermes-plugin/plugin.yaml';
 const hermesEntrypoint = './.hermes-plugin/__init__.py';
@@ -125,7 +150,7 @@ if (fs.existsSync(path.join(root, hermesPluginRoot, 'hooks'))) {
 }
 
 const selectedFiles = releaseManifest.include.flatMap((entry) => walk(path.join(root, entry)));
-const textExtensions = new Set(['', '.cjs', '.js', '.json', '.md', '.txt', '.yaml', '.yml']);
+const textExtensions = new Set(['', '.cjs', '.js', '.json', '.md', '.ts', '.txt', '.yaml', '.yml']);
 const staleVersion = /(?:v0\.1(?:\.\d+)?|0\.1\.1)/i;
 const privatePath = /(?:[A-Za-z]:\\Users\\|[A-Za-z]:\\object\\|\/Users\/|\/home\/)/;
 const mojibake = /(?:\uFFFD|\u9225|\u6E1F|\u951F)/;

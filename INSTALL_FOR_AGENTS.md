@@ -83,6 +83,24 @@ These steps are not required every time the plugin is used. Restart the
 corresponding Hermes process only after enabling, disabling, updating, rolling
 back, or reinstalling the plugin.
 
+## Pi Coding Agent
+
+Use Pi `0.84.4` or re-run the pinned compatibility checks before claiming a
+newer version. Pi itself requires Node.js `22.19.0` or newer. Review the package
+source with the user because Pi packages execute with full system access.
+
+For a local checkout containing the adapter:
+
+```bash
+pi install /absolute/path/to/stop-that-shit
+```
+
+Use `-l` only when the user wants project-scoped settings. Start a new Pi
+process, or run `/reload` after package-resource changes. Verify that both the
+Extension and `stop-that-shit` Skill are listed, then invoke
+`/skill:stop-that-shit review -- ...` or the host-neutral directive. Do not
+claim that the optional `subagent` child processes inherit the root contract.
+
 ## Smoke test
 
 Use a disposable repository. Do not run the write test in the user's active

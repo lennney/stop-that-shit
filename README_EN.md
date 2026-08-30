@@ -12,12 +12,13 @@
   <img src="https://img.shields.io/badge/works%20with-Claude%20Code-111111?style=flat-square" alt="Works with Claude Code">
   <img src="https://img.shields.io/badge/works%20with-OpenCode-111111?style=flat-square" alt="Works with OpenCode">
   <img src="https://img.shields.io/badge/works%20with-Hermes%20Agent%20CLI-111111?style=flat-square" alt="Works with Hermes Agent CLI">
+  <img src="https://img.shields.io/badge/works%20with-Pi-111111?style=flat-square" alt="Works with Pi">
   <img src="https://img.shields.io/github/license/lennney/stop-that-shit?style=flat-square&color=111111" alt="MIT license">
 </p>
 
 <p align="center">
   <strong>You asked an agent for one output file. It also generated a SHA-256 checksum that no later command reads. Stop That Shit.</strong><br>
-  Stops unrequested defensive work and task-boundary drift invented by AI coding agents. Supports Codex, Claude Code, OpenCode, and Hermes Agent CLI.<br>
+  Stops unrequested defensive work and task-boundary drift invented by AI coding agents. Supports Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi.<br>
   <a href="#quick-install">Install</a> ·
   <a href="#bad-case--good-case">Bad / Good Case</a> ·
   <a href="cases/README.md">Cases</a> ·
@@ -27,7 +28,7 @@
 
 The checksum gets generated, but it saves no work and leaves the rest of the task
 unchanged. On another task, the extra work might be a guard, a compatibility
-layer, a full test run, or another process step. Codex, Claude Code, OpenCode, and Hermes Agent CLI
+layer, a full test run, or another process step. Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi
 can all do this: each step sounds reasonable on its own, but the user did not ask
 for it and the task does not need it.
 
@@ -63,13 +64,14 @@ Runtime through four host Adapters.
 
 The project started with Codex. Public records include exploratory runs on Codex
 CLI `0.145.0` with `gpt-5.6-sol` and a directional pilot on Codex CLI `0.147.0`
-with `gpt-5.6-luna`. Four Adapters now share the same task-boundary core. The
+with `gpt-5.6-luna`. Five Adapters now share the same task-boundary core. The
 Codex install path, GPT-5.6 records, and paired eval remain in
 [EVIDENCE.md](EVIDENCE.md) and the [paired Codex eval](evals/codex-paired/README.md).
 
 ## Quick install
 
-Requires Node.js 18 or newer. See [INSTALL.md](INSTALL.md) for the full setup.
+Most hosts require Node.js 18 or newer; Pi 0.84.4 itself requires Node.js
+22.19 or newer. See [INSTALL.md](INSTALL.md) for the full setup.
 
 ### Claude Code
 
@@ -132,6 +134,26 @@ hermes gateway restart
 These steps are not required every time the plugin is used. The corresponding
 Hermes process only needs to be restarted after enabling, disabling, updating,
 rolling back, or reinstalling the plugin.
+
+### Pi Coding Agent
+
+The current adapter is pinned and tested against
+`@earendil-works/pi-coding-agent` `0.84.4`. Install a checkout that contains the
+adapter:
+
+```bash
+pi install /absolute/path/to/stop-that-shit
+```
+
+Start a new Pi process, or run `/reload` in the TUI after resource changes. Then
+invoke:
+
+```text
+/skill:stop-that-shit review -- Review this diff. Report findings; do not edit.
+```
+
+Use a pinned Git tag after a release includes the Pi adapter. The existing
+`0.1.0` tag does not contain it. See [INSTALL.md](INSTALL.md#pi-coding-agent).
 
 ## Bad Case / Good Case
 
@@ -262,7 +284,7 @@ The agent reports or defers the extra work when the answers do not support it.
 ## How the Skill, Hooks, and Adapters work
 
 The Skill handles semantic choices, Hooks check explicit boundaries before tool
-use, and Adapters translate Codex, Claude Code, OpenCode, and Hermes Agent CLI events into one
+use, and Adapters translate Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi events into one
 decision interface. Other harnesses need an equivalent before-action event; see
 [HOST-ADAPTER-CONTRACT.md](HOST-ADAPTER-CONTRACT.md).
 

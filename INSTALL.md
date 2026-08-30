@@ -189,6 +189,39 @@ These steps are not required every time the plugin is used. Restart the
 corresponding Hermes process only after enabling, disabling, updating, rolling
 back, or reinstalling the plugin.
 
+## Pi Coding Agent
+
+The Pi adapter is tested with `@earendil-works/pi-coding-agent` `0.84.4`, which
+requires Node.js `22.19.0` or newer. Pi packages execute with full system access;
+review the source and use a pinned release before installing it from Git.
+
+From a checkout that contains the Pi adapter, install it globally:
+
+```bash
+pi install /absolute/path/to/stop-that-shit
+```
+
+Add `-l` for a project-scoped installation. After a tagged release contains
+the Pi adapter, use a pinned Git ref instead of an unpinned branch:
+
+```bash
+pi install git:github.com/lennney/stop-that-shit@<tag-with-pi-support>
+```
+
+Start a new Pi process, or run `/reload` in the TUI after changing package
+resources. Arm the Guard with either form:
+
+```text
+/skill:stop-that-shit review -- Review this diff. Report findings; do not edit.
+$stop-that-shit review -- Review this diff. Report findings; do not edit.
+```
+
+Pi contract changes submitted while an Agent turn is streaming are not applied
+to that turn; submit them again after Pi is idle. The adapter enforces parent
+budgeting for the documented optional `subagent` tool, but does not claim that
+separate child Pi processes inherit the contract. Remove the same source with
+`pi remove <source>`.
+
 ## Optional: Skill only
 
 If you do not want command Hooks, install only the advisory Skill. For Claude

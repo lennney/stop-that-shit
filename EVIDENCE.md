@@ -14,15 +14,16 @@ the action.
 Version: 0.1.0 First Multi-platform Release
 Release: https://github.com/lennney/stop-that-shit/releases/tag/0.1.0
 Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.0.3
-Last updated: 2026-08-20
+Last updated: 2026-08-31
 
 This tree is validated with deterministic Hook-schema simulations, real
 child-process stdin/stdout entrypoint tests, cross-platform path regression
 tests, and shared policy tests:
 
-- 181/181 executed runtime/unit/integration tests pass, including the preserved
+- 199/199 executed runtime/unit/integration tests pass, including the preserved
   Codex tests, Claude child-process Hook simulations, OpenCode adapter/plugin
-  regressions, and Hermes native-plugin/runtime tests; one optional installed
+  regressions, Hermes native-plugin/runtime tests, and Pi adapter/package tests;
+  one optional installed
   OpenCode smoke is skipped when OpenCode 1.18.18 or newer is unavailable;
 - 18/18 executable Bad/Good policy case arms pass;
 - Claude review-mode denial, namespaced slash-command arming, POSIX/Windows path
@@ -35,6 +36,25 @@ tests, and shared policy tests:
 - on a local Windows host, `claude plugin validate` reported no warnings and a
   live smoke session armed the Guard through both the `$stop-that-shit`
   directive and the namespaced slash form, with a covered write denied.
+
+## Pi adapter validation
+
+On 2026-08-31, the Pi adapter was checked against
+`@earendil-works/pi-coding-agent` `0.84.4` on Node.js `24.14.1`:
+
+- Pi's real TypeScript extension loader loaded `pi/stop-that-shit.ts` without
+  diagnostics and registered `input`, `before_agent_start`, `tool_call`, and
+  `tool_result`;
+- an isolated `pi install` of the local package discovered both the Extension
+  and the existing `stop-that-shit` Skill;
+- 18 Pi-specific tests cover review/change decisions, POSIX and Windows paths,
+  dependency/hash intent, unknown tools, native Skill arming, mid-turn contract
+  switches, watch context, fail-open adapter errors, and atomic parent-level
+  `subagent` budgeting.
+
+This proves the package and adapter response path for the pinned Pi version. It
+does not prove child-process contract inheritance or bypass resistance outside
+Pi's standard Agent `tool_call` dispatcher.
 
 ## Published technical preview
 

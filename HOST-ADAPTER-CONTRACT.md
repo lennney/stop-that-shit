@@ -1,7 +1,7 @@
 # Host Adapter Contract
 
-Stop That Shit has four implemented host adapters: Codex, Claude Code,
-OpenCode, and the Hermes Agent CLI native Plugin adapter. Each adapter translates
+Stop That Shit has five implemented host adapters: Codex, Claude Code,
+OpenCode, the Hermes Agent CLI native Plugin adapter, and Pi. Each adapter translates
 host input into the same `ControlEvent v1` and reuses the same contract parser,
 controller, decisions, state, and runtime evidence.
 
@@ -161,6 +161,42 @@ not claim to limit the total number of real child tasks started inside one
 batch. Charging each child would require a separately reviewed multi-unit
 reservation in the core controller, not a loop in this adapter.
 
+## Pi
+
+The Pi package entrypoint is `pi/stop-that-shit.ts`. It is tested against
+`@earendil-works/pi-coding-agent` `0.84.4` and maps this extension surface:
+
+```text
+input               -> prompt.submit
+before_agent_start  -> contract context message
+tool_call            -> action.before -> { block: true, reason } on denial
+tool_result          -> watch-only context appended to the tool result
+```
+
+The Adapter takes the stable session ID from Pi's session manager, preserves
+`toolCallId` as the action ID, and maps `cwd`, structured tool input, `mode`
+(`tui`, `rpc`, `json`, or `print`), and `hasUI` into the shared event. The same
+decision path is used in UI and headless modes; notifications are UI-only.
+
+`input` accepts both `$stop-that-shit` and Pi's native
+`/skill:stop-that-shit` form. Input whose source is `extension` never creates
+user authority. Pi can receive queued input while an Agent turn is streaming;
+contract changes in that state are handled without changing the active
+contract and must be submitted again after Pi is idle.
+
+The explicit Pi table covers `read`, `grep`, `find`, `ls`, `write`, `edit`,
+`bash`, and `powershell`. Every unlisted custom or package tool remains
+`unknown`. The optional official `subagent` example is recognized only through
+its documented single, `tasks`, and `chain` input shapes. The parent tool call
+reserves the complete count atomically, but the separate child Pi processes do
+not inherit the parent contract through a proven standard ancestry channel.
+Pi's user-initiated `!` and `!!` shell paths are outside the Agent `tool_call`
+surface.
+
+Pi operational adapter errors are caught so they retain the shared fail-open
+behavior. Only a shared policy denial returns Pi's `block`; `terminate` is
+omitted so the Agent can recover with an in-scope action.
+
 ## Support matrix and evidence boundary
 
 | Hermes surface | Status | Evidence and boundary |
@@ -175,7 +211,7 @@ The Adapter may report that it returned context or a host-specific denial, but i
 must not claim that the host prevented execution through every other path.
 `RuntimeEvent v1` therefore records `hostEffect` as `unobserved`.
 
-All four adapters are guardrails, not sandboxes. Specialized tool paths can
+All five adapters are guardrails, not sandboxes. Specialized tool paths can
 bypass normal Hooks, and a returned `permission_deny_returned` or Hermes block
 response is evidence of the adapter response—not proof that the host ultimately
 did not execute the action.

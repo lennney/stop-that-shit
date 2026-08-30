@@ -1,15 +1,14 @@
 # Architecture
 
-Stop That Shit has a host-independent control core, four thin host adapters,
-and a metadata-only runtime evidence sidecar. The fourth adapter is hosted by
-the Hermes native Plugin.
+Stop That Shit has a host-independent control core, five thin host adapters,
+and a metadata-only runtime evidence sidecar.
 
 ```text
 Codex Hook JSON       ----> Codex Adapter --------\
 Claude Hook JSON      ----> Claude Adapter --------+--> ControlEvent v1
-OpenCode hooks        ----> OpenCode Adapter -----/         |
-Hermes native Plugin ----> Hermes CLI Adapter --/            v
-                                                    decision(contract, action)
+OpenCode hooks        ----> OpenCode Adapter -----+          |
+Hermes native Plugin ----> Hermes CLI Adapter ----+          v
+Pi Extension          ----> Pi Adapter -----------/  decision(contract, action)
                                                                |
                                   +----------------------------+------------------+
                                   v                                               v
@@ -25,9 +24,12 @@ Hermes native Plugin ----> Hermes CLI Adapter --/            v
 - `src/adapters/opencode-*.cjs` classify OpenCode messages and tool calls.
 - `src/adapters/hermes-*.cjs` classify Hermes payloads and render Hermes
   responses; the installed bundle is `.hermes-plugin/runtime/stop-that-shit.cjs`.
+- `src/adapters/pi-*.cjs` classify Pi Extension events and render Pi block or
+  context results.
 - `opencode/stop-that-shit.mjs` bridges the in-process OpenCode plugin hooks.
 - `.hermes-plugin/__init__.py` is the only Hermes host entrypoint and bridges
   native Plugin callbacks to the bundled runtime.
+- `pi/stop-that-shit.ts` is the Pi package entrypoint.
 - `src/state.cjs` stores per-session contract state and serializes delegation
   reservations so concurrent Hook processes cannot oversubscribe `agents=N`.
 - `src/runtime-audit.cjs` appends and reads metadata-only decision events.
@@ -72,6 +74,13 @@ documented hooks: `message.part.updated` and session events through `event`, plu
 the SDK `client.session.message` call, injects contract context with
 `client.session.prompt({ noReply: true })`, and maps child sessions to the root
 contract so a subagent cannot silently replace user authority.
+
+Pi maps `input`, `before_agent_start`, `tool_call`, and `tool_result`. The first
+two arm and inject the shared contract; `tool_call` is the deny-capable boundary;
+`tool_result` carries observation-only context without blocking. Mid-turn
+contract switches are not applied to the active turn. The optional official
+`subagent` tool is budgeted at its parent call, while cross-process contract
+inheritance remains outside the supported boundary.
 
 ## Control and evidence boundaries
 

@@ -12,12 +12,13 @@
   <img src="https://img.shields.io/badge/works%20with-Claude%20Code-111111?style=flat-square" alt="支持 Claude Code">
   <img src="https://img.shields.io/badge/works%20with-OpenCode-111111?style=flat-square" alt="支持 OpenCode">
   <img src="https://img.shields.io/badge/works%20with-Hermes%20Agent%20CLI-111111?style=flat-square" alt="支持 Hermes Agent CLI">
+  <img src="https://img.shields.io/badge/works%20with-Pi-111111?style=flat-square" alt="支持 Pi">
   <img src="https://img.shields.io/github/license/lennney/stop-that-shit?style=flat-square&color=111111" alt="MIT 许可证">
 </p>
 
 <p align="center">
   <strong>你只让 Agent 导出一个结果文件。它顺手又生成一份 SHA-256 校验和，但后面没有任何命令会读取它。Stop That Shit。</strong><br>
-  Stop That Shit（别再造史了）处理 AI coding agent 自己加出来的防御性工作和任务越界，支持 Codex、Claude Code、OpenCode 和 Hermes Agent CLI。<br>
+  Stop That Shit（别再造史了）处理 AI coding agent 自己加出来的防御性工作和任务越界，支持 Codex、Claude Code、OpenCode、Hermes Agent CLI 和 Pi。<br>
   <a href="#快速安装">安装</a> ·
   <a href="#bad-case--good-case">Bad / Good Case</a> ·
   <a href="cases/README.md">案例库</a> ·
@@ -25,7 +26,7 @@
   <a href="README_EN.md">English</a>
 </p>
 
-这份校验和生成了，任务却没有少做一步，后面的流程也完全一样。换个任务，多出来的可能是 guard、兼容层、全量测试或额外流程。Codex、Claude Code、OpenCode 和 Hermes Agent CLI 都可能这么做：每一步单看都有理由，但用户没要求，当前任务也用不上。
+这份校验和生成了，任务却没有少做一步，后面的流程也完全一样。换个任务，多出来的可能是 guard、兼容层、全量测试或额外流程。Codex、Claude Code、OpenCode、Hermes Agent CLI 和 Pi 都可能这么做：每一步单看都有理由，但用户没要求，当前任务也用不上。
 
 我也试过不断往 `AGENTS.md` 里补「不要乱改」「别过度设计」「没让我做的先别做」。规则越补越长，`AGENTS.md` 自己也开始造史。Stop That Shit 把其中能明确判断的边界做成 Skill 和可执行 Guard。
 
@@ -50,11 +51,11 @@ Event: evt_...
 
 ## 从 Codex + GPT-5.6 开始，现在覆盖多种 Agent
 
-项目从 Codex 起步：公开记录保留了 Codex CLI `0.145.0` + `gpt-5.6-sol` 的探索运行，以及 Codex CLI `0.147.0` + `gpt-5.6-luna` 的定向 pilot。现在四个 Adapter 共用同一套任务边界核心；Codex 安装方式、GPT-5.6 记录和 paired eval 见 [EVIDENCE.md](EVIDENCE.md) 与 [Codex 对照测试](evals/codex-paired/README.md)。
+项目从 Codex 起步：公开记录保留了 Codex CLI `0.145.0` + `gpt-5.6-sol` 的探索运行，以及 Codex CLI `0.147.0` + `gpt-5.6-luna` 的定向 pilot。现在五个 Adapter 共用同一套任务边界核心；Codex 安装方式、GPT-5.6 记录和 paired eval 见 [EVIDENCE.md](EVIDENCE.md) 与 [Codex 对照测试](evals/codex-paired/README.md)。
 
 ## 快速安装
 
-需要 Node.js 18+。完整安装说明见 [INSTALL.md](INSTALL.md)。
+一般宿主需要 Node.js 18+；Pi 0.84.4 自身要求 Node.js 22.19+。完整安装说明见 [INSTALL.md](INSTALL.md)。
 
 ### Claude Code
 
@@ -109,6 +110,24 @@ hermes gateway restart
 
 这些操作不需要每次使用插件时重复。只有启用、禁用、更新、回滚或重装插件后，
 才需要重启对应的 Hermes 进程。
+
+### Pi Coding Agent
+
+当前适配固定验证 `@earendil-works/pi-coding-agent` `0.84.4`。从包含该
+Adapter 的本地 checkout 安装：
+
+```bash
+pi install /absolute/path/to/stop-that-shit
+```
+
+启动新的 Pi 进程，或修改资源后在 TUI 执行 `/reload`。然后使用：
+
+```text
+/skill:stop-that-shit review -- Review 这个 diff，只报告问题，不要修改。
+```
+
+带 Pi Adapter 的 tag 发布后，再改用固定 Git tag 安装；不要把当前不含 Pi
+Adapter 的 `0.1.0` tag 当成 Pi 版本。详见 [INSTALL.md](INSTALL.md#pi-coding-agent)。
 
 ## Bad Case / Good Case
 
@@ -216,7 +235,7 @@ Hook 必须收到受支持的事件和足够的输入才能判断。它不会看
 
 ## Skill + Hook + Adapter 如何工作
 
-Skill 负责语义判断，Hook 在工具运行前检查明确边界，Adapter 把 Codex、Claude Code、OpenCode 和 Hermes Agent CLI 的事件翻译成同一套决策接口。其他 harness 需要提供等价的 before-action 事件；接口见 [HOST-ADAPTER-CONTRACT.md](HOST-ADAPTER-CONTRACT.md)。
+Skill 负责语义判断，Hook 在工具运行前检查明确边界，Adapter 把 Codex、Claude Code、OpenCode、Hermes Agent CLI 和 Pi 的事件翻译成同一套决策接口。其他 harness 需要提供等价的 before-action 事件；接口见 [HOST-ADAPTER-CONTRACT.md](HOST-ADAPTER-CONTRACT.md)。
 
 ## 覆盖边界与公开证据
 

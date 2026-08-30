@@ -2,7 +2,12 @@
 
 ## Unreleased
 
-No unreleased changes yet.
+- Add a Pi package adapter for `@earendil-works/pi-coding-agent`, tested against
+  `0.84.4`. It maps `input`, `before_agent_start`, `tool_call`, and `tool_result`
+  to the shared controller, packages the existing Skill, and keeps unknown
+  third-party tools conservative under non-mutating contracts.
+- Count the documented optional Pi `subagent` single, parallel, and chain forms
+  at the parent tool call. Cross-process contract inheritance is not claimed.
 
 ## 0.1.0 — 2026-08-20 (First Multi-platform Release / 首个多平台版本)
 

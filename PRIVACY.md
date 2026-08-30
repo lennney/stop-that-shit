@@ -3,8 +3,8 @@
 Stop That Shit is local-only. It has no telemetry, cloud service, transcript
 upload, or analytics endpoint.
 
-The plugin stores contract state and append-only runtime evidence in the
-host-owned plugin data directory. Runtime events are metadata-only: event time,
+The plugin stores contract state and append-only runtime evidence in a
+host-owned data or configuration directory. Runtime events are metadata-only: event time,
 a derived session key, plugin/control revision, tool name, mutability, path
 count, boolean hash/dependency intent, bounded contract fields, the Guard
 decision, and the response returned to the host.

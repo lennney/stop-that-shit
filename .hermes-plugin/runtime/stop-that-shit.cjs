@@ -783,7 +783,10 @@ module.exports = {
   "name": "stop-that-shit",
   "version": "0.1.0",
   "private": true,
-  "description": "Stop unneeded scope, subagents, dependencies, and hashes in Codex, Claude Code, OpenCode, and Hermes Agent CLI tasks",
+  "description": "Stop unneeded scope, subagents, dependencies, and hashes in Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi tasks",
+  "keywords": [
+    "pi-package"
+  ],
   "license": "MIT",
   "main": "./opencode/stop-that-shit.mjs",
   "exports": {
@@ -792,6 +795,7 @@ module.exports = {
   },
   "files": [
     "opencode/",
+    "pi/",
     "src/",
     "hooks/",
     ".hermes-plugin/",
@@ -801,13 +805,21 @@ module.exports = {
     "PRIVACY.md",
     "README.md"
   ],
+  "pi": {
+    "extensions": [
+      "./pi/stop-that-shit.ts"
+    ],
+    "skills": [
+      "./skills/stop-that-shit"
+    ]
+  },
   "scripts": {
     "schema:build": "node scripts/build-case-bundle-validator.cjs",
     "schema:check": "node scripts/build-case-bundle-validator.cjs --check",
     "pretest": "npm run schema:check",
     "hermes:build": "node scripts/build-hermes-plugin.cjs",
     "hermes:check": "node scripts/build-hermes-plugin.cjs --check",
-    "test": "node --test test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/paired-eval.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs",
+    "test": "node --test test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs",
     "sts": "node scripts/sts.cjs",
     "eval": "node scripts/evaluate-cases.cjs",
     "eval:paired": "node scripts/run-paired-eval.cjs",
@@ -817,6 +829,14 @@ module.exports = {
   "engines": {
     "node": ">=18",
     "opencode": ">=1.18.18"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "ajv": "^8.20.0"
@@ -1372,7 +1392,10 @@ __modules["package.json"] = function(module) { module.exports = {
   "name": "stop-that-shit",
   "version": "0.1.0",
   "private": true,
-  "description": "Stop unneeded scope, subagents, dependencies, and hashes in Codex, Claude Code, OpenCode, and Hermes Agent CLI tasks",
+  "description": "Stop unneeded scope, subagents, dependencies, and hashes in Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi tasks",
+  "keywords": [
+    "pi-package"
+  ],
   "license": "MIT",
   "main": "./opencode/stop-that-shit.mjs",
   "exports": {
@@ -1381,6 +1404,7 @@ __modules["package.json"] = function(module) { module.exports = {
   },
   "files": [
     "opencode/",
+    "pi/",
     "src/",
     "hooks/",
     ".hermes-plugin/",
@@ -1390,13 +1414,21 @@ __modules["package.json"] = function(module) { module.exports = {
     "PRIVACY.md",
     "README.md"
   ],
+  "pi": {
+    "extensions": [
+      "./pi/stop-that-shit.ts"
+    ],
+    "skills": [
+      "./skills/stop-that-shit"
+    ]
+  },
   "scripts": {
     "schema:build": "node scripts/build-case-bundle-validator.cjs",
     "schema:check": "node scripts/build-case-bundle-validator.cjs --check",
     "pretest": "npm run schema:check",
     "hermes:build": "node scripts/build-hermes-plugin.cjs",
     "hermes:check": "node scripts/build-hermes-plugin.cjs --check",
-    "test": "node --test test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/paired-eval.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs",
+    "test": "node --test test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs",
     "sts": "node scripts/sts.cjs",
     "eval": "node scripts/evaluate-cases.cjs",
     "eval:paired": "node scripts/run-paired-eval.cjs",
@@ -1406,6 +1438,14 @@ __modules["package.json"] = function(module) { module.exports = {
   "engines": {
     "node": ">=18",
     "opencode": ">=1.18.18"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "ajv": "^8.20.0"
