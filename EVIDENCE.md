@@ -203,10 +203,7 @@ were run after the null result.
 
 ## Not yet verified
 
-The following remain unverified. They are follow-up observations, not 0.1.1
-release gates, because this release does not claim routing accuracy, a model
-effect improvement, or an observed host-blocking rate. A dry-run plan is not a
-live result.
+The following remain unverified. A dry-run plan is not a live result.
 
 - a multi-scenario live baseline/plugin matrix for the reduced candidate;
 - a complete live implicit-routing matrix (22 cells for one run) and the

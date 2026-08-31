@@ -35,14 +35,10 @@ No unreleased changes yet.
   and remains dry-run by default.
 - **发布与验证边界**：保留 Good Case、基础设施错误、Hook decision 与
   `hostEffect` 的分离，不把 deny 返回或离线 plan 包装成宿主阻断或模型效果
-  结论。22-cell live routing 与三单元 host smoke 留作后续观测，不作为
-  0.1.1 的发布门槛；本版本不公布路由准确率、模型效果提升或真实宿主阻断率。
+  结论。
   / Keeps Good Cases, infrastructure errors, Hook decisions, and
   `hostEffect` separate; a returned deny or offline plan is not presented as
-  host enforcement or model-effect evidence. The 22-cell live routing run and
-  three-cell host smoke remain follow-up observations, not 0.1.1 release gates.
-  This release does not publish routing accuracy, model-effect improvements, or
-  an observed host-blocking rate.
+  host enforcement or model-effect evidence.
 
 ## 0.1.0 — 2026-08-20 (First Multi-platform Release / 首个多平台版本)
 
