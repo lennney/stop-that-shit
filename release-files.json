@@ -16,6 +16,7 @@
     "evals/codex-paired/cases",
     "evals/codex-paired/host-smoke",
     "evals/codex-paired/routing",
+    "evals/stss",
     "HOST-ADAPTER-CONTRACT.md",
     "INSTALL.md",
     "INSTALL_FOR_AGENTS.md",

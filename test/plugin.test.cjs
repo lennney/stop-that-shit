@@ -9,12 +9,15 @@ const test = require('node:test');
 
 const root = path.join(__dirname, '..');
 
-test('Codex plugin manifest and its preserved hook discovery paths exist', () => {
+test('Codex plugin manifest discovers both Skills and preserves its hook paths', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, '.codex-plugin', 'plugin.json'), 'utf8'));
   const hooks = JSON.parse(fs.readFileSync(path.join(root, 'hooks', 'codex-hooks.json'), 'utf8'));
   assert.equal(manifest.name, 'stop-that-shit');
+  assert.equal(manifest.skills, './skills/');
   assert.equal(manifest.hooks, './hooks/codex-hooks.json');
   assert.ok(fs.existsSync(path.join(root, 'skills', 'stop-that-shit', 'SKILL.md')));
+  assert.ok(fs.existsSync(path.join(root, 'skills', 'stss', 'SKILL.md')));
+  assert.ok(manifest.interface.defaultPrompt.some((prompt) => prompt.startsWith('$stss rewrite --')));
   assert.deepEqual(Object.keys(hooks.hooks).sort(), ['PreToolUse', 'UserPromptSubmit']);
 });
 

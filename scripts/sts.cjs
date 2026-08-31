@@ -11,6 +11,7 @@ const { recordAnnotation } = require('../src/runtime-annotations.cjs');
 const { validateCaseBundle } = require('./case-bundle-lib.cjs');
 
 const root = path.resolve(__dirname, '..');
+const latestReleaseEndpoint = 'https://api.github.com/repos/lennney/stop-that-shit/releases/latest';
 
 function parseArgs(argv) {
   const positional = [];
@@ -20,6 +21,7 @@ function parseArgs(argv) {
     if (value === '--data-dir') options.dataDir = argv[++index];
     else if (value === '--id') options.id = argv[++index];
     else if (value === '--output') options.output = argv[++index];
+    else if (value === '--check-update') options.checkUpdate = true;
     else positional.push(value);
   }
   return { positional, options };
@@ -40,12 +42,29 @@ function print(value) {
   process.stdout.write(`${typeof value === 'string' ? value : JSON.stringify(value, null, 2)}\n`);
 }
 
-function doctor(dataDir) {
+async function latestRelease() {
+  const response = await fetch(latestReleaseEndpoint, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'stop-that-shit-update-check',
+      'X-GitHub-Api-Version': '2026-03-10'
+    },
+    signal: AbortSignal.timeout(10_000)
+  });
+  if (!response.ok) throw new Error(`release lookup failed: HTTP ${response.status}`);
+  const release = await response.json();
+  if (typeof release.tag_name !== 'string' || typeof release.html_url !== 'string') {
+    throw new Error('release lookup returned an invalid response');
+  }
+  return { latest: release.tag_name, releaseUrl: release.html_url };
+}
+
+async function doctor(dataDir, options = {}) {
   const runtimeDir = path.join(dataDir, 'runtime');
   const files = fs.existsSync(runtimeDir)
     ? fs.readdirSync(runtimeDir).filter((name) => name.endsWith('.jsonl'))
     : [];
-  return {
+  const result = {
     schemaVersion: 1,
     pluginVersion: packageJson.version,
     dataDir,
@@ -55,6 +74,8 @@ function doctor(dataDir) {
     privacy: 'metadata-only/local-only',
     hostEffect: 'unobserved'
   };
+  if (!options.checkUpdate) return result;
+  return { ...result, installed: packageJson.version, ...await latestRelease() };
 }
 
 function newCase(id, output) {
@@ -86,12 +107,12 @@ function newCase(id, output) {
   return { schemaVersion: 1, created: target, valid: false, next: 'Add sanitized fixtures and deterministic acceptance, then confirm privacyReview.' };
 }
 
-function main() {
+async function main() {
   const { positional, options } = parseArgs(process.argv.slice(2));
   const [command, subcommand, ...rest] = positional;
   const dataDir = resolveDataDir(options.dataDir);
 
-  if (command === 'doctor') return print(doctor(dataDir));
+  if (command === 'doctor') return print(await doctor(dataDir, options));
   if (command === 'runtime') return print(readRuntime({}, { dataDir }));
   if (command === 'explain') {
     const runtime = readRuntime({ eventId: subcommand }, { dataDir });
@@ -114,7 +135,7 @@ function main() {
   }
   throw new Error([
     'Usage:',
-    '  npm run sts -- doctor [--data-dir <path>]',
+    '  npm run sts -- doctor [--check-update] [--data-dir <path>]',
     '  npm run sts -- runtime [--data-dir <path>]',
     '  npm run sts -- explain <eventId> [--data-dir <path>]',
     '  npm run sts -- label <eventId> correct|incorrect|inconclusive [--data-dir <path>]',
@@ -123,9 +144,7 @@ function main() {
   ].join('\n'));
 }
 
-try {
-  main();
-} catch (error) {
+main().catch((error) => {
   process.stderr.write(`sts failed: ${error.message}\n`);
   process.exitCode = 1;
-}
+});

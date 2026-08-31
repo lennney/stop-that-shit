@@ -5,23 +5,19 @@
 <h1 align="center">Stop That Shit（别再造史了）</h1>
 
 <p align="center">
-  <a href="https://github.com/lennney/stop-that-shit/stargazers"><img src="https://img.shields.io/github/stars/lennney/stop-that-shit?style=flat-square&color=111111&label=stars" alt="GitHub stars"></a>
   <a href="https://github.com/lennney/stop-that-shit/releases"><img src="https://img.shields.io/github/v/release/lennney/stop-that-shit?include_prereleases&sort=semver&style=flat-square&color=111111&label=release" alt="Latest release"></a>
-  <a href="https://github.com/lennney/stop-that-shit/actions/workflows/ci.yml"><img src="https://github.com/lennney/stop-that-shit/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/works%20with-Codex-111111?style=flat-square" alt="Works with Codex">
-  <img src="https://img.shields.io/badge/works%20with-Claude%20Code-111111?style=flat-square" alt="Works with Claude Code">
-  <img src="https://img.shields.io/badge/works%20with-OpenCode-111111?style=flat-square" alt="Works with OpenCode">
-  <img src="https://img.shields.io/badge/works%20with-Hermes%20Agent%20CLI-111111?style=flat-square" alt="Works with Hermes Agent CLI">
-  <img src="https://img.shields.io/badge/works%20with-Pi-111111?style=flat-square" alt="Works with Pi">
+  <a href="https://github.com/lennney/stop-that-shit/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/lennney/stop-that-shit/ci.yml?branch=main&style=flat-square&label=build" alt="Build status"></a>
   <img src="https://img.shields.io/github/license/lennney/stop-that-shit?style=flat-square&color=111111" alt="MIT license">
 </p>
 
 <p align="center">
   <strong>You asked an agent for one output file. It also generated a SHA-256 checksum that no later command reads. Stop That Shit.</strong><br>
-  Stops unrequested defensive work and task-boundary drift invented by AI coding agents. Supports Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi.<br>
+  Stops unrequested defensive work and task-boundary drift invented by AI coding agents.<br>
+  Supports <a href="INSTALL.md#codex-skill--guard">Codex</a>, <a href="INSTALL.md#claude-code-skill--guard">Claude Code</a>, <a href="INSTALL.md#opencode-install-from-github">OpenCode</a>, <a href="INSTALL.md#hermes-agent-cli">Hermes Agent CLI</a>, and <a href="INSTALL.md#pi-coding-agent">Pi</a>.<br>
   <a href="#quick-install">Install</a> ·
   <a href="#bad-case--good-case">Bad / Good Case</a> ·
   <a href="cases/README.md">Cases</a> ·
+  <a href="#020-from-one-extra-action-to-one-extra-sentence">0.2.0</a> ·
   <a href="CONTRIBUTING.md">Contribute</a> ·
   <a href="README.md">中文</a>
 </p>
@@ -50,10 +46,28 @@ State: ARMED / review
 Event: evt_...
 ```
 
-Version [`0.1.1`](https://github.com/lennney/stop-that-shit/releases/tag/0.1.1)
-adds Pi to the first multi-platform release. Codex, Claude Code, OpenCode,
-Hermes Agent CLI, and Pi share the same Guard, Skill, paired cases, and
-metadata-only local Runtime through five host Adapters.
+## 0.2.0: From one extra action to one extra sentence
+
+Version 0.1.x handles the action side of SHIT: an unread `.sha256`, a compatibility layer for an imagined future, or an edit during a review.
+
+Version 0.2.0 applies the same test to writing. An agent drafting a proposal starts answering a critic who is not there. It says the work is not a complete study, does not cover every case, and may not apply to everyone. These sentences spend tokens without changing a decision.
+
+Extra work is defense through action. Extra prose is defense through words.
+An unread checksum and a disclaimer that changes no decision have the same problem: neither has a consumer.
+
+The Stop Ladder still asks whether an action should exist. The new **Stop That Shit Slop** Skill uses the Sentence Consumer Test to decide whether defensive wording should be removed, tightened, or kept.
+
+> Why does an agent keep defending itself against a critic who is not there?
+>
+> “This is not a complete study.” “It does not cover every case.” “It may not apply to everyone.”
+>
+> I did not ask.
+>
+> Stop spending my tokens on defensive prose for an imaginary critic.
+>
+> Stop That Shit 0.2.0 adds Stop That Shit Slop: decide whether a sentence should be removed, tightened, or kept.
+
+Version `0.2.0` keeps the Stop Ladder, Guard, five host Adapters, and paired cases. It adds Stop That Shit Slop as a standalone Skill.
 
 | Start with | What it adds | Friction |
 | --- | --- | --- |
@@ -92,11 +106,11 @@ Restart Claude Code or run `/reload-plugins`, then invoke:
 ### Codex
 
 ```bash
-codex plugin marketplace add lennney/stop-that-shit --ref 0.1.1
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.0
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
-`--ref 0.1.1` pins the install to the published release instead of mutable
+`--ref 0.2.0` pins the install to a version tag instead of mutable
 `main`. Restart Codex. In a fresh CLI TUI, enter `/hooks` and trust
 `UserPromptSubmit` and `PreToolUse` after inspecting their commands. You can
 also give [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) to Codex for the
@@ -153,7 +167,7 @@ invoke:
 /skill:stop-that-shit review -- Review this diff. Report findings; do not edit.
 ```
 
-The `0.1.1` tag includes the Pi adapter. See [INSTALL.md](INSTALL.md#pi-coding-agent).
+The `0.2.0` tag includes the Pi adapter and both Skills. See [INSTALL.md](INSTALL.md#pi-coding-agent).
 
 ## Bad Case / Good Case
 
@@ -174,20 +188,18 @@ migration. A release pipeline can require a checksum. A shared contract can
 require a broad test run. If the user or repository supplies the reason, that
 work stays.
 
-## SHIT happens
+## What SHIT means
 
-The name labels four ways a bounded task gets away from you:
+A bounded task commonly escapes in four directions:
 
-| | Failure | A familiar shape |
+| | Failure | Familiar shape |
 | --- | --- | --- |
 | **S** | Scope creep | One fix turns into a refactor. |
-| **H** | Hashing and hypothetical hardening | Unused digests, defenses, or caveats. |
+| **H** | Hashing and hypothetical hardening | An unused digest, defense, or disclaimer. |
 | **I** | Intent violation | A review or question turns into an edit. |
-| **T** | Task thrashing | Codex rereads, retests, or re-reviews settled work. |
+| **T** | Task thrashing | Settled work gets reread, retested, or reviewed again. |
 
-The plugin does not count lines or reward smaller diffs. It asks whether each
-extra action is requested or required by reachable code, data, and acceptance
-criteria.
+Stop That Shit does not count lines or reward smaller diffs. It asks whether each extra action is requested or required by reachable code, data, and acceptance criteria.
 
 Common examples include checksums and guards with no consumer; user-facing
 caveats copied from inactive internal risks; rubrics and audit loops where the
@@ -209,11 +221,11 @@ ALLOW
 Use a digest to skip rereading an unchanged large file.
 ```
 
-`0.1.1` denies a recognized new hash operation by default. Use `hash=allow`
+The current version denies a recognized new hash operation by default. Use `hash=allow`
 when the user or the repository supplies the missing job. The Hook does not try
 to infer that job from code it has not seen.
 
-## Use it
+## Use Stop That Shit
 
 Most tasks need one line. Claude Code plugin:
 
@@ -283,10 +295,12 @@ The agent reports or defers the extra work when the answers do not support it.
 
 ## How the Skill, Hooks, and Adapters work
 
-The Skill handles semantic choices, Hooks check explicit boundaries before tool
-use, and Adapters translate Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi events into one
-decision interface. Other harnesses need an equivalent before-action event; see
-[HOST-ADAPTER-CONTRACT.md](HOST-ADAPTER-CONTRACT.md).
+The Stop That Shit Skill applies the Stop Ladder. Hooks check explicit boundaries
+before tool use. Adapters translate Codex, Claude Code, OpenCode, Hermes Agent CLI,
+and Pi events into one decision interface. Other harnesses need an equivalent
+before-action event; see [HOST-ADAPTER-CONTRACT.md](HOST-ADAPTER-CONTRACT.md).
+
+STSS applies the Sentence Consumer Test. It needs no before-action Hook, so it can ship alone.
 
 ## Coverage and public evidence
 
@@ -299,9 +313,123 @@ plugin; the document records this as a field observation, separate from paired
 eval. The local Runtime stores metadata only and separates checked actions,
 context responses, permission denies, and `hostEffect: unobserved`.
 
+The twelve fixed STSS responses provide rule and regression acceptance. See the six
+[STSS examples](skills/stss/references/examples.md) for the complete case set.
+
+## Choose your Skill
+
+| Skill | Where the agent stops | Common entry point |
+| --- | --- | --- |
+| **Stop That Shit** | Scope creep, intent violations, unused defensive engineering, and repeated audits | `$stop-that-shit review -- ...` |
+| **Stop That Shit Slop** | Defensive disclaimers, hedge stacks, and self-defense with no decision use | `$stss rewrite -- ...` |
+
+Install both Skills or use either one alone.
+
+## One test: who consumes it?
+
+Stop That Shit uses the Stop Ladder for actions:
+
+1. Did the user ask for it?
+2. Can the current result succeed without it?
+3. Which code, data, deployment state, or acceptance condition requires it?
+4. Would omitting it fail current acceptance?
+
+STSS applies the same test to sentences:
+
+1. Who uses this sentence?
+2. Which decision does it change?
+3. What becomes false or misleading if it is removed?
+
+STSS records the facts, numbers, sources, actors, and evidence strength in a Claim Ledger.
+It then chooses `DROP`, `CALIBRATE`, `RELOCATE`, or `KEEP`.
+Claim Diff checks that facts and numbers remain, evidence is not invented, and correlation does not become causation.
+
+## What 0.2.0 adds
+
+- A standalone `stss` Skill.
+- The existing `$stop-that-shit` entry point and Guard contract remain unchanged. STSS is an optional addition.
+- Two modes: `rewrite` edits the text; `audit` reports findings and the smallest fix.
+- Six Good/Bad CaseBundle families, twelve synthetic fixtures, and matching fixed offline responses.
+- Full-plugin discovery and a standalone STSS install path.
+- An explicit version query: `sts doctor --check-update`.
+
+## Stop That Shit Slop: standalone install and invocation
+
+### Standalone install
+
+From the current repository root:
+
+```bash
+npx skills add ./skills/stss --global
+```
+
+This installs Stop That Shit Slop without a Hook.
+
+### Invoke it
+
+Without a mode, STSS defaults to `rewrite` for supplied text. `audit` reports findings and the smallest fix without rewriting the full artifact.
+
+| Host | Rewrite | Audit |
+| --- | --- | --- |
+| Codex | `$stss rewrite -- Make this proposal direct.` | `$stss audit -- Find defensive padding.` |
+| Claude Code plugin | `/stop-that-shit:stss rewrite -- ...` | `/stop-that-shit:stss audit -- ...` |
+| Standalone Claude Skill | `/stss rewrite -- ...` | `/stss audit -- ...` |
+| Pi | `/skill:stss rewrite -- ...` | `/skill:stss audit -- ...` |
+
+The original task-boundary entry point stays the same:
+
+```text
+$stop-that-shit review -- Review this diff. Report findings; do not edit.
+$stop-that-shit change -- Fix the failing configuration test.
+$stop-that-shit change hash=allow -- Generate the release checksum I requested.
+```
+
+## Three cases: what STSS reduces and keeps
+
+These synthetic cases use the same inputs and boundaries as the fixed offline acceptance set.
+
+### 1. DROP: remove a defense with no consumer
+
+```text
+INPUT   We should note that this limited first-round pilot is not intended to prove the
+        approach works in every setting. In 120 tickets, 24-hour completion rose from
+        68% to 76% after automatic triage was introduced.
+
+OUTPUT  In the first 120-ticket pilot, 24-hour completion rose from 68% to 76% after
+        automatic triage was introduced.
+```
+
+The sample, metric, and observation remain. The imaginary universal claim is gone.
+
+### 2. CALIBRATE: collapse four hedges into one real condition
+
+```text
+INPUT   We may perhaps potentially be able to finish the migration in roughly six to
+        eight weeks, depending on access approval.
+
+OUTPUT  We estimate six to eight weeks, subject to access approval.
+```
+
+The range and dependency remain. Only the repeated hedging is reduced.
+
+### 3. KEEP: approval uses this sentence
+
+```text
+INPUT   In an internal pilot covering 120 tickets, 24-hour completion rose from 68% to
+        76% after automatic triage was introduced. The approving manager needs the
+        proposal to state that this internal pilot does not represent general deployment.
+
+OUTPUT  In the internal 120-ticket pilot, 24-hour completion rose from 68% to 76% after
+        automatic triage was introduced. This internal pilot does not represent general deployment.
+```
+
+This limitation changes the approval decision, so it stays.
+
+See the six [STSS examples](skills/stss/references/examples.md) and their executable [`evals/stss`](evals/stss) counterparts.
+
 ## Optional: Skill only
 
-If you do not want command Hooks, install only the advisory Skill. For Claude Code:
+If you do not want command Hooks, install only the Stop That Shit advisory Skill. For Claude Code:
 
 ```bash
 mkdir -p ~/.claude/skills/stop-that-shit
@@ -311,12 +439,14 @@ cp skills/stop-that-shit/SKILL.md ~/.claude/skills/stop-that-shit/SKILL.md
 For Codex, the remote Skill Installer path is:
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.1.1/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.0/skills/stop-that-shit
 ```
 
 Start a new task, then invoke the host-native Skill form. A standalone Claude Code skill is `/stop-that-shit`; an installed plugin skill is namespaced as `/stop-that-shit:stop-that-shit`; Codex uses `$stop-that-shit`. This path needs no Hook trust,
 but it cannot enforce a task boundary or change the host sandbox and approval
 settings.
+
+For the standalone STSS path, see [Stop That Shit Slop](#stop-that-shit-slop-standalone-install-and-invocation) above.
 
 ## Local verification
 
@@ -330,6 +460,25 @@ npm run release:check
 The paired command prints a 144-cell plan and starts no model runs by default.
 Live runs require a dedicated Codex home with only this plugin enabled. See
 [the paired Codex eval](evals/codex-paired/README.md) before using `--run`.
+
+## Check for updates manually
+
+After installing the package executable, run:
+
+```bash
+sts doctor --check-update
+```
+
+Use the equivalent command in a source checkout:
+
+```bash
+npm run sts -- doctor --check-update
+```
+
+Only this explicit command queries GitHub Releases.
+It returns `installed`, `latest`, and `releaseUrl`.
+It does not install an update or display reminders during startup or tasks.
+A standalone STSS installation remains under its host or Skill Installer update flow.
 
 ## Help coding agents stop at the boundary
 
@@ -347,7 +496,9 @@ report -> counterexample -> reproduction -> enforcement
 
 In a useful pair, one fact changes and the rest of the task stays the same. The
 Bad Case marks where Codex should stop; the Good Case preserves necessary work.
-Only reproducible, high-confidence parts enter the Guard.
+Only reproducible, high-confidence parts enter the Guard. STSS writing cases use
+the same rule: public fixtures must be synthetic or sanitized and name the reader
+decision that changes.
 
 Start with the [case catalogue](cases/README.md) and
 [contribution guide](CONTRIBUTING.md). Remove private code, secrets, account

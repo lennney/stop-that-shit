@@ -1,7 +1,7 @@
 {
   "name": "stop-that-shit",
-  "version": "0.1.1",
-  "description": "Stop unneeded scope, subagents, dependencies, and hashes in Codex tasks.",
+  "version": "0.2.0",
+  "description": "Keep Codex tasks bounded and reduce defensive wording with local-first guardrails and two Skills.",
   "author": {
     "name": "Stop That Shit contributors",
     "url": "https://github.com/lennney"
@@ -19,8 +19,8 @@
   "hooks": "./hooks/codex-hooks.json",
   "interface": {
     "displayName": "Stop That Shit（别再造史了）",
-    "shortDescription": "Stop small Codex tasks from growing extra machinery.",
-    "longDescription": "Stop That Shit runs locally and blocks unneeded scope, subagents, dependencies, and hashes in Codex tasks.",
+    "shortDescription": "Bound agent work and reduce defensive writing.",
+    "longDescription": "Stop That Shit runs locally. Its Guard blocks covered unneeded actions, and its optional STSS Skill reduces defensive wording in decision-facing text.",
     "developerName": "Stop That Shit contributors",
     "category": "Productivity",
     "capabilities": [
@@ -36,7 +36,8 @@
     "defaultPrompt": [
       "$stop-that-shit review -- Review this diff. Report findings; do not edit.",
       "$stop-that-shit change -- Fix the failing test only.",
-      "$stop-that-shit lock change agents=0 -- Make the requested change without delegation."
+      "$stop-that-shit lock change agents=0 -- Make the requested change without delegation.",
+      "$stss rewrite -- Make this proposal direct."
     ]
   }
 }

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "responses": {
+    "proposal-disclaimer-bad": "In the first 120-ticket pilot, 24-hour completion rose from 68% to 76% after automatic triage was introduced.",
+    "proposal-disclaimer-good": "In the internal 120-ticket pilot, 24-hour completion rose from 68% to 76% after automatic triage was introduced. This internal pilot does not represent general deployment.",
+    "hedge-stack-bad": "We estimate six to eight weeks, subject to access approval.",
+    "hedge-stack-good": "The estimated migration time is six to eight weeks after access approval.",
+    "negative-scope-bad": "This proposal covers intake, routing, and escalation.",
+    "negative-scope-good": "This proposal covers intake, routing, and escalation; billing remains out of scope.",
+    "diligence-narration-bad": "Start with the two highest-volume queues.",
+    "diligence-narration-good": "Start with the two highest-volume queues. Rank them by ticket counts from the previous 30 days.",
+    "hollow-claim-bad": "CALIBRATE — The claim supplies no mechanism or measured outcome. Replace it with the actual mechanism and evidence, or remove it.",
+    "hollow-claim-good": "Matching request IDs reduced duplicate tickets by 14% in the pilot.",
+    "causal-boundary-bad": "During the observational pilot, 24-hour completion rose from 68% to 76% after automatic triage was introduced.",
+    "causal-boundary-good": "In the randomized comparison, automatic triage increased completion from 68% in the control group to 76%."
+  }
+}

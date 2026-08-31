@@ -105,15 +105,27 @@ if (!packageJson.files?.includes('opencode/') || !packageJson.files?.includes('s
 if (!packageJson.engines?.opencode) fail('package does not declare its OpenCode engine');
 if (!fs.existsSync(path.join(root, openCodeEntrypoint))) fail('OpenCode package entrypoint is missing');
 
+const stsEntrypoint = './scripts/sts.cjs';
+const stsPackageFiles = [
+  'scripts/sts.cjs',
+  'scripts/case-bundle-lib.cjs',
+  'scripts/generated/case-bundle-v1-validator.cjs'
+];
+if (packageJson.bin?.sts !== stsEntrypoint) fail('package does not expose the sts command');
+for (const stsPath of stsPackageFiles) {
+  if (!packageJson.files?.includes(stsPath)) fail(`package files omit the sts runtime: ${stsPath}`);
+  if (!fs.existsSync(path.join(root, stsPath))) fail(`sts runtime path is missing: ${stsPath}`);
+}
+
 const piEntrypoint = './pi/stop-that-shit.ts';
-const piSkill = './skills/stop-that-shit';
+const piSkills = ['./skills/stop-that-shit', './skills/stss'];
 const testedPiVersion = '0.84.4';
 if (!packageJson.keywords?.includes('pi-package')) fail('package keywords omit pi-package');
 if (packageJson.pi?.extensions?.length !== 1 || packageJson.pi.extensions[0] !== piEntrypoint) {
   fail('Pi package manifest does not point at the single Pi Extension entrypoint');
 }
-if (packageJson.pi?.skills?.length !== 1 || packageJson.pi.skills[0] !== piSkill) {
-  fail('Pi package manifest does not point at the shared Skill');
+if (JSON.stringify(packageJson.pi?.skills) !== JSON.stringify(piSkills)) {
+  fail('Pi package manifest does not point at both shared Skills');
 }
 if (packageJson.peerDependencies?.['@earendil-works/pi-coding-agent'] !== '*') {
   fail('Pi core package must use the loader-provided * peer dependency');
@@ -122,7 +134,7 @@ if (!packageJson.peerDependenciesMeta?.['@earendil-works/pi-coding-agent']?.opti
   fail('Pi peer dependency must stay optional for non-Pi host installs');
 }
 if (!packageJson.files?.includes('pi/')) fail('package files omit the Pi Extension');
-for (const piPath of [piEntrypoint, piSkill]) {
+for (const piPath of [piEntrypoint, ...piSkills]) {
   if (!fs.existsSync(path.join(root, piPath))) fail(`Pi release path is missing: ${piPath}`);
 }
 const hostContractText = fs.readFileSync(path.join(root, 'HOST-ADAPTER-CONTRACT.md'), 'utf8');
@@ -151,9 +163,17 @@ if (fs.existsSync(path.join(root, hermesPluginRoot, 'hooks'))) {
 
 const selectedFiles = releaseManifest.include.flatMap((entry) => walk(path.join(root, entry)));
 const textExtensions = new Set(['', '.cjs', '.js', '.json', '.md', '.ts', '.txt', '.yaml', '.yml']);
-// Keep rejecting unreleased v-prefixed refs and the next patch draft while
-// allowing the current 0.1.1 release marker in public documentation.
+// Keep historical plain-version entries in CHANGELOG.md and EVIDENCE.md while
+// rejecting stale refs and previous-version markers on current install surfaces.
 const staleVersion = /(?:v0\.1(?:\.\d+)?|0\.1\.2)/i;
+const previousVersion = /0\.1\.1/;
+const currentVersionSurfaces = new Set([
+  'INSTALL.md',
+  'INSTALL_FOR_AGENTS.md',
+  'README.md',
+  'README_EN.md',
+  'SECURITY.md'
+]);
 const privatePath = /(?:[A-Za-z]:\\Users\\|[A-Za-z]:\\object\\|\/Users\/|\/home\/)/;
 const mojibake = /(?:\uFFFD|\u9225|\u6E1F|\u951F)/;
 
@@ -162,6 +182,9 @@ for (const file of selectedFiles) {
   const relative = path.relative(root, file);
   const content = fs.readFileSync(file, 'utf8');
   if (staleVersion.test(content)) fail(`stale public version marker in ${relative}`);
+  if (currentVersionSurfaces.has(relative) && previousVersion.test(content)) {
+    fail(`previous release marker remains on current version surface: ${relative}`);
+  }
   if (privatePath.test(content)) fail(`machine-specific path in ${relative}`);
   if (mojibake.test(content)) fail(`possible mojibake in ${relative}`);
 }

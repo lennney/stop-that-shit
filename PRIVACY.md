@@ -1,7 +1,15 @@
 # Privacy
 
-Stop That Shit is local-only. It has no telemetry, cloud service, transcript
-upload, or analytics endpoint.
+Stop That Shit makes no automatic network requests. It has no telemetry, cloud
+service, transcript upload, or analytics endpoint. The Guard and both Skills
+run locally.
+
+The optional `sts doctor --check-update` command sends one unauthenticated HTTPS
+request to the public GitHub Releases API only when the user invokes it. The
+request identifies this public repository and sends no prompt, transcript,
+runtime event, project path, code, or local configuration. The command returns
+the installed version, latest release tag, and GitHub release URL; it does not
+download or install an update.
 
 The plugin stores contract state and append-only runtime evidence in a
 host-owned data or configuration directory. Runtime events are metadata-only: event time,

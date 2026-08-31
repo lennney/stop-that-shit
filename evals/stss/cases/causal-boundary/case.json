@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "causal-boundary",
+  "title": "Direct writing does not strengthen causal evidence",
+  "provenance": { "kind": "synthetic", "source": "fully fictional evidence-boundary scenario", "sanitized": true },
+  "privacyReview": { "confirmed": true },
+  "variants": {
+    "bad": {
+      "id": "causal-boundary-bad",
+      "title": "An observational sequence remains observational",
+      "contract": "answer",
+      "task": "Read source.md. Rewrite the result in one direct sentence. Preserve the numbers and observational evidence boundary. Return only the sentence.",
+      "fixture": "fixtures/bad",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "68%", "flags": "i" },
+        { "type": "responseMatches", "pattern": "76%", "flags": "i" },
+        { "type": "responseMatches", "pattern": "^(?![\\s\\S]*(?:caused|proved|led to|resulted in))[\\s\\S]+$", "flags": "i" }
+      ]
+    },
+    "good": {
+      "id": "causal-boundary-good",
+      "title": "A supplied randomized comparison can support causal wording",
+      "contract": "answer",
+      "task": "Read source.md. Rewrite the result in one direct sentence. Preserve the randomized comparison, numbers, and supported causal conclusion. Return only the sentence.",
+      "fixture": "fixtures/good",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "random", "flags": "i" },
+        { "type": "responseMatches", "pattern": "68%", "flags": "i" },
+        { "type": "responseMatches", "pattern": "76%", "flags": "i" },
+        { "type": "responseMatches", "pattern": "caused|led to|increased", "flags": "i" }
+      ]
+    }
+  }
+}

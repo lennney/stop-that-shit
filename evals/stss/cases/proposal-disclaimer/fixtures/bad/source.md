@@ -1,0 +1,1 @@
+We should note that this limited first-round pilot is not intended to prove the approach works in every setting. In 120 tickets, 24-hour completion rose from 68% to 76% after automatic triage was introduced.

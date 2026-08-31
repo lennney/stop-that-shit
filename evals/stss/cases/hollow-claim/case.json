@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "hollow-claim",
+  "title": "Expose a hollow claim without inventing specificity",
+  "provenance": { "kind": "synthetic", "source": "fully fictional claim-audit scenario", "sanitized": true },
+  "privacyReview": { "confirmed": true },
+  "variants": {
+    "bad": {
+      "id": "hollow-claim-bad",
+      "title": "An audit asks for evidence instead of making it up",
+      "contract": "review",
+      "task": "Read source.md. Audit the claim. Name the missing support and the smallest fix. Do not invent a mechanism, metric, source, or number.",
+      "fixture": "fixtures/bad",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "mechanism", "flags": "i" },
+        { "type": "responseMatches", "pattern": "evidence|measured outcome", "flags": "i" },
+        { "type": "responseMatches", "pattern": "^(?![\\s\\S]*\\d)[\\s\\S]+$", "flags": "i" }
+      ]
+    },
+    "good": {
+      "id": "hollow-claim-good",
+      "title": "Supplied mechanism and metric replace generic praise",
+      "contract": "answer",
+      "task": "Read source.md. Replace the generic claim with one direct sentence using only the supplied mechanism and measured outcome. Return only the sentence.",
+      "fixture": "fixtures/good",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "duplicate tickets", "flags": "i" },
+        { "type": "responseMatches", "pattern": "14%", "flags": "i" },
+        { "type": "responseMatches", "pattern": "request ID", "flags": "i" }
+      ]
+    }
+  }
+}

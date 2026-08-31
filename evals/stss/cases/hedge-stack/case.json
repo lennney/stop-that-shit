@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "hedge-stack",
+  "title": "Collapse stacked hedging without deleting real uncertainty",
+  "provenance": { "kind": "synthetic", "source": "fully fictional planning scenario", "sanitized": true },
+  "privacyReview": { "confirmed": true },
+  "variants": {
+    "bad": {
+      "id": "hedge-stack-bad",
+      "title": "Repeated qualifiers collapse to one estimate",
+      "contract": "answer",
+      "task": "Read source.md. Rewrite the schedule in one direct sentence. Preserve the range and dependency. Return only the sentence.",
+      "fixture": "fixtures/bad",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "six to eight weeks|6[-–]8 weeks", "flags": "i" },
+        { "type": "responseMatches", "pattern": "access approval", "flags": "i" },
+        { "type": "responseMatches", "pattern": "^(?![\\s\\S]*(?:may perhaps|perhaps potentially|may potentially|might perhaps))[\\s\\S]+$", "flags": "i" }
+      ]
+    },
+    "good": {
+      "id": "hedge-stack-good",
+      "title": "A measured estimate remains qualified",
+      "contract": "answer",
+      "task": "Read source.md. Rewrite it in one direct sentence. Preserve that six to eight weeks is an estimate and access approval is a dependency. Return only the sentence.",
+      "fixture": "fixtures/good",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "estimate|estimated", "flags": "i" },
+        { "type": "responseMatches", "pattern": "six to eight weeks|6[-–]8 weeks", "flags": "i" },
+        { "type": "responseMatches", "pattern": "access approval", "flags": "i" }
+      ]
+    }
+  }
+}

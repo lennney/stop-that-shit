@@ -1,0 +1,1 @@
+In an internal pilot covering 120 tickets, 24-hour completion rose from 68% to 76% after automatic triage was introduced. The approving manager needs the proposal to state that this internal pilot does not represent general deployment.

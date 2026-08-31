@@ -781,14 +781,17 @@ module.exports = { readRuntime, recordDecision };
 "package.json": function(module, exports, __require) {
 module.exports = {
   "name": "stop-that-shit",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
-  "description": "Stop unneeded scope, subagents, dependencies, and hashes in Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi tasks",
+  "description": "Keep agent work bounded and reduce defensive wording in Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi",
   "keywords": [
     "pi-package"
   ],
   "license": "MIT",
   "main": "./opencode/stop-that-shit.mjs",
+  "bin": {
+    "sts": "./scripts/sts.cjs"
+  },
   "exports": {
     ".": "./opencode/stop-that-shit.mjs",
     "./server": "./opencode/stop-that-shit.mjs"
@@ -800,6 +803,9 @@ module.exports = {
     "hooks/",
     ".hermes-plugin/",
     "skills/",
+    "scripts/sts.cjs",
+    "scripts/case-bundle-lib.cjs",
+    "scripts/generated/case-bundle-v1-validator.cjs",
     "INSTALL.md",
     "LICENSE",
     "PRIVACY.md",
@@ -810,7 +816,8 @@ module.exports = {
       "./pi/stop-that-shit.ts"
     ],
     "skills": [
-      "./skills/stop-that-shit"
+      "./skills/stop-that-shit",
+      "./skills/stss"
     ]
   },
   "scripts": {
@@ -819,7 +826,7 @@ module.exports = {
     "pretest": "npm run schema:check",
     "hermes:build": "node scripts/build-hermes-plugin.cjs",
     "hermes:check": "node scripts/build-hermes-plugin.cjs --check",
-    "test": "node --test test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs",
+    "test": "node --test test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs test/stss-skill.test.cjs",
     "sts": "node scripts/sts.cjs",
     "eval": "node scripts/evaluate-cases.cjs",
     "eval:selftest": "node --test test/case-bundle.test.cjs test/paired-eval.test.cjs",
@@ -1393,14 +1400,17 @@ module.exports = { classifyCodexTool, classifyShell, detectDependencyIntent, det
 };
 __modules["package.json"] = function(module) { module.exports = {
   "name": "stop-that-shit",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
-  "description": "Stop unneeded scope, subagents, dependencies, and hashes in Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi tasks",
+  "description": "Keep agent work bounded and reduce defensive wording in Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi",
   "keywords": [
     "pi-package"
   ],
   "license": "MIT",
   "main": "./opencode/stop-that-shit.mjs",
+  "bin": {
+    "sts": "./scripts/sts.cjs"
+  },
   "exports": {
     ".": "./opencode/stop-that-shit.mjs",
     "./server": "./opencode/stop-that-shit.mjs"
@@ -1412,6 +1422,9 @@ __modules["package.json"] = function(module) { module.exports = {
     "hooks/",
     ".hermes-plugin/",
     "skills/",
+    "scripts/sts.cjs",
+    "scripts/case-bundle-lib.cjs",
+    "scripts/generated/case-bundle-v1-validator.cjs",
     "INSTALL.md",
     "LICENSE",
     "PRIVACY.md",
@@ -1422,7 +1435,8 @@ __modules["package.json"] = function(module) { module.exports = {
       "./pi/stop-that-shit.ts"
     ],
     "skills": [
-      "./skills/stop-that-shit"
+      "./skills/stop-that-shit",
+      "./skills/stss"
     ]
   },
   "scripts": {
@@ -1431,7 +1445,7 @@ __modules["package.json"] = function(module) { module.exports = {
     "pretest": "npm run schema:check",
     "hermes:build": "node scripts/build-hermes-plugin.cjs",
     "hermes:check": "node scripts/build-hermes-plugin.cjs --check",
-    "test": "node --test test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs",
+    "test": "node --test test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs test/stss-skill.test.cjs",
     "sts": "node scripts/sts.cjs",
     "eval": "node scripts/evaluate-cases.cjs",
     "eval:selftest": "node --test test/case-bundle.test.cjs test/paired-eval.test.cjs",

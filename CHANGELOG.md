@@ -1,8 +1,41 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — Unreleased
 
-No unreleased changes yet.
+从多做一步，到多说一句。一个没人读取的 checksum，和一句
+不改变任何决定的免责声明，都没有消费者。Stop That Shit Slop（别再废话）
+把同一个判断从 Agent 动作带到面向决策的文字。/ From one extra action to one
+extra sentence. An unread checksum and a disclaimer that changes no decision
+have the same problem: neither has a consumer. Stop That Shit Slop applies the
+same test to agent actions and decision-facing writing.
+
+### 新增 / New
+
+- **独立 STSS Skill**：增加 `rewrite` 与 `audit` 两种模式，减少没有决策
+  消费者的免责声明、多层 hedging、自我辩护、负向范围和空洞提案话术。
+  / Adds a standalone STSS Skill with `rewrite` and `audit` modes for
+  disclaimers without a decision consumer, hedge stacks, self-defense,
+  negative scope, and hollow proposal language.
+- **Claim-preserving method**：使用 Claim Ledger、Sentence Consumer Test 和
+  Claim Diff，核对原文中的事实、数字、责任主体、证据强度和因果关系。
+  / Uses a Claim Ledger, Sentence Consumer Test, and Claim Diff to check the
+  supplied facts, numbers, actors, evidence strength, and causal relationships.
+- **离线验收**：增加六组 Good/Bad CaseBundle、十二个合成 fixture 和对应的
+  固定离线响应回归。/ Adds six Good/Bad CaseBundle families, twelve synthetic
+  fixtures, and matching fixed offline-response regressions.
+- **分发与文档**：完整插件可发现两个 Skill；Pi package 注册 STSS；STSS 也可
+  从同一源码目录单独安装。中英文 README 改为“别再造史，也别再废话”的双
+  Skill 结构。
+  / Makes both Skills discoverable from the full plugin, registers STSS in the
+  Pi package, and keeps the same source directory installable on its own. The
+  Chinese and English READMEs now present the two-Skill product.
+- **显式更新检查**：增加 `sts doctor --check-update`，只在用户调用时查询
+  GitHub Release，并返回 `installed`、`latest` 和 `releaseUrl`；不自动升级或
+  主动提醒。单独安装的 STSS 仍由宿主或 Skill Installer 更新。
+  / Adds `sts doctor --check-update`, which queries GitHub Releases only when
+  invoked and returns `installed`, `latest`, and `releaseUrl`. It does not
+  install updates or display proactive reminders. Standalone STSS updates stay
+  with the host or Skill Installer.
 
 ## 0.1.1 — 2026-09-01 (Evaluation and boundary refinements / 评估与边界收敛)
 

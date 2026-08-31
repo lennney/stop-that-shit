@@ -5,23 +5,19 @@
 <h1 align="center">Stop That Shit（别再造史了）</h1>
 
 <p align="center">
-  <a href="https://github.com/lennney/stop-that-shit/stargazers"><img src="https://img.shields.io/github/stars/lennney/stop-that-shit?style=flat-square&color=111111&label=stars" alt="GitHub stars"></a>
   <a href="https://github.com/lennney/stop-that-shit/releases"><img src="https://img.shields.io/github/v/release/lennney/stop-that-shit?include_prereleases&sort=semver&style=flat-square&color=111111&label=release" alt="最新版本"></a>
-  <a href="https://github.com/lennney/stop-that-shit/actions/workflows/ci.yml"><img src="https://github.com/lennney/stop-that-shit/actions/workflows/ci.yml/badge.svg" alt="CI 状态"></a>
-  <img src="https://img.shields.io/badge/works%20with-Codex-111111?style=flat-square" alt="支持 Codex">
-  <img src="https://img.shields.io/badge/works%20with-Claude%20Code-111111?style=flat-square" alt="支持 Claude Code">
-  <img src="https://img.shields.io/badge/works%20with-OpenCode-111111?style=flat-square" alt="支持 OpenCode">
-  <img src="https://img.shields.io/badge/works%20with-Hermes%20Agent%20CLI-111111?style=flat-square" alt="支持 Hermes Agent CLI">
-  <img src="https://img.shields.io/badge/works%20with-Pi-111111?style=flat-square" alt="支持 Pi">
+  <a href="https://github.com/lennney/stop-that-shit/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/lennney/stop-that-shit/ci.yml?branch=main&style=flat-square&label=build" alt="构建状态"></a>
   <img src="https://img.shields.io/github/license/lennney/stop-that-shit?style=flat-square&color=111111" alt="MIT 许可证">
 </p>
 
 <p align="center">
   <strong>你只让 Agent 导出一个结果文件。它顺手又生成一份 SHA-256 校验和，但后面没有任何命令会读取它。Stop That Shit。</strong><br>
-  Stop That Shit（别再造史了）处理 AI coding agent 自己加出来的防御性工作和任务越界，支持 Codex、Claude Code、OpenCode、Hermes Agent CLI 和 Pi。<br>
+  Stop That Shit（别再造史了）处理 AI coding agent 自己加出来的防御性工作和任务越界。<br>
+  支持 <a href="INSTALL.md#codex-skill--guard">Codex</a>、<a href="INSTALL.md#claude-code-skill--guard">Claude Code</a>、<a href="INSTALL.md#opencode-install-from-github">OpenCode</a>、<a href="INSTALL.md#hermes-agent-cli">Hermes Agent CLI</a> 和 <a href="INSTALL.md#pi-coding-agent">Pi</a>。<br>
   <a href="#快速安装">安装</a> ·
   <a href="#bad-case--good-case">Bad / Good Case</a> ·
   <a href="cases/README.md">案例库</a> ·
+  <a href="#020从多做一步到多说一句">0.2.0</a> ·
   <a href="CONTRIBUTING.md">参与贡献</a> ·
   <a href="README_EN.md">English</a>
 </p>
@@ -42,7 +38,27 @@ State: ARMED / review
 Event: evt_...
 ```
 
-[`0.1.1`](https://github.com/lennney/stop-that-shit/releases/tag/0.1.1) 在首个多平台版本基础上加入 Pi，并继续让五套 Adapter 共用同一套 Guard、Skill、成对案例与只存元数据的本地 Runtime。
+## 0.2.0：从多做一步，到多说一句
+
+0.1.x 先处理 SHIT 的动作面：没人读取的 `.sha256`、为想象中未来准备的兼容层、Review 时顺手开始改代码。
+
+0.2.0 把同一套判断带到表达里。Agent 写提案时也会替不存在的批评者辩护：这不是完整研究，没有覆盖所有情况，也不保证适用于每个人。这些话消耗 Token，却不改变任何决定。
+
+多做一步，是用动作自保；多说一句，是用文字自保。一个没人读取的 checksum，和一句不改变任何决定的免责声明，都没有消费者。
+
+Stop Ladder 继续判断一个动作该不该做。新增的 **Stop That Shit Slop（别再废话）** 用 Sentence Consumer Test 判断一句防御性表达该删、该收紧，还是必须保留。
+
+> 为什么 Agent 总在替不存在的批评者辩护？
+>
+> “这不是完整研究。”“没有覆盖所有情况。”“不保证适用于每个人。”
+>
+> 我没有问这些。
+>
+> 写给想象中批评者的防御性废话，就别再浪费我的 Token 了。
+>
+> Stop That Shit 0.2.0 新增 Stop That Shit Slop：判断一句话该删、该收紧，还是必须留下。
+
+`0.2.0` 保留原有 Stop Ladder、Guard、五套 Adapter 和成对案例，并新增可独立使用的 Stop That Shit Slop。
 
 | 从哪里开始 | 提供什么 | 使用成本 |
 | --- | --- | --- |
@@ -76,11 +92,11 @@ claude plugin install stop-that-shit@stop-that-shit
 ### Codex
 
 ```bash
-codex plugin marketplace add lennney/stop-that-shit --ref 0.1.1
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.0
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
-`--ref 0.1.1` 把安装固定到已发布版本，不跟随可变的 `main`。重启 Codex。在新的 CLI TUI 中输入 `/hooks`，检查命令后信任 `UserPromptSubmit` 和 `PreToolUse`。也可以把 [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) 交给 Codex，让它完成非交互步骤。
+`--ref 0.2.0` 把安装固定到版本 tag，不跟随可变的 `main`。重启 Codex。在新的 CLI TUI 中输入 `/hooks`，检查命令后信任 `UserPromptSubmit` 和 `PreToolUse`。也可以把 [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) 交给 Codex，让它完成非交互步骤。
 
 ### OpenCode 从 GitHub 安装
 
@@ -126,7 +142,7 @@ pi install /absolute/path/to/stop-that-shit
 /skill:stop-that-shit review -- Review 这个 diff，只报告问题，不要修改。
 ```
 
-从 `0.1.1` tag 安装即可获得 Pi Adapter。详见 [INSTALL.md](INSTALL.md#pi-coding-agent)。
+从 `0.2.0` tag 安装即可获得 Pi Adapter 和两个 Skill。详见 [INSTALL.md](INSTALL.md#pi-coding-agent)。
 
 ## Bad Case / Good Case
 
@@ -155,7 +171,7 @@ Good Case 和拦截同样重要。已经发布的数据可能需要迁移；发�
 | **I** | Intent violation，意图越界 | 让它 Review 或回答问题，它直接动手改。 |
 | **T** | Task thrashing，任务打转 | 已经查过、测过、审过，它又从头来一遍。 |
 
-插件不数代码行数，也不把 diff 越小当成越好。它只问：这一步是用户要求的，还是当前代码、数据和验收条件确实需要的？
+Stop That Shit 不数代码行数，也不把 diff 越小当成越好。它只问：这一步是用户要求的，还是当前代码、数据和验收条件确实需要的？
 
 常见的样子包括：没有消费者的 checksum 和 guard；当前没有用户决策，却把内部风险写成一排界面免责声明；该做工程判断时改成评分表和反复审计；为没人要求的将来加 feature flag、迁移框架和包装层。
 
@@ -171,9 +187,9 @@ ALLOW
 用 digest 跳过一个未变化大文件的重复读取。
 ```
 
-`0.1.1` 默认拒绝可识别的新 hash 操作。用户明确要求，或仓库中的代码与发布流程证明它确实必要时，就用 `hash=allow` 放行。Hook 不会根据自己没读过的代码猜测这个用途。
+当前版本默认拒绝可识别的新 hash 操作。用户明确要求，或仓库中的代码与发布流程证明它确实必要时，就用 `hash=allow` 放行。Hook 不会根据自己没读过的代码猜测这个用途。
 
-## 怎么用
+## 怎么用 Stop That Shit
 
 Claude Code 插件直接用 namespaced Skill：
 
@@ -234,7 +250,9 @@ Hook 必须收到受支持的事件和足够的输入才能判断。它不会看
 
 ## Skill + Hook + Adapter 如何工作
 
-Skill 负责语义判断，Hook 在工具运行前检查明确边界，Adapter 把 Codex、Claude Code、OpenCode、Hermes Agent CLI 和 Pi 的事件翻译成同一套决策接口。其他 harness 需要提供等价的 before-action 事件；接口见 [HOST-ADAPTER-CONTRACT.md](HOST-ADAPTER-CONTRACT.md)。
+Stop That Shit Skill 负责 Stop Ladder 的语义判断，Hook 在工具运行前检查明确边界，Adapter 把 Codex、Claude Code、OpenCode、Hermes Agent CLI 和 Pi 的事件翻译成同一套决策接口。其他 harness 需要提供等价的 before-action 事件；接口见 [HOST-ADAPTER-CONTRACT.md](HOST-ADAPTER-CONTRACT.md)。
+
+STSS 使用 Sentence Consumer Test，不需要 before-action Hook，因此可以独立分发。
 
 ## 覆盖边界与公开证据
 
@@ -242,9 +260,115 @@ Stop That Shit 负责 supported Hook 路径上的任务授权，安全隔离由�
 
 维护者启用后没有再遇到“没有实际消费者却先生成 SHA-256”的动作；文档将这条个人观察与 paired eval 分开记录。本地 Runtime 只存元数据，并区分 checked action、context response、permission deny 和 `hostEffect: unobserved`。
 
+STSS 的十二个固定离线响应用于规则和回归验收，六组完整案例见 [STSS examples](skills/stss/references/examples.md)。
+
+## 两个 Skill，自己选
+
+| Skill | 让 Agent 停在哪里 | 常用入口 |
+| --- | --- | --- |
+| **Stop That Shit（别再造史）** | 停止范围膨胀、意图越界、防御性工程和重复审计 | `$stop-that-shit review -- ...` |
+| **Stop That Shit Slop（别再废话）** | 减少没有决策用途的免责声明、过度 hedging 和自我辩护 | `$stss rewrite -- ...` |
+
+两个 Skill 可以一起安装，也可以单独使用。
+
+## 一套判断：谁会消费它
+
+Stop That Shit 用 Stop Ladder 判断动作：
+
+1. 用户要求了吗？
+2. 不做它，当前结果能完成吗？
+3. 哪段代码、数据、部署状态或验收条件需要它？
+4. 省掉它，当前验收会失败吗？
+
+STSS 把同一个判断带到句子上：
+
+1. 谁会使用这句话？
+2. 它会改变什么决定？
+3. 删除后，什么会变成错误或误导？
+
+它先记录 Claim Ledger 中的事实、数字、来源、责任主体和证据强度，再选择 `DROP`、`CALIBRATE`、`RELOCATE` 或 `KEEP`。最后用 Claim Diff 检查事实和数字有没有丢、证据有没有被编造、相关性有没有被写成因果。
+
+## 0.2.0 带来了什么
+
+- 新增独立 Skill：`stss`。
+- 原有 `$stop-that-shit` 调用和 Guard 合同保持不变；STSS 是新增的可选 Skill。
+- 两种模式：`rewrite` 直接改写，`audit` 只报告问题和最小修改。
+- 六组 Good/Bad CaseBundle、十二个合成 fixture 和对应的固定离线响应，覆盖免责声明、hedge、负向范围、勤勉旁白、空洞主张和因果边界。
+- 完整插件可发现两个 Skill；STSS 也能单独安装。
+- 新增显式版本查询：`sts doctor --check-update`。
+
+## Stop That Shit Slop：单独安装与调用
+
+### 单独安装
+
+在当前仓库根目录执行：
+
+```bash
+npx skills add ./skills/stss --global
+```
+
+这条路径只安装“别再废话”，不会安装 Hook。
+
+### 调用
+
+不写模式时，STSS 对用户贴出的文本默认执行 `rewrite`。`audit` 只报告问题和最小修改，不重写全文。
+
+| 宿主 | 改写 | 审核 |
+| --- | --- | --- |
+| Codex | `$stss rewrite -- 把这个提案写直接。` | `$stss audit -- 找出防御性废话。` |
+| Claude Code 插件 | `/stop-that-shit:stss rewrite -- ...` | `/stop-that-shit:stss audit -- ...` |
+| Claude Code 单独 Skill | `/stss rewrite -- ...` | `/stss audit -- ...` |
+| Pi | `/skill:stss rewrite -- ...` | `/skill:stss audit -- ...` |
+
+原来的任务边界入口不变：
+
+```text
+$stop-that-shit review -- Review 这个 diff，只报告问题，不要修改。
+$stop-that-shit change -- 修复失败的配置测试。
+$stop-that-shit change hash=allow -- 生成我明确要求的发布校验和。
+```
+
+## 三个案例，看它减少什么、保留什么
+
+这些合成案例与固定离线验收使用同一组输入和边界。
+
+### 1. DROP：删掉没人需要的辩护
+
+```text
+输入：需要说明的是，这只是有限的首轮试点，并不试图证明方法适用于所有场景。
+      在 120 份工单中，引入自动分流后，24 小时完成率从 68% 升至 76%。
+
+输出：首轮 120 份工单试点中，引入自动分流后，24 小时完成率从 68% 升至 76%。
+```
+
+样本、指标和观察结果都在；没人提出的“所有场景”主张被删掉了。
+
+### 2. CALIBRATE：把四层犹豫收成一个真实条件
+
+```text
+输入：我们也许大概有可能在六到八周内完成迁移，具体取决于访问审批。
+输出：预计六到八周完成迁移，前提是获得访问审批。
+```
+
+时间范围和依赖仍然可见，只减少重复 hedging。
+
+### 3. KEEP：审批会用到这句话
+
+```text
+输入：内部试点覆盖 120 份工单，完成率从 68% 升至 76%。审批经理要求明确：
+      该内部试点不代表一般部署。
+
+输出：内部 120 份工单试点中，引入自动分流后，24 小时完成率从 68% 升至 76%。
+      该内部试点不代表一般部署。
+```
+
+这条限制会影响审批判断，所以保留。
+
+六组完整案例见 [STSS examples](skills/stss/references/examples.md)，机器可验收版本见 [`evals/stss`](evals/stss)。
+
 ## 可选：只装 Skill
 
-如果不想启用命令 Hook，只安装 advisory Skill。Claude Code：
+如果不想启用命令 Hook，只安装 Stop That Shit advisory Skill。Claude Code：
 
 ```bash
 mkdir -p ~/.claude/skills/stop-that-shit
@@ -254,10 +378,12 @@ cp skills/stop-that-shit/SKILL.md ~/.claude/skills/stop-that-shit/SKILL.md
 Codex 仍可使用远程 Skill Installer：
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.1.1/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.0/skills/stop-that-shit
 ```
 
 新开任务后，独立 Claude Code Skill 用 `/stop-that-shit`，作为 plugin 安装时用 namespaced `/stop-that-shit:stop-that-shit`；Codex 用 `$stop-that-shit`。Skill-only 路径不需要 Hook 信任，但不能机器拦截越界动作，也不会改变宿主原有的 sandbox 和 approval 设置。
+
+STSS 的独立安装和调用见上方 [Stop That Shit Slop](#stop-that-shit-slop单独安装与调用) 章节。
 
 ## 本地验证
 
@@ -269,6 +395,22 @@ npm run release:check
 ```
 
 paired 命令默认只打印 144 个 cell 的计划，不会调用模型。真实运行必须使用只启用本插件的独立 Codex home。使用 `--run` 前，请先阅读[真实 Codex 对照测试说明](evals/codex-paired/README.md)。
+
+## 手动检查更新
+
+安装了 package executable 后运行：
+
+```bash
+sts doctor --check-update
+```
+
+源码 checkout 中的等价命令：
+
+```bash
+npm run sts -- doctor --check-update
+```
+
+只有这个显式命令会查询 GitHub Release，并返回 `installed`、`latest` 和 `releaseUrl`。它不执行升级，也不会在启动或任务过程中弹出提醒。单独安装的 STSS 继续由宿主或 Skill Installer 更新。
 
 ## 一起让 Agent 少造一点史
 
@@ -282,7 +424,7 @@ paired 命令默认只打印 144 个 cell 的计划，不会调用模型。真�
 - 某条规则会拦住真正必要的工作？[提交 Good Case](https://github.com/lennney/stop-that-shit/issues/new?template=good-case.yml)。
 - 有公开可复现的例子？把一组案例做成 fixture，然后提交 PR。
 
-一组有效案例只改一个关键事实，其余条件不变。Bad Case 标出该停的位置，Good Case 保住必要工作；只有可复现、高置信度的部分才进入 Guard。
+一组有效案例只改一个关键事实，其余条件不变。Bad Case 标出该停的位置，Good Case 保住必要工作；只有可复现、高置信度的部分才进入 Guard。STSS 的文字案例也沿用同一原则：公开 fixture 必须是合成或脱敏内容，并说明哪一个用户决策会因此改变。
 
 提交前先看[案例库](cases/README.md)和[贡献指南](CONTRIBUTING.md)。请删掉私有代码、密钥、账号数据、完整对话和可识别身份的路径。一条小而清楚的脱敏 issue 就有价值。
 

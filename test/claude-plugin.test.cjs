@@ -14,6 +14,8 @@ test('Claude plugin manifest uses default skills and hooks surfaces', () => {
   assert.equal(manifest.name, 'stop-that-shit');
   assert.equal(manifest.version, pkg.version);
   assert.equal(manifest.skills, './skills/');
+  assert.ok(fs.existsSync(path.join(root, 'skills', 'stop-that-shit', 'SKILL.md')));
+  assert.ok(fs.existsSync(path.join(root, 'skills', 'stss', 'SKILL.md')));
   // The standard hooks/hooks.json location is auto-loaded; manifest.hooks
   // must not re-declare it, or hosts reject the duplicate registration.
   assert.equal(Object.hasOwn(manifest, 'hooks'), false);

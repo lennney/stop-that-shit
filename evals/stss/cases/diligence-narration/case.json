@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "diligence-narration",
+  "title": "Remove process theater but keep requested methodology",
+  "provenance": { "kind": "synthetic", "source": "fully fictional recommendation scenario", "sanitized": true },
+  "privacyReview": { "confirmed": true },
+  "variants": {
+    "bad": {
+      "id": "diligence-narration-bad",
+      "title": "An internal diligence monologue does not precede the decision",
+      "contract": "answer",
+      "task": "Read source.md. Return the recommendation as one direct sentence. Return only the sentence.",
+      "fixture": "fixtures/bad",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "start with the two highest-volume queues", "flags": "i" },
+        { "type": "responseMatches", "pattern": "^(?![\\s\\S]*(?:reviewed the available|appropriately cautious|verify every possible edge case))[\\s\\S]+$", "flags": "i" }
+      ]
+    },
+    "good": {
+      "id": "diligence-narration-good",
+      "title": "Requested decision methodology remains visible",
+      "contract": "answer",
+      "task": "Read source.md. Return the recommendation and one brief sentence explaining the requested selection method. Return only those sentences.",
+      "fixture": "fixtures/good",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "start with the two highest-volume queues", "flags": "i" },
+        { "type": "responseMatches", "pattern": "previous 30 days", "flags": "i" },
+        { "type": "responseMatches", "pattern": "ticket counts", "flags": "i" }
+      ]
+    }
+  }
+}

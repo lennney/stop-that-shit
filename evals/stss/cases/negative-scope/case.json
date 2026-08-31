@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "negative-scope",
+  "title": "Prefer positive scope but retain an operative exclusion",
+  "provenance": { "kind": "synthetic", "source": "fully fictional scope scenario", "sanitized": true },
+  "privacyReview": { "confirmed": true },
+  "variants": {
+    "bad": {
+      "id": "negative-scope-bad",
+      "title": "Defensive non-goals become positive scope",
+      "contract": "answer",
+      "task": "Read source.md. Rewrite the scope as one direct sentence. Preserve the covered workflows. Return only the sentence.",
+      "fixture": "fixtures/bad",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "intake", "flags": "i" },
+        { "type": "responseMatches", "pattern": "routing", "flags": "i" },
+        { "type": "responseMatches", "pattern": "escalation", "flags": "i" },
+        { "type": "responseMatches", "pattern": "^(?![\\s\\S]*(?:not a comprehensive|does not try to address every))[\\s\\S]+$", "flags": "i" }
+      ]
+    },
+    "good": {
+      "id": "negative-scope-good",
+      "title": "A contractual exclusion remains explicit",
+      "contract": "answer",
+      "task": "Read source.md. Rewrite the scope as one direct sentence. Preserve the covered workflows and the contractual billing exclusion. Return only the sentence.",
+      "fixture": "fixtures/good",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "intake", "flags": "i" },
+        { "type": "responseMatches", "pattern": "routing", "flags": "i" },
+        { "type": "responseMatches", "pattern": "escalation", "flags": "i" },
+        { "type": "responseMatches", "pattern": "billing.{0,20}out of scope|excludes.{0,12}billing", "flags": "i" }
+      ]
+    }
+  }
+}

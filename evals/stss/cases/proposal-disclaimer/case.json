@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "proposal-disclaimer",
+  "title": "Remove an imaginary defense but keep a requested limitation",
+  "provenance": { "kind": "synthetic", "source": "fully fictional proposal scenario", "sanitized": true },
+  "privacyReview": { "confirmed": true },
+  "variants": {
+    "bad": {
+      "id": "proposal-disclaimer-bad",
+      "title": "An unrequested universal disclaimer has no decision consumer",
+      "contract": "answer",
+      "task": "Read source.md. Rewrite it as one direct proposal sentence. Preserve the supplied facts and numbers. Return only the sentence.",
+      "fixture": "fixtures/bad",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "120", "flags": "i" },
+        { "type": "responseMatches", "pattern": "68%", "flags": "i" },
+        { "type": "responseMatches", "pattern": "76%", "flags": "i" },
+        { "type": "responseMatches", "pattern": "^(?![\\s\\S]*(?:not intended to prove|does not prove|every setting|all settings))[\\s\\S]+$", "flags": "i" }
+      ]
+    },
+    "good": {
+      "id": "proposal-disclaimer-good",
+      "title": "A requested deployment limitation remains visible",
+      "contract": "answer",
+      "task": "Read source.md. Rewrite it as a direct proposal sentence. Preserve the supplied facts and numbers, and retain one brief sentence saying this internal pilot does not represent general deployment. Return only the rewrite.",
+      "fixture": "fixtures/good",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "120", "flags": "i" },
+        { "type": "responseMatches", "pattern": "68%", "flags": "i" },
+        { "type": "responseMatches", "pattern": "76%", "flags": "i" },
+        { "type": "responseMatches", "pattern": "internal.{0,12}pilot", "flags": "i" },
+        { "type": "responseMatches", "pattern": "(?:does not|doesn't).{0,20}(?:general|full).{0,12}deployment", "flags": "i" }
+      ]
+    }
+  }
+}

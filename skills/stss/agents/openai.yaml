@@ -1,0 +1,7 @@
+interface:
+  display_name: "Stop That Shit Slop"
+  short_description: "Reduce defensive padding in decision-facing text."
+  brand_color: "#D92D20"
+  default_prompt: "Use $stss to rewrite this proposal without defensive padding."
+policy:
+  allow_implicit_invocation: true
