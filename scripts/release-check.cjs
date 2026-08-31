@@ -151,7 +151,9 @@ if (fs.existsSync(path.join(root, hermesPluginRoot, 'hooks'))) {
 
 const selectedFiles = releaseManifest.include.flatMap((entry) => walk(path.join(root, entry)));
 const textExtensions = new Set(['', '.cjs', '.js', '.json', '.md', '.ts', '.txt', '.yaml', '.yml']);
-const staleVersion = /(?:v0\.1(?:\.\d+)?|0\.1\.1)/i;
+// Keep rejecting unreleased v-prefixed refs and the next patch draft while
+// allowing the current 0.1.1 release marker in public documentation.
+const staleVersion = /(?:v0\.1(?:\.\d+)?|0\.1\.2)/i;
 const privatePath = /(?:[A-Za-z]:\\Users\\|[A-Za-z]:\\object\\|\/Users\/|\/home\/)/;
 const mojibake = /(?:\uFFFD|\u9225|\u6E1F|\u951F)/;
 

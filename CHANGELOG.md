@@ -2,17 +2,41 @@
 
 ## Unreleased
 
-- Add a Pi package adapter for `@earendil-works/pi-coding-agent`, tested against
-  `0.84.4`. It maps `input`, `before_agent_start`, `tool_call`, and `tool_result`
-  to the shared controller, packages the existing Skill, and keeps unknown
-  third-party tools conservative under non-mutating contracts.
-- Count the documented optional Pi `subagent` single, parallel, and chain forms
-  at the parent tool call. Cross-process contract inheritance is not claimed.
-- Add separate implicit-routing and host-sentinel evaluations, immutable Skill
-  and CaseBundle digests, and paired compatibility, proof-stop, and delegation
-  cases. The routing corpus contains eleven positive and eleven hard-negative
-  English and Chinese requests. Routing, task acceptance, Hook decisions, and
-  host effects remain separate results.
+No unreleased changes yet.
+
+## 0.1.1 — 2026-08-31 (Evaluation and boundary refinements / 评估与边界收敛)
+
+> **在 0.1.0 的四套宿主基础上加入 Pi，并把评估证据拆开。** 0.1.1
+> 增加 Pi 原生 Extension，同时补齐 routing、Hook decision、task
+> acceptance 和 host effect 的独立观测边界。
+>
+> **Adds Pi to the 0.1.0 host set and separates evaluation evidence.**
+> Version 0.1.1 adds the native Pi Extension and keeps routing, Hook
+> decisions, task acceptance, and host effects as separate observations.
+
+### 新增 / New
+
+- **Pi Adapter**：支持 `@earendil-works/pi-coding-agent` `0.84.4`，复用共享
+  controller、Skill 和 metadata-only Runtime；文档化的 `subagent` 形式在
+  父工具调用处做原子预算控制，不宣称跨进程继承契约。
+  / Adds the Pi Adapter for `@earendil-works/pi-coding-agent` `0.84.4`,
+  reusing the shared controller, Skill, and metadata-only Runtime. Documented
+  `subagent` forms are budgeted atomically at the parent call; cross-process
+  contract inheritance is not claimed.
+- **Paired evaluation vNext**：加入不可变 Skill/CaseBundle digest、implicit
+  routing 语料、host-sentinel、compatibility、proof-stop 和 delegation
+  成对案例；默认矩阵为 16 cases × 3 arms × 3 runs = 144 个 session，默认仍
+  只生成计划。
+  / Adds immutable Skill and CaseBundle digests, implicit-routing and
+  host-sentinel plans, and paired compatibility, proof-stop, and delegation
+  cases. The default matrix is 16 cases × 3 arms × 3 runs = 144 sessions and
+  remains dry-run by default.
+- **发布与验证边界**：保留 Good Case、基础设施错误、Hook decision 与
+  `hostEffect` 的分离，不把 deny 返回或离线 plan 包装成宿主阻断或模型效果
+  结论。
+  / Keeps Good Cases, infrastructure errors, Hook decisions, and
+  `hostEffect` separate; a returned deny or offline plan is not presented as
+  host enforcement or model-effect evidence.
 
 ## 0.1.0 — 2026-08-20 (First Multi-platform Release / 首个多平台版本)
 

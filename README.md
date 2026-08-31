@@ -42,7 +42,7 @@ State: ARMED / review
 Event: evt_...
 ```
 
-[`0.1.0`](https://github.com/lennney/stop-that-shit/releases/tag/0.1.0) 是首个多平台正式版本：Codex、Claude Code、OpenCode 和 Hermes Agent CLI 四套 Adapter 共用同一套 Guard、Skill、成对案例与只存元数据的本地 Runtime。
+[`0.1.1`](https://github.com/lennney/stop-that-shit/releases/tag/0.1.1) 在首个多平台版本基础上加入 Pi，并继续让五套 Adapter 共用同一套 Guard、Skill、成对案例与只存元数据的本地 Runtime。
 
 | 从哪里开始 | 提供什么 | 使用成本 |
 | --- | --- | --- |
@@ -76,11 +76,11 @@ claude plugin install stop-that-shit@stop-that-shit
 ### Codex
 
 ```bash
-codex plugin marketplace add lennney/stop-that-shit
+codex plugin marketplace add lennney/stop-that-shit --ref 0.1.1
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
-重启 Codex。在新的 CLI TUI 中输入 `/hooks`，检查命令后信任 `UserPromptSubmit` 和 `PreToolUse`。也可以把 [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) 交给 Codex，让它完成非交互步骤。
+`--ref 0.1.1` 把安装固定到已发布版本，不跟随可变的 `main`。重启 Codex。在新的 CLI TUI 中输入 `/hooks`，检查命令后信任 `UserPromptSubmit` 和 `PreToolUse`。也可以把 [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) 交给 Codex，让它完成非交互步骤。
 
 ### OpenCode 从 GitHub 安装
 
@@ -126,8 +126,7 @@ pi install /absolute/path/to/stop-that-shit
 /skill:stop-that-shit review -- Review 这个 diff，只报告问题，不要修改。
 ```
 
-带 Pi Adapter 的 tag 发布后，再改用固定 Git tag 安装；不要把当前不含 Pi
-Adapter 的 `0.1.0` tag 当成 Pi 版本。详见 [INSTALL.md](INSTALL.md#pi-coding-agent)。
+从 `0.1.1` tag 安装即可获得 Pi Adapter。详见 [INSTALL.md](INSTALL.md#pi-coding-agent)。
 
 ## Bad Case / Good Case
 
@@ -172,7 +171,7 @@ ALLOW
 用 digest 跳过一个未变化大文件的重复读取。
 ```
 
-`0.1.0` 默认拒绝可识别的新 hash 操作。用户明确要求，或仓库中的代码与发布流程证明它确实必要时，就用 `hash=allow` 放行。Hook 不会根据自己没读过的代码猜测这个用途。
+`0.1.1` 默认拒绝可识别的新 hash 操作。用户明确要求，或仓库中的代码与发布流程证明它确实必要时，就用 `hash=allow` 放行。Hook 不会根据自己没读过的代码猜测这个用途。
 
 ## 怎么用
 
@@ -255,7 +254,7 @@ cp skills/stop-that-shit/SKILL.md ~/.claude/skills/stop-that-shit/SKILL.md
 Codex 仍可使用远程 Skill Installer：
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.1.0/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.1.1/skills/stop-that-shit
 ```
 
 新开任务后，独立 Claude Code Skill 用 `/stop-that-shit`，作为 plugin 安装时用 namespaced `/stop-that-shit:stop-that-shit`；Codex 用 `$stop-that-shit`。Skill-only 路径不需要 Hook 信任，但不能机器拦截越界动作，也不会改变宿主原有的 sandbox 和 approval 设置。
@@ -269,7 +268,7 @@ npm run eval:paired -- --dry-run
 npm run release:check
 ```
 
-paired 命令默认只打印 72 个 cell 的计划，不会调用模型。真实运行必须使用只启用本插件的独立 Codex home。使用 `--run` 前，请先阅读[真实 Codex 对照测试说明](evals/codex-paired/README.md)。
+paired 命令默认只打印 144 个 cell 的计划，不会调用模型。真实运行必须使用只启用本插件的独立 Codex home。使用 `--run` 前，请先阅读[真实 Codex 对照测试说明](evals/codex-paired/README.md)。
 
 ## 一起让 Agent 少造一点史
 

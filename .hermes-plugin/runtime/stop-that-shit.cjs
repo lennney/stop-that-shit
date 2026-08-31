@@ -781,7 +781,7 @@ module.exports = { readRuntime, recordDecision };
 "package.json": function(module, exports, __require) {
 module.exports = {
   "name": "stop-that-shit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Stop unneeded scope, subagents, dependencies, and hashes in Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi tasks",
   "keywords": [
@@ -1393,7 +1393,7 @@ module.exports = { classifyCodexTool, classifyShell, detectDependencyIntent, det
 };
 __modules["package.json"] = function(module) { module.exports = {
   "name": "stop-that-shit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Stop unneeded scope, subagents, dependencies, and hashes in Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi tasks",
   "keywords": [

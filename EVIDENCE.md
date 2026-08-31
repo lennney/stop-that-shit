@@ -11,16 +11,16 @@ actions, context responses, and permission denies. It records host effect as
 `unobserved`; a returned permission deny is not evidence that the host skipped
 the action.
 
-Version: 0.1.0 First Multi-platform Release
-Release: https://github.com/lennney/stop-that-shit/releases/tag/0.1.0
-Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.0.3
+Version: 0.1.1 Evaluation and boundary refinements
+Release: https://github.com/lennney/stop-that-shit/releases/tag/0.1.1
+Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.1.0
 Last updated: 2026-08-31
 
 This tree is validated with deterministic Hook-schema simulations, real
 child-process stdin/stdout entrypoint tests, cross-platform path regression
 tests, and shared policy tests:
 
-- 199/199 executed runtime/unit/integration tests pass, including the preserved
+- 216/216 executed runtime/unit/integration tests pass, including the preserved
   Codex tests, Claude child-process Hook simulations, OpenCode adapter/plugin
   regressions, Hermes native-plugin/runtime tests, and Pi adapter/package tests;
   one optional installed
@@ -31,8 +31,9 @@ tests, and shared policy tests:
   `Workflow` fan-out handling have dedicated regressions;
 - two independent Claude Hook processes cannot oversubscribe `agents=1`;
 - all checked-in `.cjs` files pass `node --check`, all JSON files parse, and the
-  release allowlist passes with 135 files;
-- the generated CaseBundle validator and its schema were not changed;
+  release allowlist passes with 165 files;
+- the generated CaseBundle validator matches the checked-in schema, including
+  the event-count acceptance used by the new evaluation cases;
 - on a local Windows host, `claude plugin validate` reported no warnings and a
   live smoke session armed the Guard through both the `$stop-that-shit`
   directive and the namespaced slash form, with a covered write denied.
@@ -77,13 +78,14 @@ Verified locally:
   profile. The TUI reported one installed and active handler for
   `UserPromptSubmit` and `PreToolUse`, with zero handlers for every other event.
 - the public paired-eval harness produces a fixed baseline/instruction/plugin
-  plan over four Bad/Good families. The default command is dry-run only.
+  plan over eight Bad/Good families. The default command is dry-run only;
+  routing and host-sentinel plans are separate commands and evidence paths;
 - every observing or armed before-action check produces a metadata-only local
   RuntimeEvent when storage is writable; damaged tail records are ignored and
   audit write failures do not alter Guard decisions;
 - `status`, `runtime`, `explain`, and append-only human labels expose that local
   evidence without changing the active task contract;
-- the four public families are validated `CaseBundle v1` directories, and
+- the eight public families are validated `CaseBundle v1` directories, and
   archived results can be rescored without another model call.
 - the 0.0.3 release candidate passed 92/92 automated tests, 14/14 executable
   policy case arms, the 101-file release allowlist, and an installed-cache Hook
@@ -198,16 +200,19 @@ were run after the null result.
 
 ## Not yet verified
 
-The following are explicit limitations, not 0.1.0 release blockers. The project
-does not require a large benchmark to make a probabilistic mitigation claim.
+The following remain unverified for the 0.1.1 release decision. The project
+does not require a large benchmark to make a probabilistic mitigation claim,
+but a dry-run plan is not a live result.
 
 - a multi-scenario live baseline/plugin matrix for the reduced candidate;
+- the live implicit-routing matrix (22 cells for one run) and the two-cell
+  host-sentinel check; this candidate records dry-run plans only;
 - interactive `/hooks` trust on a separate physical machine;
 - live macOS and Linux Hook behavior beyond the automated CI matrix;
 - several distinct community scenarios and multiple seeds;
 - specialized tool paths that may bypass normal Hook coverage.
 
-The upgraded paired-eval harness is available, but its 90-session default matrix
+The upgraded paired-eval harness is available, but its 144-session default matrix
 has not been run or published. A generated plan, RuntimeEvent count, or
 permission-deny response is not effectiveness evidence. Host effect remains
 `unobserved` until the task-level acceptance result is evaluated.
@@ -257,11 +262,11 @@ leading synthetic fixtures.
 Do not claim that Stop That Shit solves overengineering across coding agents or
 publish an improvement percentage from unit tests or this single scenario.
 
-The defensible 0.1.0 claim is:
+The defensible 0.1.1 claim is:
 
-> In Codex, Claude Code, OpenCode, and Hermes Agent CLI, Stop That Shit provides
+> In Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi, Stop That Shit provides
 > a short on-demand decision ladder and enforces a few explicit task-authority
-> rules on covered host action paths. Hermes 0.1.0 coverage is limited to the
+> rules on covered host action paths. Hermes 0.1.1 coverage is limited to the
 > native Plugin callbacks `pre_llm_call` and `pre_tool_call`; Gateway support
 > refers to the restart lifecycle after plugin changes, not coverage of every
 > Hermes surface. It may reduce some forms of execution drift, but it does not

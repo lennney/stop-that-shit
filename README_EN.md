@@ -50,10 +50,10 @@ State: ARMED / review
 Event: evt_...
 ```
 
-Version [`0.1.0`](https://github.com/lennney/stop-that-shit/releases/tag/0.1.0)
-is the first multi-platform release. Codex, Claude Code, OpenCode, and Hermes
-Agent CLI now share the same Guard, Skill, paired cases, and metadata-only local
-Runtime through four host Adapters.
+Version [`0.1.1`](https://github.com/lennney/stop-that-shit/releases/tag/0.1.1)
+adds Pi to the first multi-platform release. Codex, Claude Code, OpenCode,
+Hermes Agent CLI, and Pi share the same Guard, Skill, paired cases, and
+metadata-only local Runtime through five host Adapters.
 
 | Start with | What it adds | Friction |
 | --- | --- | --- |
@@ -92,11 +92,12 @@ Restart Claude Code or run `/reload-plugins`, then invoke:
 ### Codex
 
 ```bash
-codex plugin marketplace add lennney/stop-that-shit
+codex plugin marketplace add lennney/stop-that-shit --ref 0.1.1
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
-Restart Codex. In a fresh CLI TUI, enter `/hooks` and trust
+`--ref 0.1.1` pins the install to the published release instead of mutable
+`main`. Restart Codex. In a fresh CLI TUI, enter `/hooks` and trust
 `UserPromptSubmit` and `PreToolUse` after inspecting their commands. You can
 also give [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) to Codex for the
 non-interactive steps.
@@ -152,8 +153,7 @@ invoke:
 /skill:stop-that-shit review -- Review this diff. Report findings; do not edit.
 ```
 
-Use a pinned Git tag after a release includes the Pi adapter. The existing
-`0.1.0` tag does not contain it. See [INSTALL.md](INSTALL.md#pi-coding-agent).
+The `0.1.1` tag includes the Pi adapter. See [INSTALL.md](INSTALL.md#pi-coding-agent).
 
 ## Bad Case / Good Case
 
@@ -209,7 +209,7 @@ ALLOW
 Use a digest to skip rereading an unchanged large file.
 ```
 
-`0.1.0` denies a recognized new hash operation by default. Use `hash=allow`
+`0.1.1` denies a recognized new hash operation by default. Use `hash=allow`
 when the user or the repository supplies the missing job. The Hook does not try
 to infer that job from code it has not seen.
 
@@ -311,7 +311,7 @@ cp skills/stop-that-shit/SKILL.md ~/.claude/skills/stop-that-shit/SKILL.md
 For Codex, the remote Skill Installer path is:
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.1.0/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.1.1/skills/stop-that-shit
 ```
 
 Start a new task, then invoke the host-native Skill form. A standalone Claude Code skill is `/stop-that-shit`; an installed plugin skill is namespaced as `/stop-that-shit:stop-that-shit`; Codex uses `$stop-that-shit`. This path needs no Hook trust,
@@ -327,7 +327,7 @@ npm run eval:paired -- --dry-run
 npm run release:check
 ```
 
-The paired command prints a 72-cell plan and starts no model runs by default.
+The paired command prints a 144-cell plan and starts no model runs by default.
 Live runs require a dedicated Codex home with only this plugin enabled. See
 [the paired Codex eval](evals/codex-paired/README.md) before using `--run`.
 
