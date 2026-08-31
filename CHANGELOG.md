@@ -4,7 +4,7 @@
 
 No unreleased changes yet.
 
-## 0.1.1 — 2026-08-31 (Evaluation and boundary refinements / 评估与边界收敛)
+## 0.1.1 — 2026-09-01 (Evaluation and boundary refinements / 评估与边界收敛)
 
 > **在 0.1.0 的四套宿主基础上加入 Pi，并把评估证据拆开。** 0.1.1
 > 增加 Pi 原生 Extension，同时补齐 routing、Hook decision、task
@@ -35,10 +35,14 @@ No unreleased changes yet.
   and remains dry-run by default.
 - **发布与验证边界**：保留 Good Case、基础设施错误、Hook decision 与
   `hostEffect` 的分离，不把 deny 返回或离线 plan 包装成宿主阻断或模型效果
-  结论。
+  结论。22-cell live routing 与三单元 host smoke 留作后续观测，不作为
+  0.1.1 的发布门槛；本版本不公布路由准确率、模型效果提升或真实宿主阻断率。
   / Keeps Good Cases, infrastructure errors, Hook decisions, and
   `hostEffect` separate; a returned deny or offline plan is not presented as
-  host enforcement or model-effect evidence.
+  host enforcement or model-effect evidence. The 22-cell live routing run and
+  three-cell host smoke remain follow-up observations, not 0.1.1 release gates.
+  This release does not publish routing accuracy, model-effect improvements, or
+  an observed host-blocking rate.
 
 ## 0.1.0 — 2026-08-20 (First Multi-platform Release / 首个多平台版本)
 

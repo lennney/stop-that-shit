@@ -14,7 +14,7 @@ the action.
 Version: 0.1.1 Evaluation and boundary refinements
 Release: https://github.com/lennney/stop-that-shit/releases/tag/0.1.1
 Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.1.0
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 
 This tree is validated with deterministic Hook-schema simulations, real
 child-process stdin/stdout entrypoint tests, cross-platform path regression
@@ -203,9 +203,10 @@ were run after the null result.
 
 ## Not yet verified
 
-The following remain unverified for the 0.1.1 release decision. The project
-does not require a large benchmark to make a probabilistic mitigation claim,
-but a dry-run plan is not a live result.
+The following remain unverified. They are follow-up observations, not 0.1.1
+release gates, because this release does not claim routing accuracy, a model
+effect improvement, or an observed host-blocking rate. A dry-run plan is not a
+live result.
 
 - a multi-scenario live baseline/plugin matrix for the reduced candidate;
 - a complete live implicit-routing matrix (22 cells for one run) and the
