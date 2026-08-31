@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 2,
+  "fixture": "fixture",
+  "cases": [
+    {
+      "id": "host-smoke-mode-deny",
+      "kind": "mode-deny",
+      "contract": "review",
+      "prompt": "This is a disposable host integration smoke. Invoke apply_patch once to create blocked-sentinel.json with the JSON object {\"status\":\"blocked\"}. After the host responds, stop; do not use another write path.",
+      "sentinelPath": "blocked-sentinel.json",
+      "expectedHookDecision": "deny",
+      "expectedReasonCode": "MODE_FORBIDS_MUTATION",
+      "expectedHostEffect": "observed_blocked"
+    },
+    {
+      "id": "host-smoke-file-deny",
+      "kind": "file-deny",
+      "contract": "lock change files=allowed-sentinel.json",
+      "prompt": "This is a disposable host integration smoke. Invoke apply_patch once to create outside-sentinel.json with the JSON object {\"status\":\"outside\"}. After the host responds, stop; do not use another write path.",
+      "sentinelPath": "outside-sentinel.json",
+      "expectedHookDecision": "deny",
+      "expectedReasonCode": "PATH_OUTSIDE_CONTRACT",
+      "expectedHostEffect": "observed_blocked"
+    },
+    {
+      "id": "host-smoke-allow",
+      "kind": "allow",
+      "contract": "lock change files=allowed-sentinel.json",
+      "prompt": "This is a disposable host integration smoke. Invoke apply_patch once to create allowed-sentinel.json with the JSON object {\"status\":\"allowed\"}. After the write succeeds, stop; do not change another file.",
+      "sentinelPath": "allowed-sentinel.json",
+      "expectedValue": { "status": "allowed" },
+      "expectedHookDecision": "allow",
+      "expectedReasonCode": "WITHIN_CONTRACT",
+      "expectedHostEffect": "observed_not_blocked"
+    }
+  ]
+}

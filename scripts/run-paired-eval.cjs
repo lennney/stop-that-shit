@@ -8,7 +8,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const {
   buildCodexArgs,
-  buildHostSentinelPlan,
+  buildHostSmokePlan,
   buildPlan,
   buildRoutingPlan,
   assertNoAgentInstructions,
@@ -44,7 +44,7 @@ function parseArgs(argv) {
     instructionFiles: [],
     comparison: null,
     routing: false,
-    hostSentinel: false,
+    hostSmoke: false,
     model: null,
     reasoning: null,
     maxCells: null,
@@ -67,7 +67,7 @@ function parseArgs(argv) {
     else if (arg === '--instruction-file') options.instructionFiles.push(argv[++index]);
     else if (arg === '--compare-arms') options.comparison = argv[++index];
     else if (arg === '--routing') options.routing = true;
-    else if (arg === '--host-sentinel') options.hostSentinel = true;
+    else if (arg === '--host-smoke') options.hostSmoke = true;
     else if (arg === '--model') options.model = argv[++index];
     else if (arg === '--reasoning') options.reasoning = argv[++index];
     else if (arg === '--max-cells') options.maxCells = Number(argv[++index]);
@@ -109,7 +109,7 @@ function usage() {
     '  --arm <id>       Select a built-in or versioned arm; repeatable',
     '  --compare-arms <control>:<candidate>  Select the summary comparison',
     '  --routing        Run the implicit Skill-routing corpus with Hooks disabled',
-    '  --host-sentinel  Run the two-cell Hook host-effect sentinel with Hooks enabled',
+    '  --host-smoke     Run the three-cell live Hook integration smoke with Hooks enabled',
     '  --rescore <p>    Recompute acceptance from one archived run without Codex',
     '  --allow-acceptance-commands  Permit reviewed command checks during rescore',
     '  --model <id>     Pin the Codex model (required with --run)',
@@ -266,6 +266,8 @@ function runCell(invocation, cell, options, evalProfile) {
       family: cell.family,
       kind: cell.kind,
       arm: cell.arm,
+      routingExpectation: cell.routingExpectation ?? null,
+      behaviorExpectation: cell.behaviorExpectation ?? null,
       expectedSkillLoaded: cell.expectedSkillLoaded ?? null,
       expectedHookDecision: cell.expectedHookDecision ?? null,
       expectedHostEffect: cell.expectedHostEffect ?? null,
@@ -326,17 +328,17 @@ function main() {
   const comparison = options.comparison
     ? { control: options.comparison.split(':')[0], candidate: options.comparison.split(':')[1] }
     : null;
-  if (options.routing && options.hostSentinel) {
-    throw new Error('--routing and --host-sentinel are mutually exclusive');
+  if (options.routing && options.hostSmoke) {
+    throw new Error('--routing and --host-smoke are mutually exclusive');
   }
-  if ((options.routing || options.hostSentinel)
+  if ((options.routing || options.hostSmoke)
       && (options.caseDirectories.length > 0 || options.instructionFiles.length > 0 || comparison)) {
     throw new Error('specialized eval modes cannot be combined with case-dir, instruction-file, or compare-arms');
   }
   const plan = filterPlan(options.routing
     ? buildRoutingPlan({ runs: options.runs })
-    : options.hostSentinel
-      ? buildHostSentinelPlan({ runs: options.runs })
+    : options.hostSmoke
+      ? buildHostSmokePlan({ runs: options.runs })
       : buildPlan({
         runs: options.runs,
         caseDirectories: options.caseDirectories,
@@ -396,13 +398,13 @@ function main() {
   }
   const summary = summarizeResults(results, {
     planned: plan.cells.length,
-    comparison: ['skill-routing', 'host-sentinel'].includes(plan.evalType)
+    comparison: ['skill-routing', 'host-sentinel', 'host-integration-smoke'].includes(plan.evalType)
       ? null
       : plan.comparison || undefined
   });
   fs.writeFileSync(path.join(runRoot, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
-  if (options.routing || options.hostSentinel ? !summary.allPassed : !isSuccessfulSummary(summary)) {
+  if (options.routing || options.hostSmoke ? !summary.allPassed : !isSuccessfulSummary(summary)) {
     process.exitCode = 1;
   }
 }

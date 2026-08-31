@@ -20,7 +20,7 @@ This tree is validated with deterministic Hook-schema simulations, real
 child-process stdin/stdout entrypoint tests, cross-platform path regression
 tests, and shared policy tests:
 
-- 216/216 executed runtime/unit/integration tests pass, including the preserved
+- 220/220 executed runtime/unit/integration tests pass, including the preserved
   Codex tests, Claude child-process Hook simulations, OpenCode adapter/plugin
   regressions, Hermes native-plugin/runtime tests, and Pi adapter/package tests;
   one optional installed
@@ -62,9 +62,9 @@ Pi's standard Agent `tool_call` dispatcher.
 Verified locally:
 
 - plugin and Skill validators pass;
-- 92/92 automated unit, integration, privacy, CaseBundle, CLI, and rescore tests
+- 220/220 executed unit, integration, privacy, CaseBundle, CLI, and rescore tests
   pass locally;
-- 14/14 executable Bad/Good case arms pass;
+- 18/18 executable Bad/Good case arms pass;
 - packaged Hook input/output works on Windows;
 - review blocks covered writes and explicit change preserves the Good Case;
 - optional file locks handle repository-relative and absolute patch paths;
@@ -79,7 +79,10 @@ Verified locally:
   `UserPromptSubmit` and `PreToolUse`, with zero handlers for every other event.
 - the public paired-eval harness produces a fixed baseline/instruction/plugin
   plan over eight Bad/Good families. The default command is dry-run only;
-  routing and host-sentinel plans are separate commands and evidence paths;
+  routing and host-integration-smoke plans are separate commands and evidence
+  paths;
+- routing scorer regressions cover escaped Windows separators and Codex commands
+  that batch later output after the Skill body;
 - every observing or armed before-action check produces a metadata-only local
   RuntimeEvent when storage is writable; damaged tail records are ignored and
   audit write failures do not alter Guard decisions;
@@ -205,12 +208,18 @@ does not require a large benchmark to make a probabilistic mitigation claim,
 but a dry-run plan is not a live result.
 
 - a multi-scenario live baseline/plugin matrix for the reduced candidate;
-- the live implicit-routing matrix (22 cells for one run) and the two-cell
-  host-sentinel check; this candidate records dry-run plans only;
+- a complete live implicit-routing matrix (22 cells for one run) and the
+  three-cell host integration smoke; the interrupted partial routing run is
+  diagnostic only and is not a release result;
 - interactive `/hooks` trust on a separate physical machine;
 - live macOS and Linux Hook behavior beyond the automated CI matrix;
 - several distinct community scenarios and multiple seeds;
 - specialized tool paths that may bypass normal Hook coverage.
+
+One interrupted pre-redesign routing archive contains four completed cells and
+18 unrun cells. Offline rescore after the Windows path and batched-output scorer
+fixes reports 4/4 Skill loads and 4/4 behavior passes for the completed cells.
+That partial archive does not validate the revised routing corpus.
 
 The upgraded paired-eval harness is available, but its 144-session default matrix
 has not been run or published. A generated plan, RuntimeEvent count, or

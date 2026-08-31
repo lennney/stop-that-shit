@@ -825,7 +825,7 @@ module.exports = {
     "eval:selftest": "node --test test/case-bundle.test.cjs test/paired-eval.test.cjs",
     "eval:paired": "node scripts/run-paired-eval.cjs",
     "eval:routing": "node scripts/run-paired-eval.cjs --routing --runs 1",
-    "eval:host-sentinel": "node scripts/run-paired-eval.cjs --host-sentinel --runs 1",
+    "eval:host-smoke": "node scripts/run-paired-eval.cjs --host-smoke --runs 1",
     "release:check": "npm run schema:check && node scripts/release-check.cjs",
     "release:build": "node scripts/build-release.cjs"
   },
@@ -1437,7 +1437,7 @@ __modules["package.json"] = function(module) { module.exports = {
     "eval:selftest": "node --test test/case-bundle.test.cjs test/paired-eval.test.cjs",
     "eval:paired": "node scripts/run-paired-eval.cjs",
     "eval:routing": "node scripts/run-paired-eval.cjs --routing --runs 1",
-    "eval:host-sentinel": "node scripts/run-paired-eval.cjs --host-sentinel --runs 1",
+    "eval:host-smoke": "node scripts/run-paired-eval.cjs --host-smoke --runs 1",
     "release:check": "npm run schema:check && node scripts/release-check.cjs",
     "release:build": "node scripts/build-release.cjs"
   },

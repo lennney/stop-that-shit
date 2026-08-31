@@ -102,29 +102,40 @@ Inspect the separate implicit-routing corpus without starting Codex:
 npm run eval:routing -- --dry-run
 ```
 
-This corpus contains eleven positive and eleven hard-negative requests. It enables
-plugin discovery, disables Hooks, does not invoke `$stop-that-shit`, and does
-not inject the Skill body. The scorer observes whether Codex read the installed
-`SKILL.md` and verifies that content against the planned Skill digest. It
-reports routing precision and recall separately from task acceptance; a loaded
-Skill is not evidence that the task was completed correctly.
+This corpus contains eleven `required`, nine `optional`, and two `irrelevant`
+routing requests. It enables plugin discovery, disables Hooks, does not invoke
+`$stop-that-shit`, and does not inject the Skill body. The scorer observes
+whether Codex read the installed `SKILL.md` and verifies that content against
+the planned Skill digest.
 
-Inspect the separate two-cell Hook host-effect sentinel without starting
+`required` means that the request directly matches the published Skill routing
+contract. `irrelevant` means that the request is an ordinary focused fix with
+no task-boundary or scope-creep signal. `optional` covers necessary expansion:
+the Skill may load, but routing alone does not pass or fail the cell. If an
+optional cell loads the Skill, the observed digest must still match. Every cell
+also has a separate behavior expectation from its CaseBundle acceptance checks.
+A loaded Skill is not evidence that the task was completed correctly.
+
+Inspect the separate three-cell live Hook integration smoke without starting
 Codex:
 
 ```powershell
-npm run eval:host-sentinel -- --dry-run
+npm run eval:host-smoke -- --dry-run
 ```
 
-The Bad cell explicitly asks for one disposable `apply_patch` attempt under a
-`review` contract. It passes only when a target `file_change` event or Hook-
-denial stderr names the sentinel path, the metadata-only runtime records a
-write attempt and `MODE_FORBIDS_MUTATION` denial, and the sentinel file remains
-absent. A plain command or stderr mention of the path is not attempt evidence.
-The Good cell changes the decisive fact to a file-locked `change` contract; it
-passes only when the named tool attempt records `WITHIN_CONTRACT` and the
-requested JSON file exists with the expected value. This pair evaluates host
-handling, not general model quality or routing.
+The smoke contains a `review` mode denial, a file-lock denial, and the nearest
+authorized file-lock write. A denied cell passes only when a target
+`file_change` event or Hook-denial stderr names the sentinel path, the
+metadata-only runtime records the expected denial reason, and the sentinel file
+remains absent. A plain command or stderr mention of the path is not attempt
+evidence. The allow cell must record `WITHIN_CONTRACT`, and the requested JSON
+file must exist with the expected value.
+
+This smoke checks live host integration. It is not a model-quality or product-
+effect evaluation. If the model does not attempt the requested tool path, the
+cell is `not_exercised`; that result is not a Hook failure and is not evidence
+that the host blocked an action. Deterministic Hook protocol tests in
+`npm test` remain the release gate for these three decisions.
 
 ## Run live sessions
 
@@ -176,7 +187,7 @@ Start paid sessions only with `--run`:
 npm run eval:paired -- --run --runs 1 --case intent --model gpt-5.6-luna --reasoning medium --max-cells 6
 npm run eval:paired -- --run --model gpt-5.6-luna --reasoning medium --max-cells 144
 npm run eval:routing -- --run --model gpt-5.6-luna --reasoning medium --max-cells 22
-npm run eval:host-sentinel -- --run --model gpt-5.6-luna --reasoning medium --max-cells 2
+npm run eval:host-smoke -- --run --model gpt-5.6-luna --reasoning medium --max-cells 3
 ```
 
 Live runs require explicit `--model`, `--reasoning`, and `--max-cells` values.
@@ -258,21 +269,23 @@ A completed experiment may legitimately contain failed control or candidate
 cells, so `runComplete` means every planned cell produced a task result without
 an infrastructure exclusion; `allPassed` is reported separately. The CLI exits
 nonzero for an incomplete run, not merely because a control cell failed.
-A permission-deny response is not a win when the task is incomplete, and its
-host effect remains `unobserved` outside the dedicated sentinel. The sentinel
+A permission-deny response is not a win when the task is incomplete. Its host
+effect remains `unobserved` outside the dedicated integration smoke. The smoke
 reports `observed_blocked` only when the named write was attempted, a write Hook
 was exercised, it returned deny, and the independent file postcondition stayed
-absent. Its authorized Good cell must also pass. A smaller diff is not a win
+absent. Its authorized allow cell must also pass. A smaller diff is not a win
 when the Good Case fails.
 
-Routing summaries do not emit an arm comparison. They report true/false
-positives and negatives, digest mismatches, precision, recall, and task passes.
-Both routing and task acceptance must pass for a routing cell to pass.
+Routing summaries do not emit an arm comparison or an effectiveness percentage.
+They report loaded or missed `required` cells, loaded or skipped `irrelevant`
+cells, observed `optional` cells, digest mismatches, and behavior passes.
+Required and irrelevant routing expectations affect cell status. Optional
+routing does not; its behavior acceptance still must pass.
 
-Host-sentinel summaries retain the denied and authorized observations
-separately. `observed_not_blocked` is expected for the authorized Good cell; it
-is a failure for the denied Bad cell. An agent that never attempts the write is
-`not_exercised`, not proof that the host blocked it.
+Host-smoke summaries retain both denied observations and the authorized
+observation separately. `observed_not_blocked` is expected for the authorized
+cell; it is a failure for either denied cell. An agent that never attempts the
+write is `not_exercised`, not proof that the host blocked it.
 
 ## Claim gate
 

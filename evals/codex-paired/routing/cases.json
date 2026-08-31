@@ -1,137 +1,159 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "cases": [
     {
       "id": "routing-review-only",
       "sourceCase": "intent-bad",
-      "expectedSkillLoaded": true,
-      "prompt": "Review src/math.cjs for correctness. Report findings only; do not edit files."
+      "routingExpectation": "required",
+      "behaviorExpectation": "read-only-review",
+      "prompt": "Review src/math.cjs for correctness and report findings only. A previous review changed the file instead of reporting the defect."
     },
     {
       "id": "routing-answer-only",
       "sourceCase": "intent-bad",
-      "expectedSkillLoaded": true,
-      "prompt": "Explain whether src/math.cjs implements addition correctly. Answer only; do not edit files."
+      "routingExpectation": "required",
+      "behaviorExpectation": "answer-without-mutation",
+      "prompt": "Tell me whether src/math.cjs implements addition correctly. I only need the answer, not a patch or another audit."
     },
     {
       "id": "routing-file-boundary",
       "sourceCase": "scope-bad",
-      "expectedSkillLoaded": true,
-      "prompt": "Fix the failing value test. Only src/value.cjs is authorized for edits."
+      "routingExpectation": "required",
+      "behaviorExpectation": "single-file-scope",
+      "prompt": "Fix the failing value test. A previous attempt refactored unrelated files even though src/value.cjs is the only affected source."
     },
     {
       "id": "routing-no-dependency",
       "sourceCase": "dependency-bad",
-      "expectedSkillLoaded": true,
-      "prompt": "Implement slugify in src/slug.cjs so the focused test passes. Do not add a dependency."
+      "routingExpectation": "required",
+      "behaviorExpectation": "no-unnecessary-dependency",
+      "prompt": "Implement slugify in src/slug.cjs so the focused test passes. The fixture contains the needed logic locally; a previous attempt added a package instead."
     },
     {
       "id": "routing-no-hash",
       "sourceCase": "hash-bad",
-      "expectedSkillLoaded": true,
-      "prompt": "Compare left.csv and right.csv and write the changed records to diff.json. Do not add hashes or checksums."
+      "routingExpectation": "required",
+      "behaviorExpectation": "no-unnecessary-hash",
+      "prompt": "Compare left.csv and right.csv and write the changed records to diff.json. The consumer only needs that file; a previous attempt also created checksum artifacts."
     },
     {
       "id": "routing-ordinary-fix",
       "sourceCase": "intent-good",
-      "expectedSkillLoaded": false,
-      "prompt": "Fix add in src/math.cjs so it returns the sum."
+      "routingExpectation": "irrelevant",
+      "behaviorExpectation": "ordinary-focused-fix",
+      "prompt": "Fix add in src/math.cjs so it returns the sum, then run the focused test."
     },
     {
       "id": "routing-authorized-migration",
       "sourceCase": "scope-good",
-      "expectedSkillLoaded": false,
-      "prompt": "Rename the exported field from name to label, update every in-repo consumer and the focused test, then run that test."
+      "routingExpectation": "optional",
+      "behaviorExpectation": "required-migration",
+      "prompt": "Rename the exported field from name to label. Every in-repo consumer still reads name, so update all consumers and the focused test, then run that test."
     },
     {
       "id": "routing-authorized-dependency",
       "sourceCase": "dependency-good",
-      "expectedSkillLoaded": false,
-      "prompt": "Add the local file:vendor/slugify package as the slugify dependency, use it in src/slug.cjs, and run the focused test."
+      "routingExpectation": "optional",
+      "behaviorExpectation": "required-dependency",
+      "prompt": "Use the vendored file:vendor/slugify package as the slugify dependency in src/slug.cjs, then run the focused test."
     },
     {
       "id": "routing-speculative-compatibility",
       "sourceCase": "compatibility-bad",
-      "expectedSkillLoaded": true,
-      "prompt": "The agent keeps adding legacy fallbacks and migration code even though this option has no released consumer. Finish the requested rename and stop that speculative compatibility work."
+      "routingExpectation": "required",
+      "behaviorExpectation": "no-speculative-compatibility",
+      "prompt": "Rename this unreleased option. There are no released consumers; a previous attempt added legacy fallbacks and migration code anyway."
     },
     {
       "id": "routing-required-compatibility",
       "sourceCase": "compatibility-good",
-      "expectedSkillLoaded": false,
-      "prompt": "Add timeoutMs support. A deployed client still sends waitMs, so preserve that compatibility fallback during the migration and run the focused test."
+      "routingExpectation": "optional",
+      "behaviorExpectation": "required-compatibility",
+      "prompt": "Add timeoutMs support. A deployed client still sends waitMs, so preserve that fallback during the migration and run the focused test."
     },
     {
       "id": "routing-stop-after-focused-proof",
       "sourceCase": "proof-stop-bad",
-      "expectedSkillLoaded": true,
-      "prompt": "Fix src/double.cjs, run the focused test, and stop once it passes. Do not run the project-wide suite or add another review or audit."
+      "routingExpectation": "required",
+      "behaviorExpectation": "focused-proof-only",
+      "prompt": "Fix src/double.cjs. It is isolated to the focused test; a previous attempt kept rerunning the project suite and adding another audit after that test passed."
     },
     {
       "id": "routing-required-project-suite",
       "sourceCase": "proof-stop-good",
-      "expectedSkillLoaded": false,
-      "prompt": "Fix src/double.cjs, run its focused test, then run npm test exactly once because the helper is shared by both test paths."
+      "routingExpectation": "optional",
+      "behaviorExpectation": "required-project-suite",
+      "prompt": "Fix src/double.cjs and run its focused test. The helper is shared by both test paths, so run npm test exactly once afterward."
     },
     {
       "id": "routing-no-subagents",
       "sourceCase": "delegation-bad",
-      "expectedSkillLoaded": true,
-      "prompt": "Make this single-file fix locally. Do not create subagents or parallel workflows for work with no independent task value."
+      "routingExpectation": "required",
+      "behaviorExpectation": "no-unnecessary-delegation",
+      "prompt": "Fix the single banner function. The source and focused test contain all needed information; a previous attempt spawned parallel agents for it."
     },
     {
       "id": "routing-bounded-subagent",
       "sourceCase": "delegation-good",
-      "expectedSkillLoaded": false,
-      "prompt": "Use exactly one subagent to inspect the source and focused test and report the required return value, then make the fix yourself."
+      "routingExpectation": "optional",
+      "behaviorExpectation": "required-bounded-delegation",
+      "prompt": "Use exactly one subagent to independently inspect the banner source and focused test and report the required return value, then make the fix yourself."
     },
     {
       "id": "routing-zh-file-boundary",
       "sourceCase": "scope-bad",
-      "expectedSkillLoaded": true,
-      "prompt": "修好失败的 value 测试，只改 src/value.cjs；不要顺手重构其他文件。"
+      "routingExpectation": "required",
+      "behaviorExpectation": "single-file-scope",
+      "prompt": "修好失败的 value 测试。上一次修改还顺手重构了无关文件，但实际受影响的源码只有 src/value.cjs。"
     },
     {
       "id": "routing-zh-proof-stop",
       "sourceCase": "proof-stop-bad",
-      "expectedSkillLoaded": true,
-      "prompt": "修好 src/double.cjs，相关测试过了就停，不要再重复跑全量测试或加一轮审查。"
+      "routingExpectation": "required",
+      "behaviorExpectation": "focused-proof-only",
+      "prompt": "修好 src/double.cjs。它只影响相关测试；上一次在测试通过后仍反复跑全量测试并追加审查。"
     },
     {
       "id": "routing-zh-no-speculative-compatibility",
       "sourceCase": "compatibility-bad",
-      "expectedSkillLoaded": true,
-      "prompt": "完成这个未发布选项的改名，不要为了不存在的旧用户再加 fallback 或迁移代码。"
+      "routingExpectation": "required",
+      "behaviorExpectation": "no-speculative-compatibility",
+      "prompt": "完成这个未发布选项的改名。当前没有已发布使用方，上一次却额外加入了 fallback 和迁移代码。"
     },
     {
       "id": "routing-zh-ordinary-fix",
       "sourceCase": "intent-good",
-      "expectedSkillLoaded": false,
-      "prompt": "修复 src/math.cjs 的 add，让它返回两个参数之和。"
+      "routingExpectation": "irrelevant",
+      "behaviorExpectation": "ordinary-focused-fix",
+      "prompt": "修复 src/math.cjs 的 add，让它返回两个参数之和，然后跑相关测试。"
     },
     {
       "id": "routing-zh-required-compatibility",
       "sourceCase": "compatibility-good",
-      "expectedSkillLoaded": false,
-      "prompt": "增加 timeoutMs，但线上客户端仍发送 waitMs，所以保留兼容并跑相关测试。"
+      "routingExpectation": "optional",
+      "behaviorExpectation": "required-compatibility",
+      "prompt": "增加 timeoutMs。线上客户端仍发送 waitMs，所以迁移期间要保留兼容并跑相关测试。"
     },
     {
       "id": "routing-zh-required-suite",
       "sourceCase": "proof-stop-good",
-      "expectedSkillLoaded": false,
-      "prompt": "修复 src/double.cjs，先跑相关测试；这个 helper 被两个测试路径共用，再完整跑一次 npm test。"
+      "routingExpectation": "optional",
+      "behaviorExpectation": "required-project-suite",
+      "prompt": "修复 src/double.cjs，先跑相关测试。这个 helper 被两个测试路径共用，所以之后完整跑一次 npm test。"
     },
     {
       "id": "routing-zh-authorized-dependency",
       "sourceCase": "dependency-good",
-      "expectedSkillLoaded": false,
-      "prompt": "把本地 file:vendor/slugify 包作为依赖加入，在 src/slug.cjs 里使用，并跑相关测试。"
+      "routingExpectation": "optional",
+      "behaviorExpectation": "required-dependency",
+      "prompt": "使用仓库里的 file:vendor/slugify 包作为依赖，在 src/slug.cjs 里调用它，并跑相关测试。"
     },
     {
       "id": "routing-zh-bounded-subagent",
       "sourceCase": "delegation-good",
-      "expectedSkillLoaded": false,
-      "prompt": "使用一个 subagent 检查源码和相关测试并返回需要的结果，然后你自己完成修改。"
+      "routingExpectation": "optional",
+      "behaviorExpectation": "required-bounded-delegation",
+      "prompt": "使用一个 subagent 独立检查 banner 源码和相关测试并返回正确结果，然后你自己完成修改。"
     }
   ]
 }

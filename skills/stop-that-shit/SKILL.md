@@ -1,6 +1,6 @@
 ---
 name: stop-that-shit
-description: Keep coding agents focused on requested and necessary work. Use for bounded changes, review-only tasks, scope creep, speculative hardening, unnecessary hashing or dependencies, repeated audit loops, or when the user invokes Stop That Shit.
+description: Keep coding agents focused on requested and necessary work. Use when a request sets a read-only, answer-only, file, action, or stopping boundary; when evidence shows scope creep, speculative hardening, unnecessary hashing or dependencies, repeated audit loops, or valueless delegation; or when the user invokes Stop That Shit. Do not invoke for an ordinary focused fix without a boundary or scope-creep signal.
 license: MIT
 ---
 

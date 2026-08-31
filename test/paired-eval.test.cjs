@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const {
   buildPlan,
   buildCodexArgs,
-  buildHostSentinelPlan,
+  buildHostSmokePlan,
   buildRoutingPlan,
   assertInstalledHooksTrusted,
   assertInstalledPluginMatchesSource,
@@ -26,6 +26,7 @@ const {
   repositoryRevision,
   resolveCodexInvocation,
   rescoreRun,
+  resultStatus,
   summarizeResults
 } = require('../scripts/paired-eval-lib.cjs');
 const fs = require('node:fs');
@@ -159,7 +160,7 @@ test('eventCount scores completed trajectory events without counting start event
   }).pass, false);
 });
 
-test('routing eval plans eleven positive and eleven hard-negative prompts without explicit invocation', () => {
+test('routing eval separates required, optional, and irrelevant Skill routing from behavior', () => {
   const plan = buildRoutingPlan({ runs: 1, stamp: 'routing-test' });
 
   assert.equal(plan.evalType, 'skill-routing');
@@ -167,8 +168,13 @@ test('routing eval plans eleven positive and eleven hard-negative prompts withou
   assert.equal(plan.arms[0].pluginEnabled, true);
   assert.equal(plan.arms[0].hooksEnabled, false);
   assert.equal(plan.cells.length, 22);
-  assert.equal(plan.cells.filter((cell) => cell.expectedSkillLoaded).length, 11);
-  assert.equal(plan.cells.filter((cell) => !cell.expectedSkillLoaded).length, 11);
+  assert.equal(plan.cells.filter((cell) => cell.routingExpectation === 'required').length, 11);
+  assert.equal(plan.cells.filter((cell) => cell.routingExpectation === 'optional').length, 9);
+  assert.equal(plan.cells.filter((cell) => cell.routingExpectation === 'irrelevant').length, 2);
+  assert.equal(plan.cells.filter((cell) => cell.expectedSkillLoaded === true).length, 11);
+  assert.equal(plan.cells.filter((cell) => cell.expectedSkillLoaded === null).length, 9);
+  assert.equal(plan.cells.filter((cell) => cell.expectedSkillLoaded === false).length, 2);
+  assert.equal(plan.cells.every((cell) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(cell.behaviorExpectation)), true);
   assert.equal(plan.cells.every((cell) => !cell.prompt.includes('$stop-that-shit')), true);
 
   const args = buildCodexArgs(plan.cells[0], {
@@ -202,17 +208,102 @@ test('routing eval observes the loaded Skill and verifies its pinned digest', ()
   assert.equal(observeSkillLoad('', plan.arms[0].skillDigest).loaded, false);
 });
 
-test('host sentinel plans one denied write and the nearest authorized write', () => {
-  const plan = buildHostSentinelPlan({ runs: 1, stamp: 'host-sentinel-test' });
+test('routing eval recognizes Codex JSON commands with escaped Windows separators', () => {
+  const plan = buildRoutingPlan({ runs: 1, stamp: 'routing-windows-observation' });
+  const skill = fs.readFileSync(
+    path.join(__dirname, '..', 'skills', 'stop-that-shit', 'SKILL.md'),
+    'utf8'
+  );
+  const events = `${JSON.stringify({
+    type: 'item.completed',
+    item: {
+      type: 'command_execution',
+      command: String.raw`Get-Content -Raw 'C:\\cache\\skills\\stop-that-shit\\SKILL.md'`,
+      aggregated_output: skill
+    }
+  })}\n`;
 
-  assert.equal(plan.evalType, 'host-sentinel');
+  assert.deepEqual(observeSkillLoad(events, plan.arms[0].skillDigest), {
+    loaded: true,
+    loadEvents: 1,
+    digestMatched: true,
+    observedSkillDigests: [plan.arms[0].skillDigest]
+  });
+});
+
+test('routing eval isolates the Skill digest when Codex batches later command output', () => {
+  const plan = buildRoutingPlan({ runs: 1, stamp: 'routing-batched-observation' });
+  const skill = fs.readFileSync(
+    path.join(__dirname, '..', 'skills', 'stop-that-shit', 'SKILL.md'),
+    'utf8'
+  );
+  const events = `${JSON.stringify({
+    type: 'item.completed',
+    item: {
+      type: 'command_execution',
+      command: "Get-Content -Raw 'C:\\cache\\skills\\stop-that-shit\\SKILL.md'; Get-Content test/value.test.cjs",
+      aggregated_output: `${skill}\n---TEST---\nassert.equal(value, 42);\n`
+    }
+  })}\n`;
+
+  assert.deepEqual(observeSkillLoad(events, plan.arms[0].skillDigest), {
+    loaded: true,
+    loadEvents: 1,
+    digestMatched: true,
+    observedSkillDigests: [plan.arms[0].skillDigest]
+  });
+});
+
+test('optional routing does not require a load but rejects an observed stale Skill', () => {
+  const plan = buildRoutingPlan({ runs: 1, stamp: 'routing-optional-observation' });
+  const optionalCell = plan.cells.find((cell) => cell.routingExpectation === 'optional');
+  const skillCheck = optionalCell.acceptance.find((check) => check.type === 'skillLoaded');
+  assert.equal(evaluateAcceptance({
+    workspace: process.cwd(),
+    eventsText: '',
+    acceptance: [skillCheck]
+  }).pass, true);
+
+  const staleSkill = [
+    '---',
+    'name: stop-that-shit',
+    'description: stale',
+    '---',
+    '',
+    'Stale instruction.'
+  ].join('\n');
+  const events = `${JSON.stringify({
+    type: 'item.completed',
+    item: {
+      type: 'command_execution',
+      command: "Get-Content -Raw 'C:\\cache\\skills\\stop-that-shit\\SKILL.md'",
+      aggregated_output: staleSkill
+    }
+  })}\n`;
+  const acceptance = evaluateAcceptance({
+    workspace: process.cwd(),
+    eventsText: events,
+    acceptance: [skillCheck]
+  });
+
+  assert.equal(acceptance.pass, false);
+  assert.equal(acceptance.checks[0].loaded, true);
+  assert.equal(acceptance.checks[0].digestMatched, false);
+});
+
+test('host integration smoke plans mode deny, file deny, and the nearest authorized write', () => {
+  const plan = buildHostSmokePlan({ runs: 1, stamp: 'host-smoke-test' });
+
+  assert.equal(plan.evalType, 'host-integration-smoke');
   assert.equal(plan.comparison, null);
-  assert.deepEqual(plan.arms.map((arm) => arm.id), ['host-sentinel']);
+  assert.deepEqual(plan.arms.map((arm) => arm.id), ['host-smoke']);
   assert.equal(plan.arms[0].pluginEnabled, true);
   assert.equal(plan.arms[0].hooksEnabled, true);
-  assert.equal(plan.cells.length, 2);
-  assert.deepEqual(plan.cells.map((cell) => cell.expectedHookDecision), ['deny', 'allow']);
+  assert.equal(plan.cells.length, 3);
+  assert.deepEqual(plan.cells.map((cell) => cell.kind), ['mode-deny', 'file-deny', 'allow']);
+  assert.deepEqual(plan.cells.map((cell) => cell.expectedHookDecision), ['deny', 'deny', 'allow']);
   assert.deepEqual(plan.cells.map((cell) => cell.expectedHostEffect), [
+    'observed_blocked',
     'observed_blocked',
     'observed_not_blocked'
   ]);
@@ -222,13 +313,13 @@ test('host sentinel plans one denied write and the nearest authorized write', ()
   const args = buildCodexArgs(plan.cells[0], {
     model: 'gpt-5.6-luna',
     reasoning: 'medium',
-    workspace: 'C:\\host-sentinel-workspace'
+    workspace: 'C:\\host-smoke-workspace'
   });
   assert.deepEqual(args.slice(0, 4), ['--enable', 'plugins', '--enable', 'hooks']);
 });
 
-test('host sentinel distinguishes a returned denial from an observed host effect', (t) => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-host-sentinel-'));
+test('host smoke distinguishes a returned denial from an observed host effect', (t) => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-host-smoke-'));
   t.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
   const runtimeEvent = (responseOutcome, reasonCode = 'MODE_FORBIDS_MUTATION') => ({
     action: { mutability: 'write' },
@@ -286,7 +377,7 @@ test('host sentinel distinguishes a returned denial from an observed host effect
   }).hostEffect, 'not_exercised');
 });
 
-test('host sentinel binds the attempted tool path without retaining raw input in the check', () => {
+test('host smoke binds the attempted tool path without retaining raw input in the check', () => {
   const eventsText = `${JSON.stringify({
     type: 'item.completed',
     item: {
@@ -327,7 +418,7 @@ test('host sentinel binds the attempted tool path without retaining raw input in
   });
 });
 
-test('host sentinel acceptance requires Hook decision, reason, and independent effect', (t) => {
+test('host smoke acceptance requires Hook decision, reason, and independent effect', (t) => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-host-acceptance-'));
   t.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
   assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: workspace }).status, 0);
@@ -365,44 +456,52 @@ test('host sentinel acceptance requires Hook decision, reason, and independent e
   }).pass, false);
 });
 
-test('paired summary reports routing precision, recall, and task completion separately', () => {
-  const routingResult = (id, expected, loaded, taskPass = true) => ({
+test('paired summary reports routing expectations and behavior separately', () => {
+  const routingResult = (id, expectation, loaded, behaviorPass = true) => ({
     caseId: id,
-    kind: expected ? 'positive' : 'negative',
+    kind: expectation,
     arm: 'routing',
     run: 1,
-    status: expected === loaded && taskPass ? 'pass' : 'fail',
+    routingExpectation: expectation,
+    status: (expectation === 'optional'
+      || (expectation === 'required' && loaded)
+      || (expectation === 'irrelevant' && !loaded)) && behaviorPass ? 'pass' : 'fail',
     runtime: {},
     acceptance: {
       checks: [
-        { type: 'command', pass: taskPass },
-        { type: 'skillLoaded', expected, loaded, digestMatched: loaded }
+        { type: 'command', pass: behaviorPass },
+        {
+          type: 'skillLoaded',
+          expectation,
+          expected: expectation === 'required' ? true : expectation === 'irrelevant' ? false : null,
+          loaded,
+          digestMatched: loaded
+        }
       ]
     }
   });
   const summary = summarizeResults([
-    routingResult('routing-positive-pass', true, true),
-    routingResult('routing-positive-miss', true, false),
-    routingResult('routing-negative-pass', false, false),
-    routingResult('routing-negative-false-positive', false, true, false)
+    routingResult('routing-required-loaded', 'required', true),
+    routingResult('routing-required-missed', 'required', false),
+    routingResult('routing-irrelevant-skipped', 'irrelevant', false),
+    routingResult('routing-irrelevant-loaded', 'irrelevant', true),
+    routingResult('routing-optional-loaded', 'optional', true),
+    routingResult('routing-optional-not-loaded', 'optional', false, false)
   ], { comparison: null });
 
   assert.equal(summary.comparison, null);
   assert.deepEqual(summary.comparisons, { improved: 0, regressed: 0, unchanged: 0, incomparable: 0 });
   assert.deepEqual(summary.routing, {
-    cells: 4,
-    truePositive: 1,
-    falsePositive: 1,
-    trueNegative: 1,
-    falseNegative: 1,
+    cells: 6,
+    required: { cells: 2, loaded: 1, missed: 1 },
+    optional: { cells: 2, loaded: 1, notLoaded: 1 },
+    irrelevant: { cells: 2, loaded: 1, skipped: 1 },
     digestMismatches: 0,
-    precision: 0.5,
-    recall: 0.5,
-    taskPassed: 3
+    behaviorPassed: 5
   });
 });
 
-test('paired summary excludes routing infrastructure errors from precision and recall', () => {
+test('paired summary excludes routing infrastructure errors from routing counts', () => {
   const summary = summarizeResults([{
     caseId: 'routing-review-only',
     kind: 'positive',
@@ -425,22 +524,19 @@ test('paired summary excludes routing infrastructure errors from precision and r
   assert.equal(summary.notRun, 13);
   assert.deepEqual(summary.routing, {
     cells: 0,
-    truePositive: 0,
-    falsePositive: 0,
-    trueNegative: 0,
-    falseNegative: 0,
+    required: { cells: 0, loaded: 0, missed: 0 },
+    optional: { cells: 0, loaded: 0, notLoaded: 0 },
+    irrelevant: { cells: 0, loaded: 0, skipped: 0 },
     digestMismatches: 0,
-    precision: null,
-    recall: null,
-    taskPassed: 0
+    behaviorPassed: 0
   });
 });
 
-test('paired summary reports completed host sentinel effects without flattening the pair', () => {
+test('paired summary reports completed host smoke effects without flattening the cells', () => {
   const result = (kind, hookDecision, hostEffect) => ({
-    caseId: `host-sentinel-${kind}`,
+    caseId: `host-smoke-${kind}`,
     kind,
-    arm: 'host-sentinel',
+    arm: 'host-smoke',
     run: 1,
     status: 'pass',
     runtime: {},
@@ -450,21 +546,30 @@ test('paired summary reports completed host sentinel effects without flattening 
     acceptance: { pass: true, checks: [] }
   });
   const summary = summarizeResults([
-    result('bad', 'deny', 'observed_blocked'),
-    result('good', 'allow', 'observed_not_blocked')
+    result('mode-deny', 'deny', 'observed_blocked'),
+    result('file-deny', 'deny', 'observed_blocked'),
+    result('allow', 'allow', 'observed_not_blocked')
   ], { comparison: null });
 
-  assert.deepEqual(summary.hostSentinel, {
-    cells: 2,
+  assert.deepEqual(summary.hostSmoke, {
+    cells: 3,
     effects: {
-      observedBlocked: 1,
+      observedBlocked: 2,
       observedNotBlocked: 1,
       notExercised: 0,
       unobserved: 0
     },
-    decisions: { allow: 1, warn: 0, deny: 1, mixed: 0, notExercised: 0 }
+    decisions: { allow: 1, warn: 0, deny: 2, mixed: 0, notExercised: 0 }
   });
   assert.equal(summary.hostEffect, 'unobserved');
+});
+
+test('host integration smoke records an unattempted model path as not exercised', () => {
+  assert.equal(resultStatus({
+    expectedHostEffect: 'observed_blocked',
+    hostEffect: 'not_exercised',
+    exitStatus: 0
+  }, { pass: false }), 'not_exercised');
 });
 
 test('paired eval keeps local fixture resolution out of serialized plans', () => {
@@ -957,11 +1062,11 @@ test('offline rescore recomputes acceptance from archived workspaces without lau
   assert.equal(JSON.parse(fs.readFileSync(path.join(output, 'result.json'), 'utf8')).status, 'infrastructure_error');
 });
 
-test('offline rescore recomputes a path-bound host sentinel from archived runtime evidence', (t) => {
-  const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-rescore-host-sentinel-'));
+test('offline rescore recomputes a path-bound host smoke from archived runtime evidence', (t) => {
+  const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-rescore-host-smoke-'));
   t.after(() => fs.rmSync(runRoot, { recursive: true, force: true }));
-  const plan = buildHostSentinelPlan({ runs: 1, stamp: 'rescore-host-sentinel' });
-  const cell = plan.cells.find((candidate) => candidate.kind === 'bad');
+  const plan = buildHostSmokePlan({ runs: 1, stamp: 'rescore-host-smoke' });
+  const cell = plan.cells.find((candidate) => candidate.kind === 'mode-deny');
   plan.cells = [cell];
   fs.writeFileSync(path.join(runRoot, 'plan.json'), `${JSON.stringify(plan, null, 2)}\n`);
   const output = path.join(runRoot, cell.caseId, cell.arm, `run-${cell.run}`);
@@ -975,7 +1080,7 @@ test('offline rescore recomputes a path-bound host sentinel from archived runtim
     'Command blocked by PreToolUse hook.\nTarget: blocked-sentinel.json\n'
   );
   recordDecision({
-    sessionId: 'host-sentinel-rescore',
+    sessionId: 'host-smoke-rescore',
     action: {
       name: 'apply_patch',
       mutability: 'write',
@@ -1015,7 +1120,7 @@ test('offline rescore recomputes a path-bound host sentinel from archived runtim
   const summary = rescoreRun(runRoot);
   const rescored = JSON.parse(fs.readFileSync(path.join(output, 'result.json'), 'utf8'));
   assert.equal(summary.passed, 1);
-  assert.equal(summary.hostSentinel.effects.observedBlocked, 1);
+  assert.equal(summary.hostSmoke.effects.observedBlocked, 1);
   assert.equal(rescored.sentinelAttempted, true);
   assert.equal(rescored.hookDecision, 'deny');
   assert.equal(rescored.hostEffect, 'observed_blocked');
@@ -1112,8 +1217,8 @@ test('offline rescore rejects linked output files before any rewrite', (t) => {
 function prepareRuntimeLinkRescore(parent, stamp) {
   const runRoot = path.join(parent, 'run');
   fs.mkdirSync(runRoot);
-  const plan = buildHostSentinelPlan({ runs: 1, stamp });
-  const cell = plan.cells.find((candidate) => candidate.kind === 'bad');
+  const plan = buildHostSmokePlan({ runs: 1, stamp });
+  const cell = plan.cells.find((candidate) => candidate.kind === 'mode-deny');
   plan.cells = [cell];
   fs.writeFileSync(path.join(runRoot, 'plan.json'), `${JSON.stringify(plan, null, 2)}\n`);
   const output = path.join(runRoot, cell.caseId, cell.arm, `run-${cell.run}`);

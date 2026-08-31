@@ -23,14 +23,16 @@ No unreleased changes yet.
   reusing the shared controller, Skill, and metadata-only Runtime. Documented
   `subagent` forms are budgeted atomically at the parent call; cross-process
   contract inheritance is not claimed.
-- **Paired evaluation vNext**：加入不可变 Skill/CaseBundle digest、implicit
-  routing 语料、host-sentinel、compatibility、proof-stop 和 delegation
-  成对案例；默认矩阵为 16 cases × 3 arms × 3 runs = 144 个 session，默认仍
-  只生成计划。
-  / Adds immutable Skill and CaseBundle digests, implicit-routing and
-  host-sentinel plans, and paired compatibility, proof-stop, and delegation
-  cases. The default matrix is 16 cases × 3 arms × 3 runs = 144 sessions and
-  remains dry-run by default.
+- **Paired evaluation vNext**：加入不可变 Skill/CaseBundle digest；将 22 个
+  implicit-routing case 拆为 required、optional、irrelevant 三类，并单独验收
+  行为；三单元 host integration smoke 覆盖 mode deny、file-lock deny 和 allow。
+  默认成对矩阵为 16 cases × 3 arms × 3 runs = 144 个 session，默认仍只生成
+  计划。
+  / Adds immutable Skill and CaseBundle digests. The 22 implicit-routing cases
+  separate required, optional, and irrelevant routing from behavior acceptance.
+  A three-cell host integration smoke covers mode deny, file-lock deny, and
+  allow. The default paired matrix is 16 cases × 3 arms × 3 runs = 144 sessions
+  and remains dry-run by default.
 - **发布与验证边界**：保留 Good Case、基础设施错误、Hook decision 与
   `hostEffect` 的分离，不把 deny 返回或离线 plan 包装成宿主阻断或模型效果
   结论。

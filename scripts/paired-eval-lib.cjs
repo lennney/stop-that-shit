@@ -161,11 +161,24 @@ function observeSkillLoad(eventsText, expectedDigest = null) {
     const item = event.item || {};
     if (event.type !== 'item.completed' || item.type !== 'command_execution') continue;
     const command = String(item.command || '');
-    if (!/[\\/]skills[\\/]stop-that-shit[\\/]SKILL\.md(?:['"\s]|$)/i.test(command)) continue;
+    if (!/[\\/]+skills[\\/]+stop-that-shit[\\/]+SKILL\.md(?:['"\s]|$)/i.test(command)) continue;
     loadEvents += 1;
     try {
       const body = skillBody(String(item.aggregated_output || ''), 'observed Stop That Shit Skill');
-      observedSkillDigests.push(digestText(body));
+      let observedDigest = digestText(body);
+      if (expectedDigest !== null && observedDigest !== expectedDigest) {
+        const boundaries = [];
+        const lineBreak = /\r?\n/g;
+        let match;
+        while ((match = lineBreak.exec(body)) !== null) boundaries.push(match.index);
+        for (let index = boundaries.length - 1; index >= 0; index -= 1) {
+          const candidateDigest = digestText(body.slice(0, boundaries[index]).trim());
+          if (candidateDigest !== expectedDigest) continue;
+          observedDigest = candidateDigest;
+          break;
+        }
+      }
+      observedSkillDigests.push(observedDigest);
     } catch {
       observedSkillDigests.push(null);
     }
@@ -251,8 +264,8 @@ function observeHookDecision(runtime = {}) {
 
 function observeHostEffect({ runtime = {}, workspace, sentinelPath, attempted = true }) {
   const hookDecision = observeHookDecision(runtime);
-  const sentinel = path.resolve(workspace, assertSafeRelativePath(sentinelPath, 'host sentinel path'));
-  if (!isWithin(workspace, sentinel)) throw new Error('host sentinel path escapes the workspace');
+  const sentinel = path.resolve(workspace, assertSafeRelativePath(sentinelPath, 'host smoke path'));
+  if (!isWithin(workspace, sentinel)) throw new Error('host smoke path escapes the workspace');
   const sentinelExists = fs.existsSync(sentinel);
   let hostEffect = 'unobserved';
   if (!attempted || hookDecision.actual === 'not_exercised') hostEffect = 'not_exercised';
@@ -271,8 +284,8 @@ function buildRoutingPlan({
 } = {}) {
   if (!Number.isInteger(runs) || runs < 1) throw new Error('runs must be a positive integer');
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.cases) || manifest.cases.length === 0) {
-    throw new Error('routing case manifest must declare schemaVersion 1 and cases');
+  if (manifest.schemaVersion !== 2 || !Array.isArray(manifest.cases) || manifest.cases.length === 0) {
+    throw new Error('routing case manifest must declare schemaVersion 2 and cases');
   }
   const sourceCases = new Map(loadCases().map((testCase) => [testCase.id, testCase]));
   const routingArm = {
@@ -285,6 +298,7 @@ function buildRoutingPlan({
     skillDigest: digestText(INSTRUCTION_CONTROL)
   };
   const seen = new Set();
+  const routingExpectations = new Set(['required', 'optional', 'irrelevant']);
   const cases = manifest.cases.map((routingCase, index) => {
     const field = `routing case[${index}]`;
     if (!routingCase || typeof routingCase !== 'object' || Array.isArray(routingCase)) {
@@ -298,17 +312,28 @@ function buildRoutingPlan({
     if (typeof routingCase.prompt !== 'string' || !routingCase.prompt.trim()) {
       throw new Error(`${field}.prompt must be a non-empty string`);
     }
-    if (typeof routingCase.expectedSkillLoaded !== 'boolean') {
-      throw new Error(`${field}.expectedSkillLoaded must be boolean`);
+    if (!routingExpectations.has(routingCase.routingExpectation)) {
+      throw new Error(`${field}.routingExpectation must be required, optional, or irrelevant`);
+    }
+    if (typeof routingCase.behaviorExpectation !== 'string'
+        || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(routingCase.behaviorExpectation)) {
+      throw new Error(`${field}.behaviorExpectation must be a kebab-case identifier`);
     }
     const source = sourceCases.get(routingCase.sourceCase);
     if (!source) throw new Error(`${field}.sourceCase is unknown: ${routingCase.sourceCase}`);
+    const expectedSkillLoaded = routingCase.routingExpectation === 'required'
+      ? true
+      : routingCase.routingExpectation === 'irrelevant'
+        ? false
+        : null;
     return {
       id: routingCase.id,
       family: 'routing',
-      kind: routingCase.expectedSkillLoaded ? 'positive' : 'negative',
+      kind: routingCase.routingExpectation,
       sourceCase: routingCase.sourceCase,
-      expectedSkillLoaded: routingCase.expectedSkillLoaded,
+      routingExpectation: routingCase.routingExpectation,
+      behaviorExpectation: routingCase.behaviorExpectation,
+      expectedSkillLoaded,
       task: routingCase.prompt.trim(),
       fixture: source.fixture,
       fixtureDirectory: source.fixtureDirectory,
@@ -317,7 +342,8 @@ function buildRoutingPlan({
         ...source.acceptance,
         {
           type: 'skillLoaded',
-          expected: routingCase.expectedSkillLoaded,
+          expectation: routingCase.routingExpectation,
+          expected: expectedSkillLoaded,
           skillDigest: routingArm.skillDigest
         }
       ]
@@ -338,6 +364,8 @@ function buildRoutingPlan({
         skillRef: routingArm.skillRef,
         skillDigest: routingArm.skillDigest,
         caseBundleDigest: testCase.caseBundleDigest,
+        routingExpectation: testCase.routingExpectation,
+        behaviorExpectation: testCase.behaviorExpectation,
         expectedSkillLoaded: testCase.expectedSkillLoaded,
         run,
         prompt: testCase.task,
@@ -364,27 +392,27 @@ function buildRoutingPlan({
   };
 }
 
-function buildHostSentinelPlan({
+function buildHostSmokePlan({
   runs = 1,
   stamp = new Date().toISOString().replace(/[:.]/g, '-'),
-  manifestPath = path.resolve(__dirname, '..', 'evals', 'codex-paired', 'host-sentinel', 'cases.json')
+  manifestPath = path.resolve(__dirname, '..', 'evals', 'codex-paired', 'host-smoke', 'cases.json')
 } = {}) {
   if (!Number.isInteger(runs) || runs < 1) throw new Error('runs must be a positive integer');
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.cases) || manifest.cases.length === 0) {
-    throw new Error('host sentinel manifest must declare schemaVersion 1 and cases');
+  if (manifest.schemaVersion !== 2 || !Array.isArray(manifest.cases) || manifest.cases.length === 0) {
+    throw new Error('host smoke manifest must declare schemaVersion 2 and cases');
   }
   const manifestRoot = path.dirname(path.resolve(manifestPath));
-  const fixture = assertSafeRelativePath(manifest.fixture || 'fixture', 'host sentinel fixture');
+  const fixture = assertSafeRelativePath(manifest.fixture || 'fixture', 'host smoke fixture');
   const fixtureDirectory = path.resolve(manifestRoot, fixture);
   if (!isWithin(manifestRoot, fixtureDirectory)
       || !fs.existsSync(fixtureDirectory)
       || !fs.statSync(fixtureDirectory).isDirectory()) {
-    throw new Error('host sentinel fixture must be a contained directory');
+    throw new Error('host smoke fixture must be a contained directory');
   }
   const digest = caseBundleDigest(manifestRoot);
   const arm = {
-    id: 'host-sentinel',
+    id: 'host-smoke',
     pluginEnabled: true,
     hooksEnabled: true,
     instructions: false,
@@ -401,7 +429,7 @@ function buildHostSentinelPlan({
     'unobserved'
   ]);
   const cases = manifest.cases.map((sentinelCase, index) => {
-    const field = `host sentinel case[${index}]`;
+    const field = `host smoke case[${index}]`;
     if (!sentinelCase || typeof sentinelCase !== 'object' || Array.isArray(sentinelCase)) {
       throw new Error(`${field} must be an object`);
     }
@@ -411,9 +439,11 @@ function buildHostSentinelPlan({
       throw new Error(`${field}.id is invalid or duplicate`);
     }
     seen.add(sentinelCase.id);
-    if (!['bad', 'good'].includes(sentinelCase.kind)) throw new Error(`${field}.kind must be bad or good`);
-    if (typeof sentinelCase.contract !== 'string' || !/^(review|change)(?:\s|$)/.test(sentinelCase.contract)) {
-      throw new Error(`${field}.contract must declare review or change mode`);
+    if (!['mode-deny', 'file-deny', 'allow'].includes(sentinelCase.kind)) {
+      throw new Error(`${field}.kind must be mode-deny, file-deny, or allow`);
+    }
+    if (typeof sentinelCase.contract !== 'string' || !/^(?:lock\s+)?(?:review|change)(?:\s|$)/.test(sentinelCase.contract)) {
+      throw new Error(`${field}.contract must declare review or change mode, optionally locked`);
     }
     if (typeof sentinelCase.prompt !== 'string' || !sentinelCase.prompt.trim()) {
       throw new Error(`${field}.prompt must be a non-empty string`);
@@ -438,7 +468,7 @@ function buildHostSentinelPlan({
     }
     return {
       id: sentinelCase.id,
-      family: 'host-sentinel',
+      family: 'host-integration-smoke',
       kind: sentinelCase.kind,
       contract: sentinelCase.contract,
       task: sentinelCase.prompt.trim(),
@@ -494,7 +524,7 @@ function buildHostSentinelPlan({
   }
   return {
     schemaVersion: 1,
-    evalType: 'host-sentinel',
+    evalType: 'host-integration-smoke',
     stamp,
     runs,
     arms: [arm],
@@ -926,7 +956,18 @@ function validateRescorePlan(runRoot, plan, options) {
     if (typeof cell.family !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(cell.family)) {
       throw new Error(`${field}.family is invalid`);
     }
-    if (!['bad', 'good', 'positive', 'negative'].includes(cell.kind)) {
+    if (![
+      'bad',
+      'good',
+      'positive',
+      'negative',
+      'required',
+      'optional',
+      'irrelevant',
+      'mode-deny',
+      'file-deny',
+      'allow'
+    ].includes(cell.kind)) {
       throw new Error(`${field}.kind is invalid`);
     }
     const output = path.resolve(runRoot, cell.caseId, cell.arm, `run-${cell.run}`);
@@ -1040,10 +1081,18 @@ function evaluateAcceptance({
     if (check.type === 'skillLoaded') {
       const observation = observeSkillLoad(eventsText, check.skillDigest || null);
       const loadedExpectedVersion = observation.loaded && observation.digestMatched !== false;
+      const expectation = check.expectation
+        || (check.expected === true ? 'required' : check.expected === false ? 'irrelevant' : 'optional');
+      const pass = expectation === 'required'
+        ? loadedExpectedVersion
+        : expectation === 'irrelevant'
+          ? !observation.loaded
+          : !observation.loaded || observation.digestMatched !== false;
       return {
         ...check,
         ...observation,
-        pass: check.expected ? loadedExpectedVersion : !observation.loaded
+        expectation,
+        pass
       };
     }
     if (check.type === 'toolAttempted') {
@@ -1077,6 +1126,7 @@ function resultStatus(result, acceptance) {
   if (result.infrastructureFailure || result.spawnError || result.signal || (typeof result.exitStatus === 'number' && result.exitStatus !== 0)) {
     return 'infrastructure_error';
   }
+  if (result.expectedHostEffect && result.hostEffect === 'not_exercised') return 'not_exercised';
   return acceptance.pass ? 'pass' : 'fail';
 }
 
@@ -1139,6 +1189,7 @@ function summarizeResults(results, {
   const failed = results.filter((result) => result.status === 'fail').length;
   const infrastructureErrors = results.filter((result) => result.status === 'infrastructure_error').length;
   const explicitNotRun = results.filter((result) => result.status === 'not_run').length;
+  const notExercised = results.filter((result) => result.status === 'not_exercised').length;
   const notRun = explicitNotRun + Math.max(0, planned - results.length);
   const summary = {
     schemaVersion: 1,
@@ -1147,6 +1198,7 @@ function summarizeResults(results, {
     passed,
     failed,
     infrastructureErrors,
+    notExercised,
     notRun,
     runComplete: completed === planned && infrastructureErrors === 0 && notRun === 0,
     allPassed: passed === planned,
@@ -1164,39 +1216,45 @@ function summarizeResults(results, {
     result.status === 'pass' || result.status === 'fail'
   );
   if (routingObservations.length > 0) {
-    let truePositive = 0;
-    let falsePositive = 0;
-    let trueNegative = 0;
-    let falseNegative = 0;
+    const required = { cells: 0, loaded: 0, missed: 0 };
+    const optional = { cells: 0, loaded: 0, notLoaded: 0 };
+    const irrelevant = { cells: 0, loaded: 0, skipped: 0 };
     let digestMismatches = 0;
-    let taskPassed = 0;
+    let behaviorPassed = 0;
     for (const { result, check } of routingResults) {
       const observed = check.loaded && check.digestMatched !== false;
+      const expectation = result.routingExpectation || check.expectation
+        || (check.expected === true ? 'required' : check.expected === false ? 'irrelevant' : 'optional');
       if (check.loaded && check.digestMatched === false) digestMismatches += 1;
-      if (check.expected && observed) truePositive += 1;
-      else if (check.expected) falseNegative += 1;
-      else if (observed) falsePositive += 1;
-      else trueNegative += 1;
+      const bucket = expectation === 'required'
+        ? required
+        : expectation === 'irrelevant'
+          ? irrelevant
+          : optional;
+      bucket.cells += 1;
+      if (expectation === 'required') {
+        if (observed) bucket.loaded += 1;
+        else bucket.missed += 1;
+      } else if (expectation === 'irrelevant') {
+        if (observed) bucket.loaded += 1;
+        else bucket.skipped += 1;
+      } else if (observed) bucket.loaded += 1;
+      else bucket.notLoaded += 1;
       if (result.acceptance.checks.filter((candidate) => candidate.type !== 'skillLoaded')
-        .every((candidate) => candidate.pass)) taskPassed += 1;
+        .every((candidate) => candidate.pass)) behaviorPassed += 1;
     }
-    const predictedPositive = truePositive + falsePositive;
-    const actualPositive = truePositive + falseNegative;
     summary.routing = {
       cells: routingResults.length,
-      truePositive,
-      falsePositive,
-      trueNegative,
-      falseNegative,
+      required,
+      optional,
+      irrelevant,
       digestMismatches,
-      precision: predictedPositive === 0 ? null : truePositive / predictedPositive,
-      recall: actualPositive === 0 ? null : truePositive / actualPositive,
-      taskPassed
+      behaviorPassed
     };
   }
-  const hostSentinelResults = results.filter((result) =>
+  const hostSmokeResults = results.filter((result) =>
     result.expectedHostEffect
-    && (result.status === 'pass' || result.status === 'fail')
+    && ['pass', 'fail', 'not_exercised'].includes(result.status)
   );
   if (results.some((result) => result.expectedHostEffect)) {
     const effects = {
@@ -1206,7 +1264,7 @@ function summarizeResults(results, {
       unobserved: 0
     };
     const decisions = { allow: 0, warn: 0, deny: 0, mixed: 0, notExercised: 0 };
-    for (const result of hostSentinelResults) {
+    for (const result of hostSmokeResults) {
       if (result.hostEffect === 'observed_blocked') effects.observedBlocked += 1;
       else if (result.hostEffect === 'observed_not_blocked') effects.observedNotBlocked += 1;
       else if (result.hostEffect === 'not_exercised') effects.notExercised += 1;
@@ -1216,7 +1274,7 @@ function summarizeResults(results, {
         decisions[result.hookDecision] += 1;
       }
     }
-    summary.hostSentinel = { cells: hostSentinelResults.length, effects, decisions };
+    summary.hostSmoke = { cells: hostSmokeResults.length, effects, decisions };
   }
   return summary;
 }
@@ -1285,6 +1343,8 @@ function rescoreRun(runDirectory, options = {}) {
       family: cell.family,
       kind: cell.kind,
       arm: cell.arm,
+      routingExpectation: cell.routingExpectation ?? previous.routingExpectation ?? null,
+      behaviorExpectation: cell.behaviorExpectation ?? previous.behaviorExpectation ?? null,
       run: cell.run,
       expectedHookDecision: cell.expectedHookDecision ?? previous.expectedHookDecision ?? null,
       expectedHostEffect: cell.expectedHostEffect ?? previous.expectedHostEffect ?? null,
@@ -1302,7 +1362,7 @@ function rescoreRun(runDirectory, options = {}) {
   }
   const summary = summarizeResults(results, {
     planned: plan.cells.length,
-    comparison: ['skill-routing', 'host-sentinel'].includes(plan.evalType)
+    comparison: ['skill-routing', 'host-sentinel', 'host-integration-smoke'].includes(plan.evalType)
       ? null
       : plan.comparison || undefined
   });
@@ -1319,7 +1379,7 @@ module.exports = {
   assertIsolatedPluginList,
   assertWorkspaceRootIsolated,
   buildPlan,
-  buildHostSentinelPlan,
+  buildHostSmokePlan,
   buildRoutingPlan,
   buildCodexArgs,
   changedPaths,
