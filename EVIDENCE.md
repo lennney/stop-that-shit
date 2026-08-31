@@ -12,7 +12,7 @@ actions, context responses, and permission denies. It records host effect as
 the action.
 
 Version: 0.2.0 Stop That Shit Slop and explicit update checks
-Release target: https://github.com/lennney/stop-that-shit/releases/tag/0.2.0
+Release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.0
 Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.1.1
 Last updated: 2026-09-01
 

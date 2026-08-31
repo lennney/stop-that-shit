@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 — Unreleased
+## 0.2.0 — 2026-09-01
 
 从多做一步，到多说一句。一个没人读取的 checksum，和一句
 不改变任何决定的免责声明，都没有消费者。Stop That Shit Slop（别再废话）

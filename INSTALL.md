@@ -1,7 +1,6 @@
 # Install Stop That Shit 0.2.0
 
 These instructions target [`0.2.0`](https://github.com/lennney/stop-that-shit/releases/tag/0.2.0).
-Before the tag is published, use a local checkout of the release candidate.
 
 If an agent is doing the installation for you, give it
 [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md). That guide separates commands
