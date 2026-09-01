@@ -494,6 +494,8 @@ report -> counterexample -> reproduction -> enforcement
 - A guard would stop work that was actually necessary? [Report a Good Case](https://github.com/lennney/stop-that-shit/issues/new?template=good-case.yml).
 - Have a public reproduction? Turn one case pair into a fixture and open a PR.
 
+First contribution? See the paired reference cases: [Bad Case #1](https://github.com/lennney/stop-that-shit/issues/1) / [Good Case #2](https://github.com/lennney/stop-that-shit/issues/2). Their `Sanitized scenario request` sections quote sanitized scenarios; they are not repository implementation tasks.
+
 In a useful pair, one fact changes and the rest of the task stays the same. The
 Bad Case marks where Codex should stop; the Good Case preserves necessary work.
 Only reproducible, high-confidence parts enter the Guard. STSS writing cases use

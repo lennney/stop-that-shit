@@ -35,6 +35,16 @@ decisive fact so that rules judge authority and evidence instead of keywords.
 The semantic S/H cases exercise the Stop Ladder. Only high-confidence signals
 listed in the README are claimed as Hook-enforced.
 
+## Reference issues
+
+- [Bad Case #1 — Review turns into implementation](https://github.com/lennney/stop-that-shit/issues/1)
+- [Good Case #2 — Explicit change authority allows the narrow fix](https://github.com/lennney/stop-that-shit/issues/2)
+
+These are closed reference cases. `Sanitized scenario request` quotes the
+evaluated scenario; it is not a repository task. Submit a new case through the
+[Bad Case form](https://github.com/lennney/stop-that-shit/issues/new?template=bad-case.yml)
+or [Good Case form](https://github.com/lennney/stop-that-shit/issues/new?template=good-case.yml).
+
 ## What belongs here
 
 A useful contribution contains:

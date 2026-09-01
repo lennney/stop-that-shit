@@ -424,6 +424,8 @@ npm run sts -- doctor --check-update
 - 某条规则会拦住真正必要的工作？[提交 Good Case](https://github.com/lennney/stop-that-shit/issues/new?template=good-case.yml)。
 - 有公开可复现的例子？把一组案例做成 fixture，然后提交 PR。
 
+第一次提交？先看配对参考案例：[Bad Case #1](https://github.com/lennney/stop-that-shit/issues/1) / [Good Case #2](https://github.com/lennney/stop-that-shit/issues/2)。其中的 `Sanitized scenario request` 是脱敏场景，不是仓库开发任务。
+
 一组有效案例只改一个关键事实，其余条件不变。Bad Case 标出该停的位置，Good Case 保住必要工作；只有可复现、高置信度的部分才进入 Guard。STSS 的文字案例也沿用同一原则：公开 fixture 必须是合成或脱敏内容，并说明哪一个用户决策会因此改变。
 
 提交前先看[案例库](cases/README.md)和[贡献指南](CONTRIBUTING.md)。请删掉私有代码、密钥、账号数据、完整对话和可识别身份的路径。一条小而清楚的脱敏 issue 就有价值。
