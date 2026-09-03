@@ -42,6 +42,14 @@ test('Windows drive paths do not terminate the directive head', () => {
   assert.deepEqual(result.contract.allowedPaths, ['C:/Workspace/Config.toml']);
 });
 
+test('an explicit empty files value creates an empty file boundary', () => {
+  const empty = parseContractPrompt('$stop-that-shit lock change files= -- update nothing');
+  const omitted = parseContractPrompt('$stop-that-shit lock change -- update files');
+
+  assert.deepEqual(empty.contract.allowedPaths, []);
+  assert.equal(omitted.contract.allowedPaths, null);
+});
+
 test('lock level and agent budget are parsed from the directive head', () => {
   const result = parseContractPrompt('$stop-that-shit lock change agents=2 -- implement it');
   assert.equal(result.contract.mode, 'change');

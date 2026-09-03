@@ -131,6 +131,17 @@ test('files contract matches an absolute allowlist when the host reports cwd-rel
   }, options), null);
 });
 
+test('empty files contract blocks every write instead of becoming unbounded', (t) => {
+  const options = workspace(t);
+  handleHook(prompt('files-empty-session', '$stop-that-shit lock change files= -- update nothing'), options);
+
+  const output = handleHook(pre('files-empty-session', 'Write', {
+    file_path: 'README.md', content: 'x'
+  }), options);
+  assert.equal(output.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(output.hookSpecificOutput.permissionDecisionReason, /S\/PATH_OUTSIDE_CONTRACT/);
+});
+
 test('files contract requires approval when a write path is unproven', (t) => {
   const options = workspace(t);
   handleHook(prompt('files-unknown-session', '$stop-that-shit change files=src/config.cjs -- update config'), options);

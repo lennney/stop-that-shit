@@ -15,6 +15,11 @@
   unknown tools whose mutability and target paths are unproven instead of
   allowing them as `WITHIN_CONTRACT`; explicit `files=**` remains unbounded.
 
+- **Scoped file locks**：显式空值 `files=` 现在表示不允许写入任何文件，不再静默
+  退化成无边界 change；省略 `files` 仍保持原有行为。/ An explicit empty
+  `files=` value now allows no file writes instead of silently degrading to an
+  unbounded change contract; omitting `files` preserves the existing behavior.
+
 ## 0.2.0 — 2026-09-01 (Stop That Shit Slop / 别再废话)
 
 > **从多做一步，到多说一句。** Stop That Shit Slop 把任务边界判断带到提案和

@@ -42,7 +42,7 @@ function parseDirective(prompt) {
     if (agents) parsed.agentBudget = Math.min(Number(agents[1]), 8);
     const hash = /^hash=(deny|ask|allow)$/.exec(token);
     if (hash && HASH_POLICIES.has(hash[1])) parsed.hashPolicy = hash[1];
-    const files = /^files=(.+)$/i.exec(rawToken);
+    const files = /^files=(.*)$/i.exec(rawToken);
     if (files) parsed.allowedPaths = files[1].split('|').map((value) => value.replace(/\\/g, '/')).filter(Boolean);
     const dependencies = /^deps=(deny|ask|allow)$/.exec(token);
     if (dependencies && SCOPE_POLICIES.has(dependencies[1])) parsed.dependencyPolicy = dependencies[1];
