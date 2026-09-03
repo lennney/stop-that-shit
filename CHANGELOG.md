@@ -9,6 +9,11 @@
   指令分隔符。/ `files=` now preserves path casing, compares absolute
   allowlists with host paths normalized relative to `cwd`, and accepts Windows
   drive letters without treating their colon as a directive delimiter.
+- **Scoped file locks**：窄 `files=` 边界现在会要求批准无法证明只读性和目标路径的
+  未知工具，而不是把它们当作 `WITHIN_CONTRACT` 放行；显式 `files=**` 仍保留
+  change 模式下的宽边界。/ Narrow `files=` scopes now require approval for
+  unknown tools whose mutability and target paths are unproven instead of
+  allowing them as `WITHIN_CONTRACT`; explicit `files=**` remains unbounded.
 
 ## 0.2.0 — 2026-09-01 (Stop That Shit Slop / 别再废话)
 

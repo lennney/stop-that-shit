@@ -139,6 +139,31 @@ test('files contract requires approval when a write path is unproven', (t) => {
   assert.match(output.hookSpecificOutput.permissionDecisionReason, /S\/WRITE_PATH_UNPROVEN/);
 });
 
+test('files contract requires approval when tool mutability is unproven', (t) => {
+  const options = workspace(t);
+  handleHook(prompt('files-mutability-session', '$stop-that-shit lock change files=src/** -- update source'), options);
+
+  const output = handleHook(pre('files-mutability-session', 'plugin_custom_tool', { path: 'README.md' }), options);
+  assert.equal(output.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(output.hookSpecificOutput.permissionDecisionReason, /S\/WRITE_PATH_UNPROVEN/);
+});
+
+test('files contract requires approval for a dynamic shell with unproven effects', (t) => {
+  const options = workspace(t);
+  handleHook(prompt('files-dynamic-session', '$stop-that-shit lock change files=src/** -- update source'), options);
+
+  const output = handleHook(pre('files-dynamic-session', 'Bash', { command: 'node -e "process.exit(0)"' }), options);
+  assert.equal(output.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(output.hookSpecificOutput.permissionDecisionReason, /S\/WRITE_PATH_UNPROVEN/);
+});
+
+test('unbounded files contract preserves an explicitly authorized unknown tool', (t) => {
+  const options = workspace(t);
+  handleHook(prompt('files-unbounded-session', '$stop-that-shit lock change files=** -- run the custom tool'), options);
+
+  assert.equal(handleHook(pre('files-unbounded-session', 'plugin_custom_tool', { path: 'README.md' }), options), null);
+});
+
 test('dependency installation asks before expanding the task', (t) => {
   const options = workspace(t);
   handleHook(prompt('deps-deny-session', '$stop-that-shit change -- format one existing value'), options);

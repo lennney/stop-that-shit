@@ -85,17 +85,18 @@ function decide({ contract, action, state = {} }) {
     );
   }
 
-  if (Array.isArray(contract.allowedPaths) && Array.isArray(action.affectedPaths)) {
-    if (action.mutability === 'write' && action.affectedPaths.length === 0 && !contract.allowedPaths.includes('**')) {
+  if (Array.isArray(contract.allowedPaths)) {
+    const affectedPaths = Array.isArray(action.affectedPaths) ? action.affectedPaths : [];
+    if (['write', 'unknown'].includes(action.mutability) && affectedPaths.length === 0 && !contract.allowedPaths.includes('**')) {
       return decision(
         controlledOutcome(level, 'require_user_approval'),
         'S',
         'WRITE_PATH_UNPROVEN',
-        'The action writes through a tool whose target path is not proven inside the declared file boundary.',
+        'The action may write through a tool whose target path is not proven inside the declared file boundary.',
         'Use apply_patch or an Edit tool with visible paths, or obtain approval for an explicit broader boundary.'
       );
     }
-    const outside = action.affectedPaths.filter((path) => !pathAllowed(path, contract.allowedPaths, action.cwd));
+    const outside = affectedPaths.filter((path) => !pathAllowed(path, contract.allowedPaths, action.cwd));
     if (outside.length) {
       return decision(
         controlledOutcome(level),

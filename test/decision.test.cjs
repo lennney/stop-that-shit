@@ -66,6 +66,16 @@ test('absolute allowlists compare against cwd-relative affected paths', () => {
   assert.equal(outside.reasonCode, 'PATH_OUTSIDE_CONTRACT');
 });
 
+test('file boundary requires approval when an unknown action omits affected paths', () => {
+  const actual = decide({
+    contract: { mode: 'change', level: 'lock', allowedPaths: ['src/**'] },
+    action: { mutability: 'unknown' }
+  });
+
+  assert.equal(actual.outcome, 'require_user_approval');
+  assert.equal(actual.reasonCode, 'WRITE_PATH_UNPROVEN');
+});
+
 test('delegation budget checks the complete requested child count', () => {
   const allowed = decide({
     contract: { mode: 'change', level: 'guard', agentBudget: 3, agentsUsed: 1 },
