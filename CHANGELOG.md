@@ -19,6 +19,11 @@
   退化成无边界 change；省略 `files` 仍保持原有行为。/ An explicit empty
   `files=` value now allows no file writes instead of silently degrading to an
   unbounded change contract; omitting `files` preserves the existing behavior.
+- **Scoped file locks**：在比较 `files=` 边界前规范化 `.`、`..` 和重复路径
+  分隔符，阻止写入通过 dot segment 逃出声明的 wildcard 范围，同时保留范围内
+  的等价路径。/ Normalizes dot segments and repeated separators before
+  comparing `files=` boundaries, preventing writes from escaping a declared
+  wildcard scope while preserving equivalent in-scope paths.
 
 ## 0.2.0 — 2026-09-01 (Stop That Shit Slop / 别再废话)
 

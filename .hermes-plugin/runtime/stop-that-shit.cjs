@@ -525,13 +525,14 @@ function isWindowsAbsolute(value) {
 
 function normalizeComparablePath(value, cwd) {
   let normalized = String(value || '').trim().replace(/\\/g, '/');
+  if (!normalized) return '';
   const base = String(cwd || '').trim();
   if (base && isWindowsAbsolute(normalized) && isWindowsAbsolute(base)) {
     normalized = nodePath.win32.relative(base, normalized).replace(/\\/g, '/');
   } else if (base && nodePath.posix.isAbsolute(normalized) && nodePath.posix.isAbsolute(base.replace(/\\/g, '/'))) {
     normalized = nodePath.posix.relative(base.replace(/\\/g, '/'), normalized);
   }
-  return normalized.replace(/^\.\//, '');
+  return nodePath.posix.normalize(normalized).replace(/^\.\//, '');
 }
 
 function pathAllowed(path, allowedPaths, cwd) {
@@ -539,7 +540,10 @@ function pathAllowed(path, allowedPaths, cwd) {
   return allowedPaths.some((value) => {
     const allowed = normalizeComparablePath(value, cwd);
     if (allowed === '**') return true;
-    if (allowed.endsWith('/**')) return normalizedPath === allowed.slice(0, -3) || normalizedPath.startsWith(allowed.slice(0, -2));
+    if (allowed.endsWith('/**')) {
+      const base = allowed.slice(0, -3);
+      return normalizedPath === base || normalizedPath.startsWith(`${base}/`);
+    }
     return normalizedPath === allowed;
   });
 }

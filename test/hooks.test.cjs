@@ -142,6 +142,26 @@ test('empty files contract blocks every write instead of becoming unbounded', (t
   assert.match(output.hookSpecificOutput.permissionDecisionReason, /S\/PATH_OUTSIDE_CONTRACT/);
 });
 
+test('files contract blocks a dot-segment escape from a wildcard boundary', (t) => {
+  const options = workspace(t);
+  handleHook(prompt('files-dot-segment-session', '$stop-that-shit lock change files=src/** -- update source files'), options);
+
+  const output = handleHook(pre('files-dot-segment-session', 'Write', {
+    file_path: 'src/../README.md', content: 'x'
+  }), options);
+  assert.notEqual(output, null);
+  assert.match(output.hookSpecificOutput.permissionDecisionReason, /S\/PATH_OUTSIDE_CONTRACT/);
+});
+
+test('files contract allows equivalent paths after dot-segment normalization', (t) => {
+  const options = workspace(t);
+  handleHook(prompt('files-normalized-session', '$stop-that-shit lock change files=./src/config.cjs -- update config'), options);
+
+  assert.equal(handleHook(pre('files-normalized-session', 'Write', {
+    file_path: 'src/config.cjs', content: 'x'
+  }), options), null);
+});
+
 test('files contract requires approval when a write path is unproven', (t) => {
   const options = workspace(t);
   handleHook(prompt('files-unknown-session', '$stop-that-shit change files=src/config.cjs -- update config'), options);
