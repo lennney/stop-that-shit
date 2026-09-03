@@ -52,6 +52,7 @@ function toActionEvent(input, output, context = {}) {
       input: args,
       mutability: classifyOpenCodeTool(toolName, args),
       affectedPaths: extractAffectedPaths(toolName, args, context.directory),
+      cwd: context.directory,
       dependencyIntent: detectDependencyIntent(toolName, args),
       hashIntent: detectHashIntent(toolName, args)
     }

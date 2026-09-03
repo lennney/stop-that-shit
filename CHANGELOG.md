@@ -2,7 +2,13 @@
 
 ## Unreleased
 
-No unreleased changes yet.
+### 修复 / Fixed
+
+- **Scoped file locks**：`files=` 现在保留路径原始大小写，并在比较时统一
+  绝对 allowlist 与宿主基于 `cwd` 报告的相对路径；Windows 盘符也不再被误当成
+  指令分隔符。/ `files=` now preserves path casing, compares absolute
+  allowlists with host paths normalized relative to `cwd`, and accepts Windows
+  drive letters without treating their colon as a directive delimiter.
 
 ## 0.2.0 — 2026-09-01 (Stop That Shit Slop / 别再废话)
 

@@ -67,6 +67,7 @@ test('Pi Adapter maps current built-in tool fields to ControlEvent v1', () => {
   assert.equal(event.action.id, 'edit-1');
   assert.equal(event.action.mutability, 'write');
   assert.deepEqual(event.action.affectedPaths, ['src/config.cjs']);
+  assert.equal(event.action.cwd, '/repo');
 });
 
 test('Pi uses an explicit built-in allowlist and conservative custom-tool fallback', () => {

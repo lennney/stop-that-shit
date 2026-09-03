@@ -48,6 +48,7 @@ test('OpenCode Adapter maps native tool fields to ControlEvent v1', () => {
   assert.equal(event.host.family, 'opencode');
   assert.equal(event.action.mutability, 'write');
   assert.deepEqual(event.action.affectedPaths, ['src/config.cjs']);
+  assert.equal(event.action.cwd, '/repo');
 });
 
 test('OpenCode prompt extraction ignores synthetic host messages', () => {

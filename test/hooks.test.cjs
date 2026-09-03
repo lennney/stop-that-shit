@@ -99,6 +99,38 @@ test('files contract blocks a patch outside the declared write boundary', (t) =>
   assert.match(output.hookSpecificOutput.permissionDecisionReason, /S\/PATH_OUTSIDE_CONTRACT/);
 });
 
+test('files contract preserves mixed-case paths and keeps differently cased paths outside the boundary', (t) => {
+  const options = workspace(t);
+  handleHook(prompt('files-case-session', '$stop-that-shit lock change files=/Workspace/example/Config.toml -- update config'), options);
+
+  assert.equal(handleHook(pre('files-case-session', 'Write', {
+    file_path: '/Workspace/example/Config.toml', content: 'x'
+  }), options), null);
+
+  const denied = handleHook(pre('files-case-session', 'Write', {
+    file_path: '/workspace/example/config.toml', content: 'x'
+  }), options);
+  assert.match(denied.hookSpecificOutput.permissionDecisionReason, /S\/PATH_OUTSIDE_CONTRACT/);
+});
+
+test('files contract matches an absolute allowlist when the host reports cwd-relative paths', (t) => {
+  const options = workspace(t);
+  const cwd = process.platform === 'win32' ? 'D:\\Workspace\\project' : '/Workspace/project';
+  const allowed = process.platform === 'win32'
+    ? 'D:/Workspace/Config.toml'
+    : '/Workspace/Config.toml';
+  const target = process.platform === 'win32'
+    ? 'D:\\Workspace\\Config.toml'
+    : '/Workspace/Config.toml';
+
+  handleHook(prompt('files-absolute-session', `$stop-that-shit lock change files=${allowed} -- update config`), options);
+
+  assert.equal(handleHook({
+    ...pre('files-absolute-session', 'Write', { file_path: target, content: 'x' }),
+    cwd
+  }, options), null);
+});
+
 test('files contract requires approval when a write path is unproven', (t) => {
   const options = workspace(t);
   handleHook(prompt('files-unknown-session', '$stop-that-shit change files=src/config.cjs -- update config'), options);

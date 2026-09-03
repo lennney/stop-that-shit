@@ -37,7 +37,8 @@ function toControlEvent(input) {
       mutability: classifyCodexTool(input.tool_name, input.tool_input),
       hashIntent: detectHashIntent(input.tool_name, input.tool_input),
       dependencyIntent: detectDependencyIntent(input.tool_name, input.tool_input),
-      affectedPaths: extractAffectedPaths(input.tool_name, input.tool_input, input.cwd)
+      affectedPaths: extractAffectedPaths(input.tool_name, input.tool_input, input.cwd),
+      cwd: input.cwd
     };
   }
   return event;

@@ -74,6 +74,7 @@ test('maps real Hermes hook envelope fields to ControlEvent v1', () => {
   assert.equal(actionEvent.action.name, 'write_file');
   assert.equal(actionEvent.action.mutability, 'write');
   assert.deepEqual(actionEvent.action.affectedPaths, ['notes.txt']);
+  assert.equal(actionEvent.action.cwd, root);
 });
 
 test('classifies only the explicit Hermes tool table and reuses shell evidence', () => {

@@ -28,6 +28,20 @@ test('optional lock fields parse from the directive head', () => {
   assert.equal(result.contract.dependencyPolicy, 'allow');
 });
 
+test('files values preserve path casing while directive keywords stay case-insensitive', () => {
+  const result = parseContractPrompt('$stop-that-shit LOCK CHANGE FILES=/Workspace/example/Config.toml|src/Config.cjs -- update config');
+  assert.equal(result.contract.mode, 'change');
+  assert.equal(result.contract.level, 'lock');
+  assert.deepEqual(result.contract.allowedPaths, ['/Workspace/example/Config.toml', 'src/Config.cjs']);
+});
+
+test('Windows drive paths do not terminate the directive head', () => {
+  const result = parseContractPrompt('$stop-that-shit lock change files=C:/Workspace/Config.toml: update config');
+  assert.equal(result.contract.mode, 'change');
+  assert.equal(result.contract.level, 'lock');
+  assert.deepEqual(result.contract.allowedPaths, ['C:/Workspace/Config.toml']);
+});
+
 test('lock level and agent budget are parsed from the directive head', () => {
   const result = parseContractPrompt('$stop-that-shit lock change agents=2 -- implement it');
   assert.equal(result.contract.mode, 'change');

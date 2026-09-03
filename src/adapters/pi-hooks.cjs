@@ -51,6 +51,7 @@ function toActionEvent(input, context = {}) {
       input: toolInput,
       mutability: classifyPiTool(toolName, toolInput),
       affectedPaths: extractAffectedPaths(toolName, toolInput, context.cwd),
+      cwd: context.cwd,
       dependencyIntent: detectDependencyIntent(toolName, toolInput),
       hashIntent: detectHashIntent(toolName, toolInput),
       delegationCount: delegation.count,

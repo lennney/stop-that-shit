@@ -49,6 +49,7 @@ function toControlEvent(input) {
       hashIntent: detectHashIntent(input.tool_name, input.tool_input),
       dependencyIntent: detectDependencyIntent(input.tool_name, input.tool_input),
       affectedPaths: extractAffectedPaths(input.tool_name, input.tool_input, input.cwd),
+      cwd: input.cwd,
       unboundedDelegation: false
     };
   }

@@ -47,6 +47,25 @@ test('classification precedence chooses H before file-scope S', () => {
   assert.equal(actual.reasonCode, 'HASH_NOT_AUTHORIZED');
 });
 
+test('absolute allowlists compare against cwd-relative affected paths', () => {
+  const cwd = process.platform === 'win32' ? 'D:\\Workspace\\project' : '/Workspace/project';
+  const allowed = process.platform === 'win32'
+    ? 'D:/Workspace/Config.toml'
+    : '/Workspace/Config.toml';
+
+  const inside = decide({
+    contract: { mode: 'change', level: 'lock', allowedPaths: [allowed] },
+    action: { mutability: 'write', affectedPaths: ['../Config.toml'], cwd }
+  });
+  const outside = decide({
+    contract: { mode: 'change', level: 'lock', allowedPaths: [allowed] },
+    action: { mutability: 'write', affectedPaths: ['../Other.toml'], cwd }
+  });
+
+  assert.equal(inside.outcome, 'allow');
+  assert.equal(outside.reasonCode, 'PATH_OUTSIDE_CONTRACT');
+});
+
 test('delegation budget checks the complete requested child count', () => {
   const allowed = decide({
     contract: { mode: 'change', level: 'guard', agentBudget: 3, agentsUsed: 1 },

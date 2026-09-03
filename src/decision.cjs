@@ -1,5 +1,7 @@
 'use strict';
 
+const nodePath = require('node:path');
+
 function decision(outcome, family, reasonCode, explanation, nextStep) {
   return { outcome, family, reasonCode, explanation, nextStep };
 }
@@ -8,11 +10,28 @@ function controlledOutcome(level, guarded = 'deny_and_explain') {
   return level === 'watch' ? 'report_and_defer' : guarded;
 }
 
-function pathAllowed(path, allowedPaths) {
-  return allowedPaths.some((allowed) => {
+function isWindowsAbsolute(value) {
+  return /^[A-Za-z]:[\\/]|^\\\\/.test(String(value || ''));
+}
+
+function normalizeComparablePath(value, cwd) {
+  let normalized = String(value || '').trim().replace(/\\/g, '/');
+  const base = String(cwd || '').trim();
+  if (base && isWindowsAbsolute(normalized) && isWindowsAbsolute(base)) {
+    normalized = nodePath.win32.relative(base, normalized).replace(/\\/g, '/');
+  } else if (base && nodePath.posix.isAbsolute(normalized) && nodePath.posix.isAbsolute(base.replace(/\\/g, '/'))) {
+    normalized = nodePath.posix.relative(base.replace(/\\/g, '/'), normalized);
+  }
+  return normalized.replace(/^\.\//, '');
+}
+
+function pathAllowed(path, allowedPaths, cwd) {
+  const normalizedPath = normalizeComparablePath(path, cwd);
+  return allowedPaths.some((value) => {
+    const allowed = normalizeComparablePath(value, cwd);
     if (allowed === '**') return true;
-    if (allowed.endsWith('/**')) return path === allowed.slice(0, -3) || path.startsWith(allowed.slice(0, -2));
-    return path === allowed;
+    if (allowed.endsWith('/**')) return normalizedPath === allowed.slice(0, -3) || normalizedPath.startsWith(allowed.slice(0, -2));
+    return normalizedPath === allowed;
   });
 }
 
@@ -76,7 +95,7 @@ function decide({ contract, action, state = {} }) {
         'Use apply_patch or an Edit tool with visible paths, or obtain approval for an explicit broader boundary.'
       );
     }
-    const outside = action.affectedPaths.filter((path) => !pathAllowed(path, contract.allowedPaths));
+    const outside = action.affectedPaths.filter((path) => !pathAllowed(path, contract.allowedPaths, action.cwd));
     if (outside.length) {
       return decision(
         controlledOutcome(level),

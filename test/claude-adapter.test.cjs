@@ -55,6 +55,7 @@ test('Claude Adapter maps official Hook fields to ControlEvent v1', () => {
   assert.equal(event.host.permissionMode, 'default');
   assert.equal(event.action.mutability, 'write');
   assert.deepEqual(event.action.affectedPaths, ['notebooks/demo.ipynb']);
+  assert.equal(event.action.cwd, root);
 });
 
 test('review contract blocks Claude Write', (t) => {

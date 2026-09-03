@@ -87,6 +87,7 @@ test('Codex Adapter normalizes an absolute patch path relative to hook cwd', () 
     tool_input: { patch: `*** Begin Patch\n*** Update File: ${absolute}\n@@\n-old\n+new\n*** End Patch` }
   });
   assert.deepEqual(event.action.affectedPaths, ['src/config.cjs']);
+  assert.equal(event.action.cwd, cwd);
 });
 
 test('controller decisions do not depend on model metadata', (t) => {

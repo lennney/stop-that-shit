@@ -145,6 +145,7 @@ function handleBeforeAction(event, options) {
       reachability: event.action.reachability,
       authorization: event.action.authorization,
       affectedPaths: event.action.affectedPaths,
+      cwd: event.action.cwd,
       dependencyIntent: Boolean(event.action.dependencyIntent),
       unboundedDelegation: Boolean(event.action.unboundedDelegation)
     };

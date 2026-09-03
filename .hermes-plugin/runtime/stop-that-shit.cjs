@@ -55,6 +55,7 @@ function toControlEvent(input) {
       hashIntent: detectHashIntent(input.tool_name, input.tool_input),
       dependencyIntent: detectDependencyIntent(input.tool_name, input.tool_input),
       affectedPaths: extractAffectedPaths(input.tool_name, input.tool_input, input.cwd),
+      cwd: input.cwd,
       unboundedDelegation: false
     };
   }
@@ -290,6 +291,7 @@ function handleBeforeAction(event, options) {
       reachability: event.action.reachability,
       authorization: event.action.authorization,
       affectedPaths: event.action.affectedPaths,
+      cwd: event.action.cwd,
       dependencyIntent: Boolean(event.action.dependencyIntent),
       unboundedDelegation: Boolean(event.action.unboundedDelegation)
     };
@@ -376,7 +378,7 @@ function defaultContract() {
 
 function directiveHead(prompt, matchEnd) {
   const tail = prompt.slice(matchEnd).trimStart();
-  const boundaries = [tail.indexOf('--'), tail.indexOf(':'), tail.indexOf('\n')]
+  const boundaries = [tail.indexOf('--'), tail.search(/:(?=\s|$)/), tail.indexOf('\n')]
     .filter((index) => index >= 0);
   const end = boundaries.length ? Math.min(...boundaries) : Math.min(tail.length, 80);
   return tail.slice(0, end).trim();
@@ -387,17 +389,18 @@ function parseDirective(prompt) {
   if (!mention) return null;
 
   const head = directiveHead(prompt, mention.index + mention[0].length);
-  const tokens = head.split(/[\s,]+/).map((token) => token.trim().toLowerCase()).filter(Boolean);
+  const tokens = head.split(/[\s,]+/).map((token) => token.trim()).filter(Boolean);
   const parsed = { mentioned: true };
 
-  for (const token of tokens) {
+  for (const rawToken of tokens) {
+    const token = rawToken.toLowerCase();
     if (MODES.has(token)) parsed.mode = token;
     if (LEVELS.has(token)) parsed.level = token;
     const agents = /^agents=(\d+)$/.exec(token);
     if (agents) parsed.agentBudget = Math.min(Number(agents[1]), 8);
     const hash = /^hash=(deny|ask|allow)$/.exec(token);
     if (hash && HASH_POLICIES.has(hash[1])) parsed.hashPolicy = hash[1];
-    const files = /^files=(.+)$/.exec(token);
+    const files = /^files=(.+)$/i.exec(rawToken);
     if (files) parsed.allowedPaths = files[1].split('|').map((value) => value.replace(/\\/g, '/')).filter(Boolean);
     const dependencies = /^deps=(deny|ask|allow)$/.exec(token);
     if (dependencies && SCOPE_POLICIES.has(dependencies[1])) parsed.dependencyPolicy = dependencies[1];
@@ -506,6 +509,8 @@ module.exports = {
 "src/decision.cjs": function(module, exports, __require) {
 'use strict';
 
+const nodePath = require('node:path');
+
 function decision(outcome, family, reasonCode, explanation, nextStep) {
   return { outcome, family, reasonCode, explanation, nextStep };
 }
@@ -514,11 +519,28 @@ function controlledOutcome(level, guarded = 'deny_and_explain') {
   return level === 'watch' ? 'report_and_defer' : guarded;
 }
 
-function pathAllowed(path, allowedPaths) {
-  return allowedPaths.some((allowed) => {
+function isWindowsAbsolute(value) {
+  return /^[A-Za-z]:[\\/]|^\\\\/.test(String(value || ''));
+}
+
+function normalizeComparablePath(value, cwd) {
+  let normalized = String(value || '').trim().replace(/\\/g, '/');
+  const base = String(cwd || '').trim();
+  if (base && isWindowsAbsolute(normalized) && isWindowsAbsolute(base)) {
+    normalized = nodePath.win32.relative(base, normalized).replace(/\\/g, '/');
+  } else if (base && nodePath.posix.isAbsolute(normalized) && nodePath.posix.isAbsolute(base.replace(/\\/g, '/'))) {
+    normalized = nodePath.posix.relative(base.replace(/\\/g, '/'), normalized);
+  }
+  return normalized.replace(/^\.\//, '');
+}
+
+function pathAllowed(path, allowedPaths, cwd) {
+  const normalizedPath = normalizeComparablePath(path, cwd);
+  return allowedPaths.some((value) => {
+    const allowed = normalizeComparablePath(value, cwd);
     if (allowed === '**') return true;
-    if (allowed.endsWith('/**')) return path === allowed.slice(0, -3) || path.startsWith(allowed.slice(0, -2));
-    return path === allowed;
+    if (allowed.endsWith('/**')) return normalizedPath === allowed.slice(0, -3) || normalizedPath.startsWith(allowed.slice(0, -2));
+    return normalizedPath === allowed;
   });
 }
 
@@ -582,7 +604,7 @@ function decide({ contract, action, state = {} }) {
         'Use apply_patch or an Edit tool with visible paths, or obtain approval for an explicit broader boundary.'
       );
     }
-    const outside = action.affectedPaths.filter((path) => !pathAllowed(path, contract.allowedPaths));
+    const outside = action.affectedPaths.filter((path) => !pathAllowed(path, contract.allowedPaths, action.cwd));
     if (outside.length) {
       return decision(
         controlledOutcome(level),
