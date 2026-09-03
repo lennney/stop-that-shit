@@ -24,6 +24,10 @@
   的等价路径。/ Normalizes dot segments and repeated separators before
   comparing `files=` boundaries, preventing writes from escaping a declared
   wildcard scope while preserving equivalent in-scope paths.
+- **Windows path matching**：Windows 风格的 `files=` 边界现在按平台语义忽略
+  路径大小写，同时保留 POSIX 路径的大小写敏感比较。/ Windows-style
+  `files=` boundaries now compare path casing using Windows semantics while
+  POSIX paths remain case-sensitive.
 
 ## 0.2.0 — 2026-09-01 (Stop That Shit Slop / 别再废话)
 

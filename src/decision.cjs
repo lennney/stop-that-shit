@@ -30,12 +30,15 @@ function pathAllowed(path, allowedPaths, cwd) {
   const normalizedPath = normalizeComparablePath(path, cwd);
   return allowedPaths.some((value) => {
     const allowed = normalizeComparablePath(value, cwd);
-    if (allowed === '**') return true;
-    if (allowed.endsWith('/**')) {
-      const base = allowed.slice(0, -3);
-      return normalizedPath === base || normalizedPath.startsWith(`${base}/`);
+    const caseInsensitive = isWindowsAbsolute(cwd) || (isWindowsAbsolute(path) && isWindowsAbsolute(value));
+    const comparablePath = caseInsensitive ? normalizedPath.toLowerCase() : normalizedPath;
+    const comparableAllowed = caseInsensitive ? allowed.toLowerCase() : allowed;
+    if (comparableAllowed === '**') return true;
+    if (comparableAllowed.endsWith('/**')) {
+      const base = comparableAllowed.slice(0, -3);
+      return comparablePath === base || comparablePath.startsWith(`${base}/`);
     }
-    return normalizedPath === allowed;
+    return comparablePath === comparableAllowed;
   });
 }
 

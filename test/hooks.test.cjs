@@ -113,6 +113,36 @@ test('files contract preserves mixed-case paths and keeps differently cased path
   assert.match(denied.hookSpecificOutput.permissionDecisionReason, /S\/PATH_OUTSIDE_CONTRACT/);
 });
 
+test('files contract matches Windows paths case-insensitively without weakening POSIX matching', (t) => {
+  const options = workspace(t);
+  handleHook(prompt(
+    'files-windows-case-session',
+    '$stop-that-shit lock change files=D:/Workspace/Project/Config.toml|Src/Rules.cjs -- update config'
+  ), options);
+
+  assert.equal(handleHook({
+    ...pre('files-windows-case-session', 'Write', {
+      file_path: 'd:\\workspace\\project\\config.toml', content: 'x'
+    }),
+    cwd: 'D:\\Workspace\\Project'
+  }, options), null);
+
+  assert.equal(handleHook({
+    ...pre('files-windows-case-session', 'Write', {
+      file_path: 'src/rules.cjs', content: 'x'
+    }),
+    cwd: 'D:\\Workspace\\Project'
+  }, options), null);
+
+  const denied = handleHook({
+    ...pre('files-windows-case-session', 'Write', {
+      file_path: 'd:\\workspace\\project\\other.toml', content: 'x'
+    }),
+    cwd: 'D:\\Workspace\\Project'
+  }, options);
+  assert.match(denied.hookSpecificOutput.permissionDecisionReason, /S\/PATH_OUTSIDE_CONTRACT/);
+});
+
 test('files contract matches an absolute allowlist when the host reports cwd-relative paths', (t) => {
   const options = workspace(t);
   const cwd = process.platform === 'win32' ? 'D:\\Workspace\\project' : '/Workspace/project';
