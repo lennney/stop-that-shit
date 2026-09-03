@@ -1,6 +1,6 @@
-# Install Stop That Shit 0.2.0
+# Install Stop That Shit 0.2.1
 
-These instructions target [`0.2.0`](https://github.com/lennney/stop-that-shit/releases/tag/0.2.0).
+These instructions target [`0.2.1`](https://github.com/lennney/stop-that-shit/releases/tag/0.2.1).
 
 If an agent is doing the installation for you, give it
 [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md). That guide separates commands
@@ -38,7 +38,7 @@ The Guard requires Node.js 18 or newer. Add the repository as a Codex
 marketplace, then install the plugin:
 
 ```powershell
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.0
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.1
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
@@ -200,11 +200,11 @@ From a checkout that contains the Pi adapter, install it globally:
 pi install /absolute/path/to/stop-that-shit
 ```
 
-Add `-l` for a project-scoped installation. The `0.2.0` tagged release contains
+Add `-l` for a project-scoped installation. The `0.2.1` tagged release contains
 the Pi adapter; use this pinned Git ref instead of an unpinned branch:
 
 ```bash
-pi install git:github.com/lennney/stop-that-shit@0.2.0
+pi install git:github.com/lennney/stop-that-shit@0.2.1
 ```
 
 Start a new Pi process, or run `/reload` in the TUI after changing package
@@ -234,10 +234,10 @@ cp skills/stop-that-shit/SKILL.md ~/.claude/skills/stop-that-shit/SKILL.md
 For Codex, ask the built-in Skill Installer to install the shared Skill folder:
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.0/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.1/skills/stop-that-shit
 ```
 
-To install only Stop That Shit Slop from a `0.2.0` checkout:
+To install only Stop That Shit Slop from a `0.2.1` checkout:
 
 ```bash
 npx skills add ./skills/stss --global

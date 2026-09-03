@@ -43,7 +43,7 @@ general improvement in model behavior.
 2. Run these commands one at a time:
 
    ```powershell
-   codex plugin marketplace add lennney/stop-that-shit --ref 0.2.0
+   codex plugin marketplace add lennney/stop-that-shit --ref 0.2.1
    codex plugin add stop-that-shit@stop-that-shit
    ```
 
@@ -127,10 +127,10 @@ general improvement in model behavior.
 If the user does not want Hooks, install the advisory Skill instead:
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.0/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.1/skills/stop-that-shit
 ```
 
-If the user asks for only Stop That Shit Slop, run this from a `0.2.0` checkout:
+If the user asks for only Stop That Shit Slop, run this from a `0.2.1` checkout:
 
 ```bash
 npx skills add ./skills/stss --global

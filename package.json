@@ -1,6 +1,6 @@
 {
   "name": "stop-that-shit",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Keep agent work bounded and reduce defensive wording in Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi",
   "keywords": [

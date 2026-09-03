@@ -17,7 +17,7 @@
   <a href="#quick-install">Install</a> ·
   <a href="#bad-case--good-case">Bad / Good Case</a> ·
   <a href="cases/README.md">Cases</a> ·
-  <a href="#020-from-one-extra-action-to-one-extra-sentence">0.2.0</a> ·
+  <a href="#release-021">0.2.1</a> ·
   <a href="CONTRIBUTING.md">Contribute</a> ·
   <a href="README.md">中文</a>
 </p>
@@ -45,6 +45,21 @@ Reason: MODE_FORBIDS_MUTATION
 State: ARMED / review
 Event: evt_...
 ```
+
+<a id="release-021"></a>
+
+## 0.2.1: Scoped Guard false-allow fixes
+
+`0.2.1` is a patch release for `0.2.0`. It tightens `files=` contracts across
+host path representations.
+
+- Absolute paths and host-reported paths relative to `cwd` now use one comparison
+  form. The comparison preserves the original path casing.
+- Unknown tools and actions with unproven target paths require approval under a
+  narrow `files=` boundary; explicit `files=**` remains a wide boundary.
+- An empty `files=` value no longer becomes unbounded. Dot segments, repeated
+  separators, and Windows path casing follow platform semantics.
+- Five boundary cases have regression coverage.
 
 ## 0.2.0: From one extra action to one extra sentence
 
@@ -106,11 +121,11 @@ Restart Claude Code or run `/reload-plugins`, then invoke:
 ### Codex
 
 ```bash
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.0
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.1
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
-`--ref 0.2.0` pins the install to a version tag instead of mutable
+`--ref 0.2.1` pins the install to a version tag instead of mutable
 `main`. Restart Codex. In a fresh CLI TUI, enter `/hooks` and trust
 `UserPromptSubmit` and `PreToolUse` after inspecting their commands. You can
 also give [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) to Codex for the
@@ -167,7 +182,7 @@ invoke:
 /skill:stop-that-shit review -- Review this diff. Report findings; do not edit.
 ```
 
-The `0.2.0` tag includes the Pi adapter and both Skills. See [INSTALL.md](INSTALL.md#pi-coding-agent).
+The `0.2.1` tag includes the Pi adapter and both Skills. See [INSTALL.md](INSTALL.md#pi-coding-agent).
 
 ## Bad Case / Good Case
 
@@ -439,7 +454,7 @@ cp skills/stop-that-shit/SKILL.md ~/.claude/skills/stop-that-shit/SKILL.md
 For Codex, the remote Skill Installer path is:
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.0/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.1/skills/stop-that-shit
 ```
 
 Start a new task, then invoke the host-native Skill form. A standalone Claude Code skill is `/stop-that-shit`; an installed plugin skill is namespaced as `/stop-that-shit:stop-that-shit`; Codex uses `$stop-that-shit`. This path needs no Hook trust,

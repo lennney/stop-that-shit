@@ -17,7 +17,7 @@
   <a href="#快速安装">安装</a> ·
   <a href="#bad-case--good-case">Bad / Good Case</a> ·
   <a href="cases/README.md">案例库</a> ·
-  <a href="#020从多做一步到多说一句">0.2.0</a> ·
+  <a href="#release-021">0.2.1</a> ·
   <a href="CONTRIBUTING.md">参与贡献</a> ·
   <a href="README_EN.md">English</a>
 </p>
@@ -37,6 +37,19 @@ Reason: MODE_FORBIDS_MUTATION
 State: ARMED / review
 Event: evt_...
 ```
+
+<a id="release-021"></a>
+
+## 0.2.1：修复受限 files= 边界误放行
+
+`0.2.1` 是 `0.2.0` 的修复版，收紧受限 `files=` 合同在不同宿主路径表示下的判断。
+
+- 绝对路径与宿主基于 `cwd` 报告的相对路径现在统一比较，并保留路径原始大小写。
+- 未知工具或无法证明目标路径的动作，在窄 `files=` 边界下会请求批准；显式
+  `files=**` 仍表示宽边界。
+- `files=` 空值不再退化成无限范围；`.`、`..`、重复分隔符和 Windows 路径大小写
+  按平台语义处理。
+- 五个边界场景都有回归测试。
 
 ## 0.2.0：从多做一步，到多说一句
 
@@ -92,11 +105,11 @@ claude plugin install stop-that-shit@stop-that-shit
 ### Codex
 
 ```bash
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.0
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.1
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
-`--ref 0.2.0` 把安装固定到版本 tag，不跟随可变的 `main`。重启 Codex。在新的 CLI TUI 中输入 `/hooks`，检查命令后信任 `UserPromptSubmit` 和 `PreToolUse`。也可以把 [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) 交给 Codex，让它完成非交互步骤。
+`--ref 0.2.1` 把安装固定到版本 tag，不跟随可变的 `main`。重启 Codex。在新的 CLI TUI 中输入 `/hooks`，检查命令后信任 `UserPromptSubmit` 和 `PreToolUse`。也可以把 [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) 交给 Codex，让它完成非交互步骤。
 
 ### OpenCode 从 GitHub 安装
 
@@ -142,7 +155,7 @@ pi install /absolute/path/to/stop-that-shit
 /skill:stop-that-shit review -- Review 这个 diff，只报告问题，不要修改。
 ```
 
-从 `0.2.0` tag 安装即可获得 Pi Adapter 和两个 Skill。详见 [INSTALL.md](INSTALL.md#pi-coding-agent)。
+从 `0.2.1` tag 安装即可获得 Pi Adapter 和两个 Skill。详见 [INSTALL.md](INSTALL.md#pi-coding-agent)。
 
 ## Bad Case / Good Case
 
@@ -378,7 +391,7 @@ cp skills/stop-that-shit/SKILL.md ~/.claude/skills/stop-that-shit/SKILL.md
 Codex 仍可使用远程 Skill Installer：
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.0/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.1/skills/stop-that-shit
 ```
 
 新开任务后，独立 Claude Code Skill 用 `/stop-that-shit`，作为 plugin 安装时用 namespaced `/stop-that-shit:stop-that-shit`；Codex 用 `$stop-that-shit`。Skill-only 路径不需要 Hook 信任，但不能机器拦截越界动作，也不会改变宿主原有的 sandbox 和 approval 设置。

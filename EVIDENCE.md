@@ -11,24 +11,24 @@ actions, context responses, and permission denies. It records host effect as
 `unobserved`; a returned permission deny is not evidence that the host skipped
 the action.
 
-Version: 0.2.0 Stop That Shit Slop and explicit update checks
-Release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.0
-Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.1.1
-Last updated: 2026-09-01
+Version: 0.2.1 Scoped Guard false-allow fixes
+Release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.1
+Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.0
+Last updated: 2026-09-03
 
 This tree is validated with deterministic Hook-schema simulations, real
 child-process stdin/stdout entrypoint tests, cross-platform path regression
 tests, and shared policy tests:
 
-- 232/232 executed runtime/unit/integration tests pass, including the preserved
+- 246/246 executed runtime/unit/integration tests pass, including the preserved
   Codex tests, Claude child-process Hook simulations, OpenCode adapter/plugin
   regressions, Hermes native-plugin/runtime tests, and Pi adapter/package tests;
   one optional installed
   OpenCode smoke is skipped when OpenCode 1.18.18 or newer is unavailable;
 - 18/18 executable Bad/Good policy case arms pass;
 - Claude review-mode denial, namespaced slash-command arming, POSIX/Windows path
-  normalization, `NotebookEdit`, `PowerShell`, `Monitor`, `EnterWorktree`, and
-  `Workflow` fan-out handling have dedicated regressions;
+  normalization and Windows case matching, `NotebookEdit`, `PowerShell`, `Monitor`,
+  `EnterWorktree`, and `Workflow` fan-out handling have dedicated regressions;
 - two independent Claude Hook processes cannot oversubscribe `agents=1`;
 - all checked-in `.cjs` files pass `node --check`, all JSON files parse, and the
   release allowlist passes with 188 files;
@@ -269,14 +269,14 @@ leading synthetic fixtures.
 Do not claim that Stop That Shit solves overengineering across coding agents or
 publish an improvement percentage from unit tests or this single scenario.
 
-The defensible 0.2.0 claim is:
+The defensible 0.2.1 claim is:
 
 > In Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi, Stop That Shit provides
 > a short on-demand decision ladder and enforces a few explicit task-authority
 > rules on covered host action paths. Stop That Shit Slop adds an optional,
 > standalone Skill for reducing defensive wording when a sentence has no decision
 > consumer, with twelve fixed offline responses used for regression acceptance.
-> Hermes 0.2.0 coverage is limited to the
+> Hermes 0.2.1 coverage is limited to the
 > native Plugin callbacks `pre_llm_call` and `pre_tool_call`; Gateway support
 > refers to the restart lifecycle after plugin changes, not coverage of every
 > Hermes surface. It may reduce some forms of execution drift, but it does not

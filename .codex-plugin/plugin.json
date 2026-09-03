@@ -1,6 +1,6 @@
 {
   "name": "stop-that-shit",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Keep Codex tasks bounded and reduce defensive wording with local-first guardrails and two Skills.",
   "author": {
     "name": "Stop That Shit contributors",

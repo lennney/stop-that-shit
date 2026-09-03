@@ -7,7 +7,7 @@ untrusted Hook definitions, host bugs, or direct user actions may bypass it.
 
 ## Supported version
 
-`0.2.0` is the current release in the pre-1.0 line. Security and
+`0.2.1` is the current release in the pre-1.0 line. Security and
 compatibility support remain best effort.
 
 ## Reporting a vulnerability

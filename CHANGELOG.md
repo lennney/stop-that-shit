@@ -2,29 +2,33 @@
 
 ## Unreleased
 
+No unreleased changes yet.
+
+## 0.2.1 — 2026-09-03 (Scoped Guard false-allow fixes / 受限 Guard 误放行修复)
+
 ### 修复 / Fixed
 
-- **Scoped file locks**：`files=` 现在保留路径原始大小写，并在比较时统一
+- **Scoped file locks — #31**：`files=` 现在保留路径原始大小写，并在比较时统一
   绝对 allowlist 与宿主基于 `cwd` 报告的相对路径；Windows 盘符也不再被误当成
   指令分隔符。/ `files=` now preserves path casing, compares absolute
   allowlists with host paths normalized relative to `cwd`, and accepts Windows
   drive letters without treating their colon as a directive delimiter.
-- **Scoped file locks**：窄 `files=` 边界现在会要求批准无法证明只读性和目标路径的
+- **Scoped file locks — #33**：窄 `files=` 边界现在会要求批准无法证明只读性和目标路径的
   未知工具，而不是把它们当作 `WITHIN_CONTRACT` 放行；显式 `files=**` 仍保留
   change 模式下的宽边界。/ Narrow `files=` scopes now require approval for
   unknown tools whose mutability and target paths are unproven instead of
   allowing them as `WITHIN_CONTRACT`; explicit `files=**` remains unbounded.
 
-- **Scoped file locks**：显式空值 `files=` 现在表示不允许写入任何文件，不再静默
+- **Scoped file locks — #34**：显式空值 `files=` 现在表示不允许写入任何文件，不再静默
   退化成无边界 change；省略 `files` 仍保持原有行为。/ An explicit empty
   `files=` value now allows no file writes instead of silently degrading to an
   unbounded change contract; omitting `files` preserves the existing behavior.
-- **Scoped file locks**：在比较 `files=` 边界前规范化 `.`、`..` 和重复路径
+- **Scoped file locks — #35**：在比较 `files=` 边界前规范化 `.`、`..` 和重复路径
   分隔符，阻止写入通过 dot segment 逃出声明的 wildcard 范围，同时保留范围内
   的等价路径。/ Normalizes dot segments and repeated separators before
   comparing `files=` boundaries, preventing writes from escaping a declared
   wildcard scope while preserving equivalent in-scope paths.
-- **Windows path matching**：Windows 风格的 `files=` 边界现在按平台语义忽略
+- **Windows path matching — #36**：Windows 风格的 `files=` 边界现在按平台语义忽略
   路径大小写，同时保留 POSIX 路径的大小写敏感比较。/ Windows-style
   `files=` boundaries now compare path casing using Windows semantics while
   POSIX paths remain case-sensitive.
