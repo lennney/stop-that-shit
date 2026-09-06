@@ -19,7 +19,8 @@
   <a href="cases/README.md">案例库</a> ·
   <a href="#release-021">0.2.1</a> ·
   <a href="CONTRIBUTING.md">参与贡献</a> ·
-  <a href="README_EN.md">English</a>
+  <a href="README_EN.md">English</a> ·
+  <a href="https://linux.do">LINUX DO 社区</a>
 </p>
 
 这份校验和生成了，任务却没有少做一步，后面的流程也完全一样。换个任务，多出来的可能是 guard、兼容层、全量测试或额外流程。Codex、Claude Code、OpenCode、Hermes Agent CLI 和 Pi 都可能这么做：每一步单看都有理由，但用户没要求，当前任务也用不上。

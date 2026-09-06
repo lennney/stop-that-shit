@@ -19,7 +19,8 @@
   <a href="cases/README.md">Cases</a> ·
   <a href="#release-021">0.2.1</a> ·
   <a href="CONTRIBUTING.md">Contribute</a> ·
-  <a href="README.md">中文</a>
+  <a href="README.md">中文</a> ·
+  <a href="https://linux.do">LINUX DO Community</a>
 </p>
 
 The checksum gets generated, but it saves no work and leaves the rest of the task
