@@ -1,5 +1,14 @@
 # Architecture
 
+The shared Skill starts with the task's responsibilities, chooses a direct
+solution, and expands it only to close a concrete gap. It judges defenses by
+their effect and finishes when the required result has sufficient evidence.
+Necessary protection and complete delivery take priority over a smaller diff.
+
+These semantic decisions belong in `skills/stop-that-shit/SKILL.md`. The Guard
+checks explicit authority on supported action paths; it does not infer business
+necessity from mechanism names. Updating the Skill does not change Guard policy.
+
 Stop That Shit has a host-independent control core, five thin host adapters,
 and a metadata-only runtime evidence sidecar.
 

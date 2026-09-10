@@ -1,12 +1,12 @@
 ---
 name: stop-that-shit
-description: Keep coding agents focused on requested and necessary work. Use when a request sets a read-only, answer-only, file, action, or stopping boundary; when evidence shows scope creep, speculative hardening, unnecessary hashing or dependencies, repeated audit loops, or valueless delegation; or when the user invokes Stop That Shit. Do not invoke for an ordinary focused fix without a boundary or scope-creep signal.
+description: Complete requested work while preventing speculative defenses and scope creep. Use when considering extra hardening, reviewing possible overengineering, resolving repeated verification loops, following explicit task boundaries, or when the user invokes Stop That Shit. Ordinary use of validation, retries, or dependencies alone is not a trigger.
 license: MIT
 ---
 
 # Stop That Shit
 
-Do the requested work. Keep necessary consequences. Stop everything else.
+Meet the task's responsibilities in full. Let real needs drive complexity.
 
 This Skill is advisory and works without the Guard hooks. It cannot guarantee
 model behavior. When the Guard is installed, the same directives also provide
@@ -14,42 +14,82 @@ machine-enforced boundaries on supported host action paths.
 
 ## Follow the Stop Ladder
 
-Before adding work that the user did not name, ask:
+Apply this ladder when choosing an implementation, adding a mechanism, or
+extending verification. These are engineering decisions within normal work;
+they do not require a new checklist, proof file, or reviewing agent.
 
-1. Did the user request it?
-2. Is it necessary to complete the requested result?
-3. What reachable code, data, user decision, legal or platform requirement,
-   deployment state, or acceptance proves that need?
-4. Would omitting it fail the current task?
+1. **Understand the current responsibility.** Establish the requested result,
+   explicit boundaries, and existing guarantees the change must preserve. Use
+   the request, later corrections, project requirements, and relevant code.
+   Trace affected callers and failure paths before choosing a fix. Complete
+   necessary caller, data, test, and documentation changes within that authority.
+   A plan or an easier subset does not fulfill the requested result.
+2. **Start with a direct solution.** Check suitable code already in the project,
+   standard-library or platform features, and installed dependencies. Compare
+   actual behavior, failure handling, and state lifetime. Proceed when a clear,
+   maintainable option satisfies the responsibility; do not exhaust the ecosystem.
+3. **Expand to close a concrete gap.** Identify the supported input, consumer,
+   failure, or obligation the direct solution does not cover. Adapt or implement
+   that missing behavior at the responsible layer. Existing support commitments
+   count as current needs; hypothetical future flexibility alone does not.
+   A larger diff is justified when it completes the affected flow.
+4. **Judge defenses by their effect.** Identify what a mechanism detects and
+   what its rejection, recovery, or diagnosis changes. Keep effective protection.
+   Omit optional additions without a grounded purpose or additional value.
+   Within the task scope, remove or narrow work shown to be redundant, unused,
+   or too broad. Repair defenses that hide failures, duplicate side effects, or
+   prevent legitimate work, even when the repair adds code.
+5. **Verify the result and finish.** Use the project's intended checks for the
+   affected behavior and guarantees. Honor explicit acceptance criteria and
+   mandatory checks. Reuse evidence while it remains valid for the final state.
+   Finish when the requested result exists, the required evidence supports it,
+   and no known in-scope blocker remains.
 
-If the answer remains no, do not implement it. Report it only when useful.
+## Resolve uncertainty without inventing work
 
-Do not turn internal risk controls into user-facing caveats. Add a disclaimer,
-limitation, privacy notice, or safety warning only when the user requested it, a
-reachable decision requires it, or omission would make the current result
-false, unsafe, or non-compliant. Put necessary disclosure at the decision point;
-otherwise keep the boundary in behavior, tests, or supporting documentation.
+A supported trust boundary, failure mode, existing data, or applicable obligation
+can establish a need before an incident occurs. Preserve necessary validation,
+authentication, authorization, data integrity, recovery, compatibility,
+migration, and accessibility. Mechanism names and line counts do not determine
+whether protection is useful.
 
-Keep internal process out of the deliverable. Do not add an account of what the
-agent did not test, which materials it checked, or which label the output should
-not receive merely to display caution or diligence. Narrow or attribute
-uncertain claims instead. Include methodology or a concise limitation only when
-the user requested it or it materially changes how the reader should interpret
-or act on the result.
+New optional work without a purpose can wait. An existing protection whose role
+is unclear needs inspection of the relevant path before removal. Missing
+evidence is not proof that it is unnecessary. Adding a verifier solely to read a
+new optional manifest does not establish their value; trace the chain back to a
+task requirement or an existing guarantee.
 
-Keep necessary callers, fixtures, tests, accessibility, security, compatibility,
-and migration work when reachable evidence requires them. Fewer files or lines
-is not the goal. The smallest correct result is.
+For example, a release consumer can make a checksum necessary. A TTL requirement
+can require more than an available cache provides. A catch that turns a failed
+read into a successful empty result can require repair. Choose from the actual
+contract and behavior in each case.
+
+Resolve ordinary choices from available context. Ask only for missing information
+that cannot be resolved from context and would materially change the result,
+authorization, or a choice that is hard to reverse. Do not request authorization
+already given.
+
+Wait for an operation before retrying it or starting work that depends on it.
+If a necessary check is blocked, repair the specific cause when feasible within
+the task and continue independent necessary work. Change methods when they can
+resolve the gap; an unrelated successful command cannot replace the missing
+evidence. Report an unresolved blocker accurately without claiming completion.
+
+## Keep the deliverable focused
+
+Report the result and relevant verification. Include a tradeoff, warning, or
+limitation when requested or when it changes how the reader should interpret or
+use the result. Put required disclosure at the decision point. Keep internal
+process notes and unrequested cautionary prose out of the product; narrow or
+attribute uncertain claims instead of surrounding them with disclaimers.
 
 ## Respect the task mode
 
 - `review`, `answer`, and `monitor` are read-only unless the user authorizes a
   change.
 - `change` permits only requested work and necessary consequences.
-- Do not add hashing, a dependency, a compatibility layer, a migration, an
-  abstraction, or a subagent merely because it might help later.
-- Do not repeat searches, tests, or reviews after the requested result has enough
-  evidence.
+- Necessary work does not override an explicit file lock or a narrower action
+  boundary. Explain a required boundary change before acting outside it.
 
 With Skill only, treat the mode as an instruction. With the Guard installed,
 use the host-native invocation form.

@@ -257,6 +257,38 @@ codex plugin marketplace add <local-checkout-root>
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
+Run local validation from the checkout root:
+
+```powershell
+npm test
+npm run eval
+npm run eval:paired -- --dry-run
+npm run release:check
+```
+
+The paired command prints a 144-cell plan without calling a model. Before using
+`--run`, read the [live Codex comparison guide](evals/codex-paired/README.md).
+Live runs require a dedicated Codex home with only this plugin enabled.
+
+## Check for updates
+
+With the package executable installed:
+
+```bash
+sts doctor --check-update
+```
+
+From a source checkout:
+
+```bash
+npm run sts -- doctor --check-update
+```
+
+Only this explicit command queries GitHub Releases. It returns `installed`,
+`latest`, and `releaseUrl`. It does not install updates or display reminders
+during startup or tasks. Standalone STSS updates remain under the host or Skill
+Installer update flow.
+
 ## Disable or uninstall
 
 Use `/hooks` to disable the Codex Guard immediately, then remove the plugin and

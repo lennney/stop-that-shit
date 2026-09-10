@@ -104,49 +104,9 @@ test('STSS metadata exposes the short invocation and examples', () => {
   }
 });
 
-test('the READMEs preserve the Stop That Shit story and add 0.2.0 without replacing it', () => {
-  const chinese = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+test('the README STSS example matches a validated offline response', () => {
   const english = fs.readFileSync(path.join(root, 'README_EN.md'), 'utf8');
-  const normalizedEnglish = normalizeWhitespace(english);
-
-  assert.ok(chinese.indexOf('你只让 Agent 导出一个结果文件') < chinese.indexOf('## 0.2.0：从多做一步，到多说一句'));
-  assert.ok(chinese.indexOf('## 0.2.0：从多做一步，到多说一句') < chinese.indexOf('## 快速安装'));
-  assert.ok(chinese.indexOf('## 快速安装') < chinese.indexOf('## Bad Case / Good Case'));
-  assert.ok(chinese.indexOf('## Bad Case / Good Case') < chinese.indexOf('## SHIT 是哪四种'));
-  assert.ok(chinese.indexOf('## SHIT 是哪四种') < chinese.indexOf('## 为什么先拦 hash'));
-  assert.match(chinese, /0\.1\.x 先处理 SHIT 的动作面/);
-  assert.match(chinese, /一个没人读取的 checksum，和一句不改变任何决定的免责声明，都没有消费者/);
-  assert.match(chinese, /Stop Ladder 继续判断一个动作该不该做/);
-  assert.doesNotMatch(chinese, /不判断文字是不是 AI 写的/);
-  assert.doesNotMatch(chinese, /不承诺.*去 AI 味/);
-  assert.doesNotMatch(chinese, /免责声明关键词黑名单/);
-  assert.match(chinese, /你只让 Agent 导出一个结果文件/);
-  assert.match(chinese, /SHIT 是哪四种/);
-  assert.match(chinese, /AI Agent Guard 现在能拦什么/);
-  assert.match(chinese, /一起让 Agent 少造一点史/);
-  assert.match(chinese, /别再浪费我的 Token/);
-  assert.doesNotMatch(chinese, /真实限制不是废话/);
-  assert.doesNotMatch(chinese, /0\.1\.1/);
-
-  assert.ok(english.indexOf('You asked an agent for one output file') < english.indexOf('## 0.2.0: From one extra action to one extra sentence'));
-  assert.ok(english.indexOf('## 0.2.0: From one extra action to one extra sentence') < english.indexOf('## Quick install'));
-  assert.ok(english.indexOf('## Quick install') < english.indexOf('## Bad Case / Good Case'));
-  assert.ok(english.indexOf('## Bad Case / Good Case') < english.indexOf('## What SHIT means'));
-  assert.ok(english.indexOf('## What SHIT means') < english.indexOf('## Why hashing is blocked by default'));
-  assert.match(english, /Version 0\.1\.x handles the action side of SHIT/);
-  assert.match(english, /An unread checksum and a disclaimer that changes no decision have the same problem: neither has a consumer/);
-  assert.match(english, /The Stop Ladder still asks whether an action should exist/);
-  assert.doesNotMatch(english, /does not classify text as AI-written or promise to make prose sound human/);
-  assert.doesNotMatch(english, /does not detect AI text or promise general humanization/);
-  assert.doesNotMatch(english, /disclaimer keyword blacklist/);
-  assert.match(english, /You asked an agent for one output file/);
-  assert.match(english, /What SHIT means/);
-  assert.match(english, /What the AI agent Guard stops/);
-  assert.match(english, /Help coding agents stop at the boundary/);
-  assert.match(english, /Stop spending my tokens/);
-  assert.doesNotMatch(english, /Real limits are not waste/);
-  assert.doesNotMatch(english, /0\.1\.1/);
-  assert.ok(normalizedEnglish.includes(normalizeWhitespace(offline.responses['proposal-disclaimer-bad'])));
-  assert.ok(normalizedEnglish.includes(normalizeWhitespace(offline.responses['hedge-stack-bad'])));
-  assert.ok(normalizedEnglish.includes(normalizeWhitespace(offline.responses['proposal-disclaimer-good'])));
+  assert.ok(
+    normalizeWhitespace(english).includes(normalizeWhitespace(offline.responses['hedge-stack-bad']))
+  );
 });

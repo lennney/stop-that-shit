@@ -37,11 +37,10 @@ test('Codex presentation metadata uses valid local assets', () => {
   }
 });
 
-test('the packaged Skill remains useful without the Guard hooks', () => {
+test('the packaged Skill declares advisory use without the Guard hooks', () => {
   const skill = fs.readFileSync(path.join(root, 'skills', 'stop-that-shit', 'SKILL.md'), 'utf8');
   assert.match(skill, /works without the Guard/i);
   assert.match(skill, /advisory/i);
-  assert.match(skill, /Do the requested work\. Keep necessary consequences\. Stop everything else\./);
 });
 
 test('Codex hook commands keep resolving the plugin root inside Node and stay shell-agnostic', () => {
