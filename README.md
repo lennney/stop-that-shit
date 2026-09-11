@@ -21,7 +21,8 @@
   <a href="#前后对比">看个例子</a> ·
   <a href="#快速安装">安装</a> ·
   <a href="cases/README.md">案例库</a> ·
-  <a href="README_EN.md">English</a>
+  <a href="README_EN.md">English</a> ·
+  <a href="README_KO.md">한국어</a>
 </p>
 
 ---

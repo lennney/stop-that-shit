@@ -21,7 +21,8 @@
   <a href="#before--after">See an example</a> ·
   <a href="#quick-install">Install</a> ·
   <a href="cases/README.md">Cases</a> ·
-  <a href="README.md">中文</a>
+  <a href="README.md">中文</a> ·
+  <a href="README_KO.md">한국어</a>
 </p>
 
 ---
