@@ -4,7 +4,7 @@
   "family": "I",
   "title": "Explicit fix authorization",
   "input": {
-    "contract": { "mode": "change", "level": "guard", "agentBudget": 0, "agentsUsed": 0 },
+    "contract": { "mode": "change", "level": "guard", "agentBudget": 9007199254740991 },
     "action": { "mutability": "write", "duplicate": false }
   },
   "expected": { "outcome": "allow", "family": null, "reasonCode": "WITHIN_CONTRACT" }

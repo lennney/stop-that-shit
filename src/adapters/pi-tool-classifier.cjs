@@ -24,7 +24,7 @@ function piDelegationShape(toolName, toolInput) {
   const modes = Number(hasTasks) + Number(hasChain) + Number(Boolean(hasSingle));
   if (modes !== 1) return { count: 0, unbounded: true };
   if (hasTasks) return { count: input.tasks.length, unbounded: false };
-  if (hasChain) return { count: input.chain.length, unbounded: false };
+  if (hasChain) return { count: 1, unbounded: false };
   return { count: 1, unbounded: false };
 }
 

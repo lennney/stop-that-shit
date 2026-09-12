@@ -306,3 +306,38 @@ test('status, runtime, explain, and label commands do not mutate the active cont
   assert.deepEqual(readState('query-session', options.dataDir).contract, before);
   assert.equal(readRuntime({ eventId }, options).events[0].label, 'correct');
 });
+
+// These fixtures use the model-facing Rust SpawnAgentResult / WaitAgentResult
+// shapes; no host-invented reservation_id or async_launched completion flag.
+test('Codex maps spawn output to running and never turns request intent into completion', () => {
+  const { toControlEvent } = require('../src/adapters/codex-hooks.cjs');
+  const base = { session_id: 'parent', hook_event_name: 'PostToolUse', tool_name: 'spawn_agent', tool_use_id: 'spawn-1', tool_input: { async: false } };
+  const id = '019c6e27-e55b-73d1-87d8-4e01f1f75043';
+  for (const tool_response of [{ agent_id: id, nickname: null }, JSON.stringify({ agent_id: id, nickname: 'Scout' })]) {
+    const action = toControlEvent({ ...base, tool_response }).action;
+    assert.equal(action.lifecycle, 'running');
+    assert.equal(action.agentId, id);
+  }
+  assert.equal(toControlEvent(base).action.lifecycle, 'unknown');
+});
+
+test('Codex wait releases only explicit UUID targets with proven terminal results', () => {
+  const { toControlEvent } = require('../src/adapters/codex-hooks.cjs');
+  const id = '019c6e27-e55b-73d1-87d8-4e01f1f75043';
+  const base = { session_id: 'parent', hook_event_name: 'PostToolUse', tool_name: 'wait_agent', tool_use_id: 'wait-1', tool_input: { targets: [id] } };
+  for (const status of [{ completed: 'done' }, 'shutdown']) {
+    assert.deepEqual(toControlEvent({ ...base, tool_response: { status: { [id]: status }, timed_out: false } }).action.endedAgentIds, [id]);
+  }
+  for (const status of ['running', 'interrupted', { errored: 'transport failed' }]) {
+    assert.equal(toControlEvent({ ...base, tool_response: { status: { [id]: status }, timed_out: false } }).action.endedAgentIds, undefined);
+  }
+  assert.equal(toControlEvent({ ...base, tool_input: { targets: ['/root/scout'] }, tool_response: { status: { '/root/scout': { completed: 'done' } }, timed_out: false } }).action.endedAgentIds, undefined);
+});
+
+test('Codex stop attempts cannot release parent accounting and resumes expose uncertainty', () => {
+  const { toControlEvent } = require('../src/adapters/codex-hooks.cjs');
+  assert.equal(toControlEvent({ session_id: 'child', hook_event_name: 'SubagentStop', agent_id: 'child' }), null);
+  for (const tool_name of ['send_input', 'resume_agent']) {
+    assert.equal(toControlEvent({ session_id: 'parent', hook_event_name: 'PreToolUse', tool_name, tool_use_id: 'resume-1', tool_input: {} }).action.delegationLifecycleUnproven, true);
+  }
+});

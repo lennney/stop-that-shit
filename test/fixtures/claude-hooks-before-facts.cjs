@@ -1,3 +1,5 @@
+// Historical adapter from commit 359a016. Keep its runtime imports unchanged
+// to reproduce a partial adapter/core upgrade without relying on Git history.
 'use strict';
 
 const { PROTOCOL_VERSION } = require('../control-protocol.cjs');
@@ -9,7 +11,7 @@ const {
   extractAffectedPaths,
   isUnboundedDelegation
 } = require('./claude-tool-classifier.cjs');
-const { optionalIdentifier } = require('./lifecycle-fields.cjs');
+const { optionalIdentifier, readAsyncLaunched } = require('./lifecycle-fields.cjs');
 
 const EVENT_KIND = {
   SessionStart: 'session.start',
@@ -17,9 +19,8 @@ const EVENT_KIND = {
   UserPromptExpansion: 'prompt.submit',
   PreToolUse: 'action.before',
   PostToolUse: 'action.after',
-  PostToolUseFailure: 'action.after',
-  PermissionDenied: 'action.after',
   SubagentStart: 'subagent.start',
+  SubagentStop: 'subagent.stop',
   SessionEnd: 'session.end'
 };
 
@@ -43,6 +44,15 @@ function slashDirective(prompt) {
   return `$stop-that-shit${args ? ` ${args}` : ''}`;
 }
 
+function claudeAsyncLaunched(input) {
+  const response = input && input.tool_response;
+  const status = response && typeof response.status === 'string'
+    ? response.status.toLowerCase()
+    : '';
+  if (status === 'async_launched') return true;
+  if (status === 'completed') return false;
+  return readAsyncLaunched(input, input && input.tool_input, response);
+}
 
 function claudeResponseAgentId(input) {
   const response = input && input.tool_response;
@@ -57,7 +67,6 @@ function toControlEvent(input) {
 
   const event = {
     protocolVersion: PROTOCOL_VERSION,
-    lifecycleVersion: 2,
     kind,
     sessionId: String(input.session_id || ''),
     turnId: input.prompt_id || input.turn_id || null,
@@ -87,10 +96,8 @@ function toControlEvent(input) {
     };
     const agentId = claudeResponseAgentId(input);
     if (agentId) event.action.agentId = agentId;
-    const status = input.tool_response && input.tool_response.status;
-    event.action.lifecycle = input.hook_event_name === 'PermissionDenied' ? 'not_started'
-      : input.hook_event_name === 'PostToolUseFailure' ? 'unknown'
-      : status === 'completed' ? 'joined' : status === 'async_launched' ? 'running' : 'unknown';
+    const asyncLaunched = claudeAsyncLaunched(input);
+    if (asyncLaunched !== null) event.action.asyncLaunched = asyncLaunched;
   }
 
   if (kind === 'action.before') {
@@ -108,14 +115,11 @@ function toControlEvent(input) {
       cwd: input.cwd,
       unboundedDelegation: isUnboundedDelegation(input.tool_name)
     };
-    // SendMessage can wake a stopped agent. SubagentStop has no run ID to
-    // distinguish that run's completion from a delayed previous stop.
-    if (input.tool_name === 'SendMessage') event.action.delegationLifecycleUnproven = true;
+    const asyncLaunched = readAsyncLaunched(input, input.tool_input);
+    if (mutability === 'delegate' && asyncLaunched !== null) event.action.asyncLaunched = asyncLaunched;
   }
 
-  // Stop hooks run before other hooks may request continuation, so they do
-  // not prove quiescence. Background calls remain reserved without joined evidence.
-  if (kind === 'subagent.start') {
+  if (kind === 'subagent.start' || kind === 'subagent.stop') {
     event.agentId = optionalIdentifier(input.agent_id, input.agentId);
   }
 
@@ -142,7 +146,7 @@ function fromControlResult(hookEventName, result) {
   }
 
   if (result.kind === 'context') {
-    if (['PostToolUse', 'PostToolUseFailure', 'PermissionDenied', 'SubagentStop', 'SessionEnd'].includes(hookEventName)) return null;
+    if (['PostToolUse', 'SubagentStop', 'SessionEnd'].includes(hookEventName)) return null;
     return contextOutput(hookEventName, result.text);
   }
 

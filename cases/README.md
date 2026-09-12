@@ -18,13 +18,13 @@ decisive fact so that rules judge authority and evidence instead of keywords.
 - `STS-I-001`: review attempts a write; a later explicit fix is allowed.
 - `STS-S-001`: an adjacent refactor is deferred; affected callers required for
   correctness are allowed.
-- `STS-S-002`: an unbudgeted subagent is stopped; `agents=1` is allowed.
+- `STS-S-002`: a zero-total delegation is stopped; an explicit total limit allows the bounded Good Case.
 - `STS-S-003`: an optional `files=` lock stops an outside write and permits an
   inside write.
 - `STS-S-005`: an incidental dependency requires authority; `deps=allow`
   preserves the requested dependency Good Case.
 - `STS-S-006`: necessary delegation through an unbounded workflow is denied;
-  bounded delegation within `agents=N` is allowed.
+  bounded delegation within the explicit total/concurrent limits is allowed.
 - `STS-H-001`: migration for unshipped state is deferred; migration for deployed
   supported state is necessary.
 - `STS-H-002`: hashing without a consumer is stopped; an explicitly requested

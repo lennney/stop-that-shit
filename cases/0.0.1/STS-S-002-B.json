@@ -4,7 +4,7 @@
   "family": "S",
   "title": "Subagent exceeds the contract budget",
   "input": {
-    "contract": { "mode": "change", "level": "guard", "agentBudget": 0, "agentsUsed": 0 },
+    "contract": { "mode": "change", "level": "guard", "agentBudget": 0 },
     "action": { "mutability": "delegate", "duplicate": false }
   },
   "expected": { "outcome": "deny_and_explain", "family": "S", "reasonCode": "AGENT_BUDGET_EXHAUSTED" }

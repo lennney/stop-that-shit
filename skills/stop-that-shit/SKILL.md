@@ -130,6 +130,23 @@ Use a hard file lock only when the complete boundary is already known:
 $stop-that-shit lock change files=src/config.cjs|test/config.test.cjs -- Fix this behavior.
 ```
 
+The active delegation limit is a session control:
+
+```text
+$stop-that-shit change agents=N -- Run the task.
+```
+
+`agents=N` limits reserved concurrent capacity. It defaults to unlimited, and
+`0` forbids new delegation. A batch that exceeds the limit is rejected
+atomically. Request parameters do not prove completion: the host must confirm
+that a call did not execute, joined all its children, or ended an associated
+run. Unknown results keep their existing capacity; session-end alone does not
+prove completion. Permitted unbounded or unversioned resume calls remain
+unresolved until matching terminal evidence arrives. With unresolved activity,
+finite Guard requires that evidence or a new host session. Migration preserves
+valid budgets including `0`. Lifecycle association uses explicit host identities,
+never event arrival order.
+
 Claude Code equivalent:
 
 ```text

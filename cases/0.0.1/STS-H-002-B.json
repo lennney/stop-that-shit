@@ -4,7 +4,7 @@
   "family": "H",
   "title": "Hashing added without a named consumer",
   "input": {
-    "contract": { "mode": "change", "level": "guard", "agentBudget": 0, "agentsUsed": 0, "hashPolicy": "deny" },
+    "contract": { "mode": "change", "level": "guard", "agentBudget": 9007199254740991, "hashPolicy": "deny" },
     "action": { "mutability": "write", "duplicate": false, "hashIntent": true }
   },
   "expected": { "outcome": "deny_and_explain", "family": "H", "reasonCode": "HASH_NOT_AUTHORIZED" }

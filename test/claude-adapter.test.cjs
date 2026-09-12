@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const test = require('node:test');
-const { handleClaudeHook, toControlEvent } = require('../src/adapters/claude-hooks.cjs');
+const { fromControlResult, handleClaudeHook, toControlEvent } = require('../src/adapters/claude-hooks.cjs');
 const { classifyClaudeTool, extractAffectedPaths, normalizePath } = require('../src/adapters/claude-tool-classifier.cjs');
 const { readState } = require('../src/state.cjs');
 
@@ -33,19 +33,19 @@ function expansion(session, args, commandName = 'stop-that-shit:stop-that-shit')
   };
 }
 
-function pre(session, toolName, toolInput, cwd = root) {
+function pre(session, toolName, toolInput, cwd = root, toolUseId = `${toolName}-1`) {
   return {
     session_id: session,
     hook_event_name: 'PreToolUse',
     tool_name: toolName,
-    tool_use_id: `${toolName}-1`,
+    tool_use_id: toolUseId,
     tool_input: toolInput,
     cwd,
     permission_mode: 'default'
   };
 }
 
-test('Claude Adapter maps official Hook fields to ControlEvent v1', () => {
+test('Claude Adapter maps official Hook fields to ControlEvent v2', () => {
   const event = toControlEvent(pre('map-session', 'NotebookEdit', {
     notebook_path: path.join(root, 'notebooks', 'demo.ipynb'),
     new_source: 'print(1)'
@@ -56,6 +56,239 @@ test('Claude Adapter maps official Hook fields to ControlEvent v1', () => {
   assert.equal(event.action.mutability, 'write');
   assert.deepEqual(event.action.affectedPaths, ['notebooks/demo.ipynb']);
   assert.equal(event.action.cwd, root);
+});
+
+test('Claude Adapter maps lifecycle Hook fields to ControlEvent v2', () => {
+  const after = toControlEvent({
+    session_id: 'lifecycle-session',
+    hook_event_name: 'PostToolUse',
+    tool_use_id: 'call-1',
+    tool_name: 'Agent',
+    tool_input: { prompt: 'inspect', run_in_background: false },
+    tool_response: { status: 'completed', agentId: 'agent-1' }
+  });
+  assert.equal(after.kind, 'action.after');
+  assert.deepEqual(after.action, { id: 'call-1', agentId: 'agent-1', lifecycle: 'joined' });
+
+  const start = toControlEvent({
+    session_id: 'lifecycle-session',
+    hook_event_name: 'SubagentStart',
+    agent_id: 'agent-1',
+  });
+  assert.equal(start.kind, 'subagent.start');
+  assert.equal(start.agentId, 'agent-1');
+  assert.equal(start.reservationId, undefined);
+
+  const stop = toControlEvent({
+    session_id: 'lifecycle-session',
+    hook_event_name: 'SubagentStop',
+    agent_id: 'agent-1'
+  });
+  assert.equal(stop, null);
+
+  const end = toControlEvent({
+    session_id: 'lifecycle-session',
+    hook_event_name: 'SessionEnd',
+    reason: 'other'
+  });
+  assert.equal(end.kind, 'session.end');
+  for (const hookEventName of ['PostToolUse', 'SubagentStop', 'SessionEnd']) {
+    assert.equal(fromControlResult(hookEventName, { kind: 'context', text: 'observer context' }), null);
+  }
+});
+
+test('Claude prompt hooks reject split directives and accept formal agents syntax', (t) => {
+  const options = workspace(t);
+  handleClaudeHook(prompt('invalid-directive', '$stop-that-shit change total-agents=4 -- bounded delegation'), options);
+  const output = handleClaudeHook(prompt('invalid-directive', '$stop-that-shit change agents=1 -- set concurrency'), options);
+  assert.match(output.hookSpecificOutput.additionalContext, /agents=0\/1/);
+
+  const expansionOutput = handleClaudeHook(expansion('invalid-expansion', 'agents=1'), options);
+  assert.ok(expansionOutput);
+  assert.equal(readState('invalid-expansion', options.dataDir).contract.agentBudget, 1);
+
+  assert.deepEqual(fromControlResult('UserPromptExpansion', {
+    kind: 'prompt-error',
+    message: 'invalid prompt'
+  }), { decision: 'block', reason: 'invalid prompt' });
+});
+
+test('Claude foreground completion releases while stop attempts preserve background state', (t) => {
+  const options = workspace(t);
+  handleClaudeHook(prompt('lifecycle', '$stop-that-shit change agents=4 -- delegate'), options);
+  handleClaudeHook(pre('lifecycle', 'Agent', { prompt: 'inspect', run_in_background: true }, root, 'call-1'), options);
+
+  handleClaudeHook({
+    session_id: 'lifecycle',
+    hook_event_name: 'SubagentStart',
+    agent_id: 'agent-1',
+    cwd: root
+  }, options);
+  handleClaudeHook({
+    session_id: 'lifecycle',
+    hook_event_name: 'PostToolUse',
+    tool_use_id: 'call-1',
+    tool_name: 'Agent',
+    tool_input: { prompt: 'inspect', run_in_background: true },
+    tool_response: { status: 'async_launched', agentId: 'agent-1' },
+    cwd: root
+  }, options);
+  assert.deepEqual(readState('lifecycle', options.dataDir).delegation.reservations['reservation:call-1'].agentIds, ['agent-1']);
+
+  const stopped = handleClaudeHook({
+    session_id: 'lifecycle',
+    hook_event_name: 'SubagentStop',
+    agent_id: 'agent-1',
+    cwd: root
+  }, options);
+  assert.equal(stopped, null);
+  assert.deepEqual(Object.keys(readState('lifecycle', options.dataDir).delegation.reservations), ['reservation:call-1']);
+
+  handleClaudeHook(pre('lifecycle', 'Agent', { prompt: 'inspect again', run_in_background: false }, root, 'call-2'), options);
+  const completed = handleClaudeHook({
+    session_id: 'lifecycle',
+    hook_event_name: 'PostToolUse',
+    tool_use_id: 'call-2',
+    tool_name: 'Agent',
+    tool_input: { prompt: 'inspect again', run_in_background: false },
+    tool_response: { status: 'completed', agentId: 'agent-2' },
+    cwd: root
+  }, options);
+  assert.equal(completed, null);
+  assert.deepEqual(Object.keys(readState('lifecycle', options.dataDir).delegation.reservations), ['reservation:call-1']);
+
+  handleClaudeHook(pre('lifecycle', 'Agent', { prompt: 'inspect final', run_in_background: false }, root, 'call-3'), options);
+  const ended = handleClaudeHook({
+    session_id: 'lifecycle',
+    hook_event_name: 'SessionEnd',
+    reason: 'other',
+    cwd: root
+  }, options);
+  assert.equal(ended, null);
+  assert.equal(readState('lifecycle', options.dataDir).delegation.reservations['reservation:call-3'].pendingCount, 1);
+});
+
+test('Claude keeps a reservation when a foreground Agent moves to the background', (t) => {
+  const options = workspace(t);
+  handleClaudeHook(prompt('foreground-background', '$stop-that-shit change agents=1 -- delegate'), options);
+  handleClaudeHook(pre('foreground-background', 'Agent', {
+    prompt: 'inspect',
+    run_in_background: false
+  }, root, 'call-foreground'), options);
+
+  handleClaudeHook({
+    session_id: 'foreground-background',
+    hook_event_name: 'PostToolUse',
+    tool_use_id: 'call-foreground',
+    tool_name: 'Agent',
+    tool_input: { prompt: 'inspect', run_in_background: false },
+    tool_response: { status: 'async_launched', agentId: 'agent-background' },
+    cwd: root
+  }, options);
+
+  const retained = readState('foreground-background', options.dataDir);
+  assert.equal(retained.delegation.reservations['reservation:call-foreground'].observedRunning, true);
+  assert.deepEqual(retained.delegation.reservations['reservation:call-foreground'].agentIds, ['agent-background']);
+  const denied = handleClaudeHook(pre('foreground-background', 'Agent', {
+    prompt: 'second',
+    run_in_background: true
+  }, root, 'call-second'), options);
+  assert.match(denied.hookSpecificOutput.permissionDecisionReason, /S\/AGENT_BUDGET_EXHAUSTED/);
+
+  handleClaudeHook({
+    session_id: 'foreground-background',
+    hook_event_name: 'SubagentStop',
+    agent_id: 'agent-background',
+    cwd: root
+  }, options);
+  assert.deepEqual(readState('foreground-background', options.dataDir).delegation.reservations['reservation:call-foreground'].agentIds, ['agent-background']);
+});
+
+test('Claude background stop notification does not establish final completion', (t) => {
+  const options = workspace(t);
+  handleClaudeHook(prompt('background-complete', '$stop-that-shit change agents=1 -- delegate'), options);
+  handleClaudeHook(pre('background-complete', 'Agent', {
+    prompt: 'inspect',
+    run_in_background: true
+  }, root, 'call-background'), options);
+
+  handleClaudeHook({
+    session_id: 'background-complete',
+    hook_event_name: 'SubagentStart',
+    agent_id: 'agent-background',
+    agent_type: 'Explore',
+    cwd: root
+  }, options);
+  handleClaudeHook({
+    session_id: 'background-complete',
+    hook_event_name: 'PostToolUse',
+    tool_use_id: 'call-background',
+    tool_name: 'Agent',
+    tool_input: { prompt: 'inspect', run_in_background: true },
+    tool_response: { status: 'async_launched', agentId: 'agent-background' },
+    cwd: root
+  }, options);
+  assert.deepEqual(readState('background-complete', options.dataDir).delegation.reservations['reservation:call-background'].agentIds, ['agent-background']);
+
+  handleClaudeHook({
+    session_id: 'background-complete',
+    hook_event_name: 'SubagentStop',
+    agent_id: 'agent-background',
+    agent_type: 'Explore',
+    cwd: root
+  }, options);
+  assert.deepEqual(readState('background-complete', options.dataDir).delegation.reservations['reservation:call-background'].agentIds, ['agent-background']);
+
+  const next = handleClaudeHook(pre('background-complete', 'Agent', {
+    prompt: 'inspect again',
+    run_in_background: false
+  }, root, 'call-next'), options);
+  assert.equal(next.hookSpecificOutput.permissionDecision, 'deny');
+});
+
+test('Claude foreground Agent completion releases its slot for the next call', (t) => {
+  const options = workspace(t);
+  handleClaudeHook(prompt('foreground-complete', '$stop-that-shit change agents=1 -- delegate'), options);
+  handleClaudeHook(pre('foreground-complete', 'Agent', {
+    prompt: 'inspect',
+    run_in_background: false
+  }, root, 'call-foreground'), options);
+  handleClaudeHook({
+    session_id: 'foreground-complete',
+    hook_event_name: 'PostToolUse',
+    tool_use_id: 'call-foreground',
+    tool_name: 'Agent',
+    tool_input: { prompt: 'inspect', run_in_background: false },
+    tool_response: { status: 'completed', agentId: 'agent-foreground' },
+    cwd: root
+  }, options);
+
+  assert.deepEqual(readState('foreground-complete', options.dataDir).delegation.reservations, {});
+  const next = handleClaudeHook(pre('foreground-complete', 'Agent', {
+    prompt: 'inspect again',
+    run_in_background: false
+  }, root, 'call-next'), options);
+  assert.equal(next, null);
+});
+
+test('Claude ignores PostToolUse events without a valid action identifier', () => {
+  for (const identifier of [undefined, null, '', '   ', 42]) {
+    const input = {
+      session_id: 'malformed-after',
+      hook_event_name: 'PostToolUse',
+      tool_use_id: identifier
+    };
+    assert.equal(toControlEvent(input), null);
+    assert.equal(handleClaudeHook(input), null);
+  }
+
+  const fallback = toControlEvent({
+    session_id: 'fallback-after',
+    hook_event_name: 'PostToolUse',
+    tool_use_id: 42,
+    tool_call_id: 'fallback-call'
+  });
+  assert.equal(fallback.action.id, 'fallback-call');
 });
 
 test('review contract blocks Claude Write', (t) => {
@@ -171,20 +404,20 @@ test('Monitor command sources reuse shell hash/dependency enforcement while WebS
   assert.equal(classifyClaudeTool('Monitor', { ws: { url: 'wss://example.test/events' } }), 'read');
 });
 
-test('Claude Agent uses the shared subagent budget', (t) => {
+test('Claude Agent uses the shared active agent limit', (t) => {
   const options = workspace(t);
   handleClaudeHook(prompt('agent-budget', '$stop-that-shit change agents=1 -- use one specialist'), options);
-  assert.equal(handleClaudeHook(pre('agent-budget', 'Agent', { prompt: 'inspect tests' }), options), null);
-  const denied = handleClaudeHook(pre('agent-budget', 'Agent', { prompt: 'inspect docs' }), options);
+  assert.equal(handleClaudeHook(pre('agent-budget', 'Agent', { prompt: 'inspect tests', async_launched: false }), options), null);
+  const denied = handleClaudeHook(pre('agent-budget', 'Agent', { prompt: 'inspect docs', async_launched: false }, root, 'Agent-2'), options);
   assert.match(denied.hookSpecificOutput.permissionDecisionReason, /S\/AGENT_BUDGET_EXHAUSTED/);
 });
 
-test('Claude Workflow cannot bypass agents=N with opaque internal fan-out', (t) => {
+test('Claude Workflow cannot bypass configured limits with opaque internal fan-out', (t) => {
   const options = workspace(t);
   handleClaudeHook(prompt('workflow-budget', '$stop-that-shit change agents=8 -- bounded delegation only'), options);
   const denied = handleClaudeHook(pre('workflow-budget', 'Workflow', { workflow: 'parallel-review' }), options);
   assert.match(denied.hookSpecificOutput.permissionDecisionReason, /S\/UNBOUNDED_DELEGATION/);
-  assert.equal(readState('workflow-budget', options.dataDir).contract.agentsUsed, 0);
+  assert.deepEqual(readState('workflow-budget', options.dataDir).delegation.reservations, {});
 });
 
 test('newer Claude built-ins classify without weakening read-only and worktree boundaries', () => {
@@ -245,13 +478,16 @@ test('parallel Claude Agent hook processes cannot oversubscribe agents=1', (t) =
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   handleClaudeHook(prompt('parallel-agent', '$stop-that-shit change agents=1 -- one subagent'), { dataDir });
   const entrypoint = path.join(root, 'hooks', 'stop-that-shit-claude.cjs');
-  const payload = JSON.stringify(pre('parallel-agent', 'Agent', { prompt: 'inspect' }));
-  const children = [0, 1].map(() => require('node:child_process').spawn(process.execPath, [entrypoint], {
+  const payloads = [
+    JSON.stringify(pre('parallel-agent', 'Agent', { prompt: 'inspect', async_launched: false }, root, 'Agent-1')),
+    JSON.stringify(pre('parallel-agent', 'Agent', { prompt: 'inspect', async_launched: false }, root, 'Agent-2'))
+  ];
+  const children = payloads.map((payload) => require('node:child_process').spawn(process.execPath, [entrypoint], {
     cwd: root,
     env: { ...process.env, CLAUDE_PLUGIN_ROOT: root, CLAUDE_PLUGIN_DATA: dataDir },
     stdio: ['pipe', 'pipe', 'pipe']
   }));
-  for (const child of children) child.stdin.end(payload);
+  children.forEach((child, index) => child.stdin.end(payloads[index]));
   return Promise.all(children.map((child) => new Promise((resolve, reject) => {
     let stdout = ''; let stderr = '';
     child.stdout.on('data', (chunk) => { stdout += chunk; });
@@ -265,6 +501,6 @@ test('parallel Claude Agent hook processes cannot oversubscribe agents=1', (t) =
     const allowed = parsed.filter((value) => value === null);
     assert.equal(denied.length, 1);
     assert.equal(allowed.length, 1);
-    assert.equal(readState('parallel-agent', dataDir).contract.agentsUsed, 1);
+    assert.equal(Object.keys(readState('parallel-agent', dataDir).delegation.reservations).length, 1);
   });
 });

@@ -42,10 +42,10 @@ function input(text, extra = {}) {
   return { type: 'input', text, source: 'interactive', ...extra };
 }
 
-test('Pi Extension registers only the input, context, pre-tool, and watch-result surface', () => {
+test('Pi Extension registers the documented tool and session lifecycle surface', () => {
   const pi = fakePi();
   registerPiExtension(pi, { dataDir: '/unused' });
-  assert.deepEqual([...pi.handlers.keys()], ['input', 'before_agent_start', 'tool_call', 'tool_result']);
+  assert.deepEqual([...pi.handlers.keys()], ['input', 'before_agent_start', 'tool_call', 'tool_result', 'session_shutdown']);
 });
 
 test('interactive input arms review, injects context, and blocks a write without terminate', (t) => {
@@ -126,6 +126,89 @@ test('watch-only tool context is appended after the tool result', (t) => {
   }, ctx);
   assert.equal(result.content.length, 2);
   assert.match(result.content[1].text, /WATCH \/ INTENT/);
+});
+
+test('watch context follows toolCallId across tool result contexts', (t) => {
+  const dataDir = workspace(t);
+  const pi = fakePi();
+  const callContext = fakeContext('watch-call-session');
+  const resultContext = fakeContext('watch-result-session');
+  registerPiExtension(pi, { dataDir });
+  pi.handlers.get('input')(input('$stop-that-shit watch review -- inspect'), callContext);
+
+  pi.handlers.get('tool_call')({
+    type: 'tool_call', toolCallId: 'shared-tool-id', toolName: 'write', input: { path: '/repo/out.txt', content: 'x' }
+  }, callContext);
+  const result = pi.handlers.get('tool_result')({
+    type: 'tool_result', toolCallId: 'shared-tool-id', toolName: 'write', input: {},
+    content: [{ type: 'text', text: 'written' }], isError: false
+  }, resultContext);
+
+  assert.equal(result.content.length, 2);
+  assert.match(result.content[1].text, /WATCH \/ INTENT/);
+});
+
+test('delegation reservation is released on tool_result', (t) => {
+  const dataDir = workspace(t);
+  const pi = fakePi();
+  const ctx = fakeContext('delegation-session');
+  registerPiExtension(pi, { dataDir });
+  pi.handlers.get('input')(input('$stop-that-shit change agents=1 -- delegate'), ctx);
+
+  const delegation = (toolCallId, task) => ({
+    type: 'tool_call',
+    toolCallId,
+    toolName: 'subagent',
+    input: { agent: 'scout', task }
+  });
+  assert.equal(pi.handlers.get('tool_call')(delegation('subagent-1', 'inspect'), ctx), undefined);
+  pi.handlers.get('tool_result')({
+    type: 'tool_result', toolCallId: 'subagent-1', toolName: 'subagent', input: {},
+    content: [], isError: false, details: { mode: 'single', results: [] }
+  }, ctx);
+
+  assert.equal(pi.handlers.get('tool_call')(delegation('subagent-2', 'inspect again'), ctx), undefined);
+});
+
+test('Pi session shutdown alone cannot prove custom children stopped', (t) => {
+  const dataDir = workspace(t);
+  const pi = fakePi();
+  const ctx = fakeContext('shutdown-session');
+  registerPiExtension(pi, { dataDir });
+  pi.handlers.get('input')(input('$stop-that-shit change agents=1 -- delegate'), ctx);
+  pi.handlers.get('tool_call')({
+    type: 'tool_call', toolCallId: 'subagent-1', toolName: 'subagent',
+    input: { agent: 'scout', task: 'inspect', async_launched: true }
+  }, ctx);
+  pi.handlers.get('session_shutdown')({ type: 'session_shutdown', reason: 'quit' }, ctx);
+  const state = readState('shutdown-session', dataDir);
+  assert.equal(Object.keys(state.delegation.reservations).length, 1);
+  assert.equal(pi.handlers.get('tool_call')({ type: 'tool_call', toolCallId: 'subagent-2', toolName: 'subagent',
+    input: { agent: 'scout', task: 'inspect again' } }, ctx).block, true);
+});
+
+test('Pi ignores tool_result events without toolCallId without reporting an adapter failure', (t) => {
+  const dataDir = workspace(t);
+  const pi = fakePi();
+  const ctx = fakeContext('malformed-result-session');
+  registerPiExtension(pi, { dataDir });
+  pi.handlers.get('input')(input('$stop-that-shit change agents=1 -- delegate'), ctx);
+  pi.handlers.get('tool_call')({
+    type: 'tool_call',
+    toolCallId: 'subagent-1',
+    toolName: 'subagent',
+    input: { agent: 'scout', task: 'inspect' }
+  }, ctx);
+
+  assert.doesNotThrow(() => pi.handlers.get('tool_result')({
+    type: 'tool_result',
+    toolName: 'subagent',
+    input: {},
+    content: [],
+    isError: false
+  }, ctx));
+  assert.deepEqual(ctx.notifications, []);
+  assert.equal(readState('malformed-result-session', dataDir).delegation.reservations['reservation:subagent-1'].pendingCount, 1);
 });
 
 test('adapter operational errors fail open while policy denials still block', (t) => {

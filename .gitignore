@@ -1,3 +1,5 @@
+AGENTS.md
+.codex/*
 dist/
 evals/codex-paired/runs/
 node_modules/

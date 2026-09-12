@@ -4,7 +4,7 @@
   "family": "S",
   "title": "Unapproved adjacent refactor",
   "input": {
-    "contract": { "mode": "change", "level": "guard", "agentBudget": 0, "agentsUsed": 0 },
+    "contract": { "mode": "change", "level": "guard", "agentBudget": 9007199254740991 },
     "action": { "mutability": "write", "duplicate": false, "authorization": "unapproved_expansion" }
   },
   "expected": { "outcome": "require_user_approval", "family": "S", "reasonCode": "UNAPPROVED_SCOPE_EXPANSION" }

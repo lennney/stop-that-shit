@@ -124,7 +124,7 @@ test('hermes:check is invariant to CRLF checkout conversion', (t) => {
   assert.match(result.stdout, /unchanged|up to date|deterministic/i);
 });
 
-test('native plugin registers pre_llm_call and pre_tool_call callbacks', () => {
+test('native plugin registers all planned Hermes lifecycle callbacks', () => {
   const script = path.join(os.tmpdir(), `sts-plugin-register-${process.pid}.py`);
   fs.writeFileSync(script, `
 import importlib.util, os
@@ -134,7 +134,7 @@ class Ctx:
     def __init__(self): self.hooks = {}
     def register_hook(self, name, callback): self.hooks[name] = callback
 ctx = Ctx(); mod.register(ctx)
-assert set(ctx.hooks) == {'pre_llm_call', 'pre_tool_call'}
+assert set(ctx.hooks) == {'pre_llm_call', 'pre_tool_call', 'post_tool_call', 'subagent_start', 'subagent_stop', 'on_session_end'}
 print('registered')
 `);
   const result = spawnSync(pythonCommand, [script], { encoding: 'utf8', env: pythonPluginEnv() });
@@ -178,6 +178,10 @@ blocked = ctx.hooks['pre_tool_call'](tool_name='write_file', args={'path': 'bloc
 assert blocked['action'] == 'block'
 allowed = ctx.hooks['pre_tool_call'](tool_name='read_file', args={'path': 'README.md'}, session_id='native-session', task_id='tool-task')
 assert allowed is None
+assert ctx.hooks['post_tool_call'](tool_name='read_file', args={'path': 'README.md'}, result='ok', session_id='native-session', tool_call_id='read-call', task_id='tool-task') is None
+assert ctx.hooks['subagent_start'](parent_session_id='native-session', child_session_id='child-session', child_subagent_id='child-agent', task_id='child-task') is None
+assert ctx.hooks['subagent_stop'](parent_session_id='native-session', child_session_id='child-session', child_status='completed', task_id='child-task') is None
+assert ctx.hooks['on_session_end'](session_id='native-session', completed=True, interrupted=False) is None
 print('behavior-ok')
 `);
   const result = spawnSync(pythonCommand, [script], {

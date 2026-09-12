@@ -69,12 +69,88 @@ def _tool(**kwargs: Any) -> dict[str, Any] | None:
             "tool_call_id": kwargs.get("tool_call_id"),
             "turn_id": kwargs.get("turn_id"),
             "user_message": kwargs.get("user_message", ""),
+            "async_launched": kwargs.get("async_launched", kwargs.get("asyncLaunched")),
+            "run_in_background": kwargs.get("run_in_background", kwargs.get("runInBackground")),
         },
     })
     return result if result and result.get("action") == "block" else None
 
 
+def _post_tool(**kwargs: Any) -> None:
+    _invoke({
+        "hook_event_name": "post_tool_call",
+        "session_id": kwargs.get("session_id", ""),
+        "tool_call_id": kwargs.get("tool_call_id"),
+        "tool_name": kwargs.get("tool_name"),
+        "tool_input": kwargs.get("args") or {},
+        "cwd": kwargs.get("cwd"),
+        "extra": {
+            "tool_call_id": kwargs.get("tool_call_id"),
+            "turn_id": kwargs.get("turn_id"),
+            "task_id": kwargs.get("task_id"),
+            "result": kwargs.get("result"),
+            "duration_ms": kwargs.get("duration_ms"),
+            "status": kwargs.get("status"),
+            "error_type": kwargs.get("error_type"),
+            "error_message": kwargs.get("error_message"),
+            "async_launched": kwargs.get("async_launched", kwargs.get("asyncLaunched")),
+            "run_in_background": kwargs.get("run_in_background", kwargs.get("runInBackground")),
+        },
+    })
+
+
+def _subagent_start(**kwargs: Any) -> None:
+    _invoke({
+        "hook_event_name": "subagent_start",
+        "session_id": kwargs.get("parent_session_id") or kwargs.get("session_id", ""),
+        "extra": {
+            "parent_session_id": kwargs.get("parent_session_id"),
+            "parent_turn_id": kwargs.get("parent_turn_id"),
+            "parent_subagent_id": kwargs.get("parent_subagent_id"),
+            "child_session_id": kwargs.get("child_session_id"),
+            "child_subagent_id": kwargs.get("child_subagent_id"),
+            "child_role": kwargs.get("child_role"),
+            "child_goal": kwargs.get("child_goal"),
+            "reservation_id": kwargs.get("reservation_id"),
+        },
+    })
+
+
+def _subagent_stop(**kwargs: Any) -> None:
+    _invoke({
+        "hook_event_name": "subagent_stop",
+        "session_id": kwargs.get("parent_session_id") or kwargs.get("session_id", ""),
+        "extra": {
+            "parent_session_id": kwargs.get("parent_session_id"),
+            "parent_turn_id": kwargs.get("parent_turn_id"),
+            "child_session_id": kwargs.get("child_session_id"),
+            "child_subagent_id": kwargs.get("child_subagent_id"),
+            "child_role": kwargs.get("child_role"),
+            "child_summary": kwargs.get("child_summary"),
+            "child_status": kwargs.get("child_status"),
+            "duration_ms": kwargs.get("duration_ms"),
+        },
+    })
+
+
+def _session_end(**kwargs: Any) -> None:
+    _invoke({
+        "hook_event_name": "on_session_end",
+        "session_id": kwargs.get("session_id", ""),
+        "extra": {
+            "completed": kwargs.get("completed"),
+            "interrupted": kwargs.get("interrupted"),
+            "model": kwargs.get("model"),
+            "platform": kwargs.get("platform"),
+        },
+    })
+
+
 def register(ctx) -> None:
-    """Register the two behavior-affecting Hermes lifecycle hooks."""
+    """Register the Hermes policy and lifecycle hooks."""
     ctx.register_hook("pre_llm_call", _prompt)
     ctx.register_hook("pre_tool_call", _tool)
+    ctx.register_hook("post_tool_call", _post_tool)
+    ctx.register_hook("subagent_start", _subagent_start)
+    ctx.register_hook("subagent_stop", _subagent_stop)
+    ctx.register_hook("on_session_end", _session_end)

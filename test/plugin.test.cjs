@@ -18,7 +18,9 @@ test('Codex plugin manifest discovers both Skills and preserves its hook paths',
   assert.ok(fs.existsSync(path.join(root, 'skills', 'stop-that-shit', 'SKILL.md')));
   assert.ok(fs.existsSync(path.join(root, 'skills', 'stss', 'SKILL.md')));
   assert.ok(manifest.interface.defaultPrompt.some((prompt) => prompt.startsWith('$stss rewrite --')));
-  assert.deepEqual(Object.keys(hooks.hooks).sort(), ['PreToolUse', 'UserPromptSubmit']);
+  assert.deepEqual(Object.keys(hooks.hooks).sort(), [
+    'PostToolUse', 'PreToolUse', 'SessionEnd', 'SubagentStart', 'SubagentStop', 'UserPromptSubmit'
+  ]);
 });
 
 test('Codex presentation metadata uses valid local assets', () => {

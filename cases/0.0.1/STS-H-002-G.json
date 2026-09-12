@@ -4,7 +4,7 @@
   "family": "H",
   "title": "Release checksum explicitly authorized",
   "input": {
-    "contract": { "mode": "change", "level": "guard", "agentBudget": 0, "agentsUsed": 0, "hashPolicy": "allow" },
+    "contract": { "mode": "change", "level": "guard", "agentBudget": 9007199254740991, "hashPolicy": "allow" },
     "action": {
       "mutability": "write",
       "duplicate": false,

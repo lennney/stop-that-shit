@@ -4,7 +4,7 @@
   "family": "S",
   "title": "Necessary delegation cannot use unbounded workflow fan-out",
   "input": {
-    "contract": { "mode": "change", "level": "guard", "agentBudget": 1, "agentsUsed": 0 },
+    "contract": { "mode": "change", "level": "guard", "agentBudget": 1 },
     "action": { "mutability": "delegate", "duplicate": false, "authorization": "necessary_consequence", "unboundedDelegation": true }
   },
   "expected": { "outcome": "deny_and_explain", "family": "S", "reasonCode": "UNBOUNDED_DELEGATION" }

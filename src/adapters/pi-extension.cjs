@@ -3,6 +3,8 @@
 const {
   handlePiPrompt,
   handlePiTool,
+  handlePiToolAfter,
+  handlePiSessionEnd,
   isPiControlInput
 } = require('./pi-hooks.cjs');
 
@@ -28,8 +30,8 @@ function registerPiExtension(pi, options = {}) {
     }
   }
 
-  function toolContextKey(event, ctx) {
-    return `${ctx.sessionManager.getSessionId()}:${event.toolCallId}`;
+  function toolContextKey(event) {
+    return event && event.toolCallId ? String(event.toolCallId) : null;
   }
 
   pi.on('input', (event, ctx) => {
@@ -80,10 +82,12 @@ function registerPiExtension(pi, options = {}) {
         return { block: true, reason: result.message };
       }
       if (result.kind === 'context') {
+        const key = toolContextKey(event);
+        if (!key) return;
         if (pendingToolContext.size >= MAX_PENDING_TOOL_CONTEXTS) {
           pendingToolContext.delete(pendingToolContext.keys().next().value);
         }
-        pendingToolContext.set(toolContextKey(event, ctx), result.text);
+        pendingToolContext.set(key, result.text);
       }
     } catch {
       notify(ctx, 'Stop That Shit failed open while checking a tool call.');
@@ -92,9 +96,12 @@ function registerPiExtension(pi, options = {}) {
 
   pi.on('tool_result', (event, ctx) => {
     try {
-      const key = toolContextKey(event, ctx);
-      const text = pendingToolContext.get(key);
-      pendingToolContext.delete(key);
+      if (typeof event?.toolCallId === 'string' && event.toolCallId.trim()) {
+        handlePiToolAfter(event, sessionContext(ctx), options);
+      }
+      const key = toolContextKey(event);
+      const text = key ? pendingToolContext.get(key) : null;
+      if (key) pendingToolContext.delete(key);
       if (!text) return;
       return {
         content: [
@@ -104,6 +111,14 @@ function registerPiExtension(pi, options = {}) {
       };
     } catch {
       notify(ctx, 'Stop That Shit failed open while returning watch context.');
+    }
+  });
+
+  pi.on('session_shutdown', (event, ctx) => {
+    try {
+      handlePiSessionEnd(event, sessionContext(ctx), options);
+    } catch {
+      notify(ctx, 'Stop That Shit failed open while closing the session.');
     }
   });
 }

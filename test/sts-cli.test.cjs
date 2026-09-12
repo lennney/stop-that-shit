@@ -113,7 +113,7 @@ test('doctor, runtime, explain, and label expose the local evidence chain', (t) 
     sessionId: 'session-secret',
     controlState: 'armed',
     action: { name: 'apply_patch', mutability: 'write', affectedPaths: ['secret.txt'] },
-    contract: { mode: 'review', level: 'guard', agentBudget: 0, agentsUsed: 0, hashPolicy: 'deny', dependencyPolicy: 'ask', allowedPaths: [] },
+    contract: { mode: 'review', level: 'guard', agentBudget: Number.MAX_SAFE_INTEGER, hashPolicy: 'deny', dependencyPolicy: 'ask', allowedPaths: [] },
     decision: { outcome: 'deny_and_explain', family: 'I', reasonCode: 'MODE_FORBIDS_MUTATION' },
     responseOutcome: 'permission_deny_returned'
   }, { dataDir });

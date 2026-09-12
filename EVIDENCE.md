@@ -29,7 +29,8 @@ tests, and shared policy tests:
 - Claude review-mode denial, namespaced slash-command arming, POSIX/Windows path
   normalization and Windows case matching, `NotebookEdit`, `PowerShell`, `Monitor`,
   `EnterWorktree`, and `Workflow` fan-out handling have dedicated regressions;
-- two independent Claude Hook processes cannot oversubscribe `agents=1`;
+- two independent Claude Hook processes cannot oversubscribe a configured
+  `agents=1` reservation;
 - all checked-in `.cjs` files pass `node --check`, all JSON files parse, and the
   release allowlist passes with 188 files;
 - the generated CaseBundle validator matches the checked-in schema, including

@@ -5,12 +5,16 @@ import path from 'node:path';
 const require = createRequire(import.meta.url);
 const {
   handleOpenCodeMessage,
+  handleOpenCodeSessionEnd,
   handleOpenCodeTool,
-  promptText
+  handleOpenCodeToolAfter,
+  promptText,
+  toSubagentStartEvent,
+  toSubagentStopEvent
 } = require('../src/adapters/opencode-hooks.cjs');
-const { contractContext } = require('../src/controller.cjs');
+const { contractContext, handleControlEvent } = require('../src/controller.cjs');
 const { parseContractPrompt } = require('../src/contracts.cjs');
-const { readState, writeState } = require('../src/state.cjs');
+const { readState, updateSession } = require('../src/state.cjs');
 
 const CONTEXT_PREFIX = 'Stop That Shit context:';
 const MAX_PROCESSED_MESSAGES = 1024;
@@ -69,11 +73,41 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
     roots.set(info.id, root);
   }
 
+  function isRootSession(info) {
+    if (!info || !info.id) return false;
+    const root = roots.get(info.id);
+    return root === info.id || (!root && !info.parentID);
+  }
+
+  function isCompletedSession(info) {
+    const status = info && info.status;
+    const value = typeof status === 'string' ? status : status && (status.type || status.status);
+    return ['completed', 'complete', 'failed', 'error', 'cancelled', 'canceled', 'stopped'].includes(String(value || '').toLowerCase());
+  }
+
+  async function handleChildLifecycle(info, kind) {
+    const childID = info && (info.id || info.sessionID);
+    if (!childID) return;
+    let root = roots.get(childID) || (info.parentID && roots.get(info.parentID));
+    if (!root) {
+      const resolved = await resolveRoot(childID, 'child completion');
+      if (!resolved.certain) return;
+      root = resolved.sessionID;
+    }
+    if (!root || root === childID) return;
+    const event = kind === 'start'
+      ? toSubagentStartEvent({ ...info, id: childID, sessionID: root }, { controlSessionID: root })
+      : toSubagentStopEvent({ ...info, id: childID, sessionID: root }, { controlSessionID: root });
+    if (!event || (kind === 'start' && !event.reservationId)) return;
+    handleControlEvent(event, { dataDir });
+  }
+
   function forgetSession(info) {
     if (!info || !info.id) return;
-    roots.delete(info.id);
-    for (const [id, root] of roots) {
-      if (root === info.id) roots.delete(id);
+    if (isRootSession(info)) {
+      for (const [id, root] of roots) {
+        if (id === info.id || root === info.id) roots.delete(id);
+      }
     }
     pending.delete(info.id);
     lastInjected.delete(info.id);
@@ -200,13 +234,14 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
   // edit-capable agent while the contract is review, advance the contract to
   // change so the host's build mode and the guard no longer deadlock.
   async function advanceReviewOnEditableAgent(controlSessionID, info) {
-    const state = readState(controlSessionID, dataDir);
-    if (state.contract.mode !== 'review') return false;
+    if (readState(controlSessionID, dataDir).contract.mode !== 'review') return false;
     const agentName = info && info.agent;
     if (!agentName || !(await agentAllowsEdits(agentName))) return false;
-    state.contract = { ...state.contract, mode: 'change', source: 'host' };
-    writeState(controlSessionID, state, dataDir);
-    return true;
+    return updateSession(controlSessionID, dataDir, (state) => {
+      if (state.contract.mode !== 'review') return false;
+      state.contract = { ...state.contract, mode: 'change', source: 'host' };
+      return true;
+    });
   }
 
   async function processUserText(sessionID, info, text) {
@@ -227,7 +262,8 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
         result = null;
       }
     }
-    const active = contractContext(readState(controlSessionID, dataDir).contract);
+    const state = readState(controlSessionID, dataDir);
+    const active = contractContext(state.contract, state.delegation);
     const contextText = result && result.kind === 'context' ? result.text : active;
     await injectContext(controlSessionID, info, contextText);
   }
@@ -253,7 +289,27 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
       const type = event && event.type;
       if (type === 'session.created' || type === 'session.updated') {
         rememberSession(properties.info);
+        if (type === 'session.created') await handleChildLifecycle(properties.info, 'start');
+        if (type === 'session.updated' && isCompletedSession(properties.info)) {
+          await handleChildLifecycle(properties.info, 'stop');
+        }
+      } else if (type === 'session.idle') {
+        await handleChildLifecycle({ sessionID: properties.sessionID }, 'stop');
+      } else if (type === 'session.status' && properties.status && properties.status.type === 'idle') {
+        await handleChildLifecycle({ sessionID: properties.sessionID }, 'stop');
       } else if (type === 'session.deleted') {
+        if (isRootSession(properties.info)) {
+          const sessionID = roots.get(properties.info && properties.info.id) || properties.info.id;
+          try {
+            handleOpenCodeSessionEnd(
+              { sessionID },
+              { controlSessionID: sessionID, directory },
+              { dataDir }
+            );
+          } catch (error) {
+            await logFailure('session end', error);
+          }
+        }
         forgetSession(properties.info);
       } else if (type === 'message.part.updated') {
         await handlePartUpdated(properties.part);
@@ -278,6 +334,19 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
     },
 
     'tool.execute.after': async (input, output) => {
+      if (input && input.sessionID && (input.callID || input.callId)) {
+        const resolved = await resolveRoot(input.sessionID, 'session resolution');
+        try {
+          handleOpenCodeToolAfter(
+            input,
+            output,
+            { controlSessionID: resolved.sessionID, directory },
+            { dataDir }
+          );
+        } catch (error) {
+          await logFailure('tool.execute.after', error);
+        }
+      }
       const key = `${input.sessionID}:${input.callID}`;
       const pendingEntry = pendingContext.get(key);
       pendingContext.delete(key);

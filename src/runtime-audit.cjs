@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const packageJson = require('../package.json');
 const { PROTOCOL_VERSION } = require('./control-protocol.cjs');
+const { inspectDelegation } = require('./delegation-state.cjs');
 const { readAnnotations } = require('./runtime-annotations.cjs');
 const { appendJsonl, readJsonl, runtimeRoot } = require('./runtime-storage.cjs');
 const { sessionKey } = require('./state.cjs');
@@ -20,6 +21,7 @@ function eventPath(sessionId, options) {
 
 function recordDecision(facts, options = {}) {
   const contract = facts && facts.contract || {};
+  const delegation = facts && facts.delegation || {};
   const state = controlState(contract);
   if (state === 'off') return null;
 
@@ -47,8 +49,9 @@ function recordDecision(facts, options = {}) {
     contract: {
       mode: String(contract.mode || 'unconfirmed'),
       level: String(contract.level || 'watch'),
-      agentBudget: Number.isInteger(contract.agentBudget) ? contract.agentBudget : 0,
-      agentsUsed: Number.isInteger(contract.agentsUsed) ? contract.agentsUsed : 0,
+      agentBudget: Number.isSafeInteger(contract.agentBudget) ? contract.agentBudget : Number.MAX_SAFE_INTEGER,
+      reservedUpperBound: inspectDelegation(delegation).reservedUpperBound,
+      countUnproven: inspectDelegation(delegation).unresolvedReasons.length > 0,
       hashPolicy: String(contract.hashPolicy || 'deny'),
       dependencyPolicy: String(contract.dependencyPolicy || 'ask'),
       allowedPathCount: Array.isArray(contract.allowedPaths) ? contract.allowedPaths.length : 0
