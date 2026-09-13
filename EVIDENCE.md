@@ -11,12 +11,48 @@ actions, context responses, and permission denies. It records host effect as
 `unobserved`; a returned permission deny is not evidence that the host skipped
 the action.
 
-Version: 0.2.1 Scoped Guard false-allow fixes
-Release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.1
-Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.0
-Last updated: 2026-09-03
+Version: 0.2.2 Authorization, lifecycle, and Skill updates (release candidate)
+Release target (not yet published): https://github.com/lennney/stop-that-shit/releases/tag/0.2.2
+Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.1
+Last updated: 2026-09-14
 
-This tree is validated with deterministic Hook-schema simulations, real
+## 0.2.2 candidate
+
+This candidate includes the merged lifecycle and Skill updates, plus the
+directive-entry fix. It has not been tagged or published. No new live Codex
+installation or paid-model comparison has been run for this candidate. Earlier
+host results below remain historical evidence, not current install acceptance.
+Host effect remains `unobserved`.
+
+Local checks on Windows with Node.js 24.14.1:
+
+- `npm test`: 379 passed, zero failed; one optional installed OpenCode smoke
+  was skipped because its host probe was unavailable (380 tests total);
+- `npm run eval`: all 18 executable Bad/Good policy case arms passed;
+- `npm run release:check`: passed for version 0.2.2 and 197 allowlisted files;
+- `npm run hermes:check`: the rebuilt runtime matched the shared source;
+- the shared Skill validator and `git diff --check` passed.
+- all 93 relative links and heading references across 14 release documents
+  resolved locally. Release and package tests check all README language files
+  and the legacy Chinese entry.
+
+The new regressions cover direct versus quoted authorization, newline and
+multipart boundaries, conflicting fields, Claude slash normalization,
+OpenCode implicit promotion, and quoted runtime labels. Existing direct change
+and required-checksum paths still return allow. These are deterministic
+parser and adapter results, not proof of real-host prevention or model benefit.
+
+The lockfile updates Ajv's development dependency `fast-uri` from 3.1.5 to
+3.1.6, the patched version identified in the
+[upstream advisory](https://github.com/advisories/GHSA-5jgf-p345-68v8).
+Ajv and the other dependency versions are unchanged. After a clean install,
+`npm audit` reports zero vulnerabilities, including development dependencies;
+`npm audit --omit=dev` also reports zero vulnerabilities.
+
+## Previous 0.2.1 validation
+
+The following report was recorded for 0.2.1 on 2026-09-03.
+That tree was validated with deterministic Hook-schema simulations, real
 child-process stdin/stdout entrypoint tests, cross-platform path regression
 tests, and shared policy tests:
 
@@ -95,11 +131,12 @@ Verified locally:
   policy case arms, the 101-file release allowlist, and an installed-cache Hook
   smoke before publication.
 
-The current runtime stores active contract state plus metadata-only decision
-events and independent annotations. It does not store prompts, tool inputs,
+At that preview revision, the runtime stored active contract state plus
+metadata-only decision events and independent annotations. It did not store
+prompts, tool inputs,
 commands, path text, code, diffs, outputs, model responses, or raw session IDs.
-It registers two Hook events: `UserPromptSubmit` and `PreToolUse`. It no longer
-performs action fingerprinting, compaction checkpointing, automatic scope
+It registered two Hook events: `UserPromptSubmit` and `PreToolUse`. It no longer
+performed action fingerprinting, compaction checkpointing, automatic scope
 discovery, or semantic compatibility/new-file guessing.
 
 ## Exact two-Hook candidate smoke
@@ -270,15 +307,14 @@ leading synthetic fixtures.
 Do not claim that Stop That Shit solves overengineering across coding agents or
 publish an improvement percentage from unit tests or this single scenario.
 
-The defensible 0.2.1 claim is:
+The defensible 0.2.2 claim is:
 
 > In Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi, Stop That Shit provides
 > a short on-demand decision ladder and enforces a few explicit task-authority
 > rules on covered host action paths. Stop That Shit Slop adds an optional,
 > standalone Skill for reducing defensive wording when a sentence has no decision
 > consumer, with twelve fixed offline responses used for regression acceptance.
-> Hermes 0.2.1 coverage is limited to the
-> native Plugin callbacks `pre_llm_call` and `pre_tool_call`; Gateway support
+> Hermes coverage is limited to its native Plugin callbacks; Gateway support
 > refers to the restart lifecycle after plugin changes, not coverage of every
 > Hermes surface. It may reduce some forms of execution drift, but it does not
 > guarantee an effect on stochastic model behavior.

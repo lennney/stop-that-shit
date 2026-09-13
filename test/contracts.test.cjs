@@ -134,3 +134,77 @@ test('off remains off before a mode is confirmed', () => {
   const result = parseContractPrompt('$stop-that-shit off');
   assert.equal(result.contract.level, 'off');
 });
+
+test('quoted, embedded, and code examples do not update the contract', () => {
+  const command = '$stop-that-shit off change agents=9 hash=allow deps=allow files=** -- example';
+  const examples = [
+    `请解释这段示例：${command}，不执行`,
+    `Explain this example: ${command}`,
+    `"${command}"`,
+    `'${command}'`,
+    `\`${command}\``,
+    `> ${command}`,
+    `- ${command}`,
+    `\`\`\`text\n${command}\n\`\`\``,
+    `~~~text\n${command}\n~~~`,
+    `    ${command}`,
+    `\t${command}`,
+    `Example:\n${command}`,
+    command.replace('$stop-that-shit', '$stop-that-shit-example')
+  ];
+  for (const previous of [defaultContract(), {
+    ...defaultContract(), mode: 'review', level: 'lock', agentBudget: 0,
+    allowedPaths: ['src/config.cjs']
+  }]) {
+    for (const prompt of examples) {
+      const result = parseContractPrompt(prompt, previous);
+      assert.deepEqual(result.contract, previous, prompt);
+      assert.equal(result.directive, false, prompt);
+      assert.equal(result.changed, false, prompt);
+      assert.equal(result.error, null, prompt);
+    }
+  }
+});
+
+test('a direct directive still updates authority after blank lines and light indentation', () => {
+  const previous = { ...defaultContract(), mode: 'review', level: 'guard' };
+  for (const prefix of ['', '\n', '\r\n\r\n', '  ']) {
+    const result = parseContractPrompt(`${prefix}$stop-that-shit change hash=allow -- add the required checksum`, previous);
+    assert.equal(result.contract.mode, 'change');
+    assert.equal(result.contract.hashPolicy, 'allow');
+    assert.equal(result.error, null);
+  }
+});
+
+test('directive fields cannot spill into the next line or task body', () => {
+  const previous = { ...defaultContract(), mode: 'review', level: 'guard' };
+  for (const separator of ['\n', '\r\n', ' -- ', ': ']) {
+    const result = parseContractPrompt(`$stop-that-shit${separator}change hash=allow`, previous);
+    assert.equal(result.contract.mode, 'review');
+    assert.equal(result.contract.hashPolicy, 'deny');
+    assert.equal(result.changed, false);
+  }
+  const result = parseContractPrompt('$stop-that-shit review\n$stop-that-shit off change hash=allow', previous);
+  assert.equal(result.contract.mode, 'review');
+  assert.equal(result.contract.level, 'guard');
+  assert.equal(result.contract.hashPolicy, 'deny');
+});
+
+test('ambiguous directive heads fail atomically rather than selecting permissive tokens', () => {
+  const previous = { ...defaultContract(), mode: 'review', level: 'lock', agentBudget: 0 };
+  for (const head of [
+    'example change hash=allow', 'change review', 'review change',
+    'lock off change', 'change agents=0 agents=3',
+    'change hash=deny hash=allow', 'change deps=ask deps=allow',
+    'change files=src/** files=**', 'change hash=alow'
+  ]) {
+    const result = parseContractPrompt(`$stop-that-shit ${head} -- example`, previous);
+    assert.ok(result.error, head);
+    assert.deepEqual(result.contract, previous, head);
+    assert.equal(result.changed, false, head);
+  }
+  const good = parseContractPrompt('$stop-that-shit change change hash=allow HASH=ALLOW -- required checksum', previous);
+  assert.equal(good.error, null);
+  assert.equal(good.contract.mode, 'change');
+  assert.equal(good.contract.hashPolicy, 'allow');
+});

@@ -156,7 +156,7 @@ Live evaluation requires:
 - an external workspace root with no applicable `AGENTS.md` or
   `AGENTS.override.md` in its ancestor chain;
 - Stop That Shit installed there from the exact revision under test;
-- its two Hooks reviewed and trusted in the CLI TUI;
+- its packaged Hooks reviewed and trusted in the CLI TUI;
 - no other enabled plugin, global `AGENTS.md`, or instruction that applies the
   same rules to every arm.
 
@@ -173,7 +173,8 @@ codex plugin add stop-that-shit@stop-that-shit
 codex
 ```
 
-In that CLI TUI, use `/hooks` to inspect and trust the two handlers. Exit it,
+In that CLI TUI, use `/hooks` to inspect and trust the handlers listed in
+[`hooks/codex-hooks.json`](../../hooks/codex-hooks.json). Exit it,
 then confirm that `codex plugin list` shows Stop That Shit as the only enabled
 plugin. The runner refuses a profile with another enabled plugin. When the
 selected matrix includes the plugin arm, preflight also requires a matching

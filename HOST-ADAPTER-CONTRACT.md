@@ -60,11 +60,18 @@ The normalized event is versioned as `ControlEvent v2`:
 
 ## Codex mapping
 
+The shared parser accepts one directive at the start of the first non-empty
+line, outside quotes and code blocks. It does not scan later text for authority.
+Fields stay on that line before `--` or `: `. Unknown fields and conflicting
+values leave the previous contract unchanged and report an error. Runtime
+queries and labels use the same entry boundary.
+
 The Codex adapter binds `spawn_agent` results `{agent_id, nickname}` to the
 originating call. JSON objects and serialized JSON results are accepted.
 `wait_agent` releases only requested UUID targets reported as completed or shut
 down. Path aliases, errored statuses, and `close_agent.previous_status` do not
-prove terminal execution. `SubagentStop` is a stop attempt in the child's
+prove terminal execution. Both `SubagentStart` and `SubagentStop` are registered
+but ignored by this adapter. `SubagentStop` is a stop attempt in the child's
 session and can be continued by hooks; it does not mutate the parent's ledger.
 Finite Guard rejects `send_input` and `resume_agent` because a resumed run lacks
 a completion incarnation. The original `hooks/codex-hooks.json` entrypoint stays.
@@ -85,6 +92,9 @@ PostToolUseFailure    -> action.after / unknown
 SessionEnd            -> session.end
 UserPromptExpansion  -> prompt.submit (Stop That Shit Skill only; optional on hosts that expose it)
 ```
+
+Direct slash normalization preserves code indentation and newline boundaries.
+It does not turn a quoted or indented slash example into a contract command.
 
 The Claude adapter returns a `PreToolUse` `permissionDecision: "deny"` when the
 shared controller denies an action. `agents=N` is enforced before a Claude
@@ -134,13 +144,15 @@ messages cannot feed back into contract parsing. Per-session processing is
 serialized, and `tool.execute.before` waits for in-flight message processing
 before it evaluates the contract.
 
-An explicit host mode switch is treated as authorization. When a root-session
-user message that is not a `$stop-that-shit` directive arrives under an
-edit-capable agent (resolved through `client.app.agents()`; unknown agents fail
+The existing host-mode path treats editable-agent messages as authorization.
+When a root-session user message containing no `$stop-that-shit` mention arrives
+under an edit-capable agent (resolved through `client.app.agents()`; unknown agents fail
 open) while the contract is `review`, the plugin advances the contract to
 `change` with `source: host`, preserving file, dependency, and hash settings.
-Explicit directives always win, read-only agents never advance, subagent
-messages never advance the root contract, and the host permission layer
+Quoted and embedded mentions suppress that promotion without becoming direct
+authorization. Multipart text is joined with newlines; later parts cannot add
+directive fields to the first line. Explicit directives always win. Read-only
+agents and subagent messages never advance the root contract. The host permission layer
 continues to apply independently.
 
 OpenCode creates a new session identifier for each `task` subagent. The plugin

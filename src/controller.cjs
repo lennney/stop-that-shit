@@ -75,7 +75,7 @@ function decisionMessage(result, contract, event, responseOutcome) {
 }
 
 function runtimeCommand(prompt) {
-  const match = /^\s*\$stop-that-shit\s+(status|runtime(?:\s+all)?|explain\s+(evt_[0-9a-f-]+)|label\s+(evt_[0-9a-f-]+)\s+(correct|incorrect|inconclusive))\s*$/i.exec(prompt);
+  const match = /^(?:[ \t]*\r?\n)* {0,3}\$stop-that-shit[ \t]+(status|runtime(?:[ \t]+all)?|explain[ \t]+(evt_[0-9a-f-]+)|label[ \t]+(evt_[0-9a-f-]+)[ \t]+(correct|incorrect|inconclusive))[ \t]*(?:\r?\n[ \t]*)*$/i.exec(prompt);
   if (!match) return null;
   const words = match[1].toLowerCase().split(/\s+/);
   return { name: words[0], all: words[1] === 'all', eventId: match[2] || match[3] || null, label: match[4] || null };

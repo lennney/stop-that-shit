@@ -320,7 +320,7 @@ function decisionMessage(result, contract, event, responseOutcome) {
 }
 
 function runtimeCommand(prompt) {
-  const match = /^\s*\$stop-that-shit\s+(status|runtime(?:\s+all)?|explain\s+(evt_[0-9a-f-]+)|label\s+(evt_[0-9a-f-]+)\s+(correct|incorrect|inconclusive))\s*$/i.exec(prompt);
+  const match = /^(?:[ \t]*\r?\n)* {0,3}\$stop-that-shit[ \t]+(status|runtime(?:[ \t]+all)?|explain[ \t]+(evt_[0-9a-f-]+)|label[ \t]+(evt_[0-9a-f-]+)[ \t]+(correct|incorrect|inconclusive))[ \t]*(?:\r?\n[ \t]*)*$/i.exec(prompt);
   if (!match) return null;
   const words = match[1].toLowerCase().split(/\s+/);
   return { name: words[0], all: words[1] === 'all', eventId: match[2] || match[3] || null, label: match[4] || null };
@@ -546,7 +546,7 @@ function defaultContract() {
 }
 
 function directiveHead(prompt, matchEnd) {
-  const tail = prompt.slice(matchEnd).trimStart();
+  const tail = prompt.slice(matchEnd).replace(/^[ \t]+/, '');
   const boundaries = [tail.indexOf('--'), tail.search(/:(?=\s|$)/), tail.indexOf('\n')]
     .filter((index) => index >= 0);
   const end = boundaries.length ? Math.min(...boundaries) : tail.length;
@@ -554,17 +554,37 @@ function directiveHead(prompt, matchEnd) {
 }
 
 function parseDirective(prompt) {
-  const mention = /\$stop-that-shit\b/i.exec(prompt);
+  // A directive starts the first non-empty line, outside quoted/code content.
+  // Four spaces or a tab denote an indented code example, not an invocation.
+  const mention = /^(?:[ \t]*\r?\n)* {0,3}\$stop-that-shit(?=$|[\s,:])/i.exec(prompt);
   if (!mention) return null;
 
   const head = directiveHead(prompt, mention.index + mention[0].length);
   const tokens = head.split(/[\s,]+/).map((token) => token.trim()).filter(Boolean);
   const parsed = { mentioned: true, error: null, warning: null };
 
+  function setField(field, value, token) {
+    if (Object.hasOwn(parsed, field) && JSON.stringify(parsed[field]) !== JSON.stringify(value)) {
+      parsed.error = {
+        code: 'CONFLICTING_DIRECTIVE', token,
+        message: `Conflicting values for ${field}. Submit one value per directive field.`
+      };
+    } else {
+      parsed[field] = value;
+    }
+  }
+
   for (const rawToken of tokens) {
+    if (parsed.error) break;
     const token = rawToken.toLowerCase();
-    if (MODES.has(token)) parsed.mode = token;
-    if (LEVELS.has(token)) parsed.level = token;
+    if (MODES.has(token)) {
+      setField('mode', token, rawToken);
+      continue;
+    }
+    if (LEVELS.has(token)) {
+      setField('level', token, rawToken);
+      continue;
+    }
     const agents = /^agents=(.*)$/i.exec(rawToken);
     if (agents) {
       const value = parseAgentLimit(agents[1]);
@@ -572,7 +592,7 @@ function parseDirective(prompt) {
         parsed.error = invalidAgentLimit(rawToken);
         break;
       }
-      parsed.agentBudget = value;
+      setField('agentBudget', value, rawToken);
       continue;
     }
     if (/^agents$/i.test(rawToken)) {
@@ -592,11 +612,24 @@ function parseDirective(prompt) {
       break;
     }
     const hash = /^hash=(deny|ask|allow)$/.exec(token);
-    if (hash && HASH_POLICIES.has(hash[1])) parsed.hashPolicy = hash[1];
+    if (hash && HASH_POLICIES.has(hash[1])) {
+      setField('hashPolicy', hash[1], rawToken);
+      continue;
+    }
     const files = /^files=(.*)$/i.exec(rawToken);
-    if (files) parsed.allowedPaths = files[1].split('|').map((value) => value.replace(/\\/g, '/')).filter(Boolean);
+    if (files) {
+      setField('allowedPaths', files[1].split('|').map((value) => value.replace(/\\/g, '/')).filter(Boolean), rawToken);
+      continue;
+    }
     const dependencies = /^deps=(deny|ask|allow)$/.exec(token);
-    if (dependencies && SCOPE_POLICIES.has(dependencies[1])) parsed.dependencyPolicy = dependencies[1];
+    if (dependencies && SCOPE_POLICIES.has(dependencies[1])) {
+      setField('dependencyPolicy', dependencies[1], rawToken);
+      continue;
+    }
+    parsed.error = {
+      code: 'INVALID_DIRECTIVE_TOKEN', token: rawToken,
+      message: 'Unknown directive field. Put task text after -- or on the next line.'
+    };
   }
 
   return parsed;
@@ -1363,7 +1396,7 @@ module.exports = { readRuntime, recordDecision };
 "package.json": function(module, exports, __require) {
 module.exports = {
   "name": "stop-that-shit",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "Keep agent work bounded and reduce defensive wording in Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi",
   "keywords": [
@@ -1391,7 +1424,10 @@ module.exports = {
     "INSTALL.md",
     "LICENSE",
     "PRIVACY.md",
-    "README.md"
+    "README.md",
+    "README_CN.md",
+    "README_EN.md",
+    "README_KO.md"
   ],
   "pi": {
     "extensions": [
@@ -2153,7 +2189,7 @@ module.exports = { optionalIdentifier, readAsyncLaunched };
 };
 __modules["package.json"] = function(module) { module.exports = {
   "name": "stop-that-shit",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "Keep agent work bounded and reduce defensive wording in Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi",
   "keywords": [
@@ -2181,7 +2217,10 @@ __modules["package.json"] = function(module) { module.exports = {
     "INSTALL.md",
     "LICENSE",
     "PRIVACY.md",
-    "README.md"
+    "README.md",
+    "README_CN.md",
+    "README_EN.md",
+    "README_KO.md"
   ],
   "pi": {
     "extensions": [

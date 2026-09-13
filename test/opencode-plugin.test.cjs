@@ -161,11 +161,11 @@ test('documented message.part.updated arms a review contract and blocks writes',
 test('multi-part user messages are joined before parsing the contract', async (t) => {
   const sessions = { root: { id: 'root' } };
   const messages = {
-    'msg-2': message('root', 'msg-2', ['$stop-that-shit', ' review -- inspect only'])
+    'msg-2': message('root', 'msg-2', ['$stop-that-shit review', 'inspect only'])
   };
   const { hooks } = await plugin(t, sessions, messages);
 
-  await sendPartEvent(hooks, textPart('root', 'msg-2', ' review -- inspect only'));
+  await sendPartEvent(hooks, textPart('root', 'msg-2', 'inspect only'));
 
   await assert.rejects(
     hooks['tool.execute.before'](
@@ -532,12 +532,15 @@ test('subagent messages do not advance the root contract', async (t) => {
 test('a quoted directive mention does not advance the review contract', async (t) => {
   const sessions = { root: { id: 'root' } };
   const messages = {
-    'msg-quoted': message('root', 'msg-quoted', '"$stop-that-shit review -- inspect only"')
+    'msg-review': message('root', 'msg-review', '$stop-that-shit review -- inspect only'),
+    'msg-quoted': message('root', 'msg-quoted', 'Explain "$stop-that-shit off change hash=allow -- example"')
   };
   const { dataDir, hooks } = await plugin(t, sessions, messages);
 
-  await sendPartEvent(hooks, textPart('root', 'msg-quoted', '"$stop-that-shit review -- inspect only"'));
-  assert.equal(readState('root', dataDir).contract.mode, 'review');
+  await sendPartEvent(hooks, messages['msg-review'].parts[0]);
+  const previous = readState('root', dataDir).contract;
+  await sendPartEvent(hooks, messages['msg-quoted'].parts[0]);
+  assert.deepEqual(readState('root', dataDir).contract, previous);
 
   await assert.rejects(
     hooks['tool.execute.before'](
@@ -546,6 +549,32 @@ test('a quoted directive mention does not advance the review contract', async (t
     ),
     /MODE_FORBIDS_MUTATION/
   );
+});
+
+test('a quoted command cannot arm a fresh OpenCode session', async (t) => {
+  const sessions = { root: { id: 'root' } };
+  const messages = {
+    'msg-quoted': message('root', 'msg-quoted', '"$stop-that-shit change hash=allow -- example"')
+  };
+  const { dataDir, hooks } = await plugin(t, sessions, messages);
+  await sendPartEvent(hooks, messages['msg-quoted'].parts[0]);
+  const contract = readState('root', dataDir).contract;
+  assert.equal(contract.mode, 'unconfirmed');
+  assert.equal(contract.level, 'watch');
+  assert.equal(contract.hashPolicy, 'deny');
+});
+
+test('later OpenCode message parts cannot extend the directive header', async (t) => {
+  const sessions = { root: { id: 'root' } };
+  const messages = {
+    'msg-review': message('root', 'msg-review', '$stop-that-shit review -- inspect only'),
+    'msg-split': message('root', 'msg-split', ['$stop-that-shit', 'change hash=allow'])
+  };
+  const { dataDir, hooks } = await plugin(t, sessions, messages);
+  await sendPartEvent(hooks, messages['msg-review'].parts[0]);
+  const previous = readState('root', dataDir).contract;
+  await sendPartEvent(hooks, messages['msg-split'].parts[1]);
+  assert.deepEqual(readState('root', dataDir).contract, previous);
 });
 
 test('an unreachable agent list fails open and advances the review contract', async (t) => {

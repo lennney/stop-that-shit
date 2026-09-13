@@ -1,6 +1,26 @@
 # Changelog
 
-## Unreleased
+## 0.2.2 — Unreleased (Authorization, lifecycle, and Skill updates / 授权、生命周期与 Skill 更新)
+
+### 修复 / Fixed
+
+- **Explicit directive entry**：正式指令必须位于消息的首个非空行，不能包在
+  引用或代码块中。正文中的示例不再设置权限，字段解析也不再跨行读取。
+  未知字段或相互冲突的值会报告错误并保留原合同。
+  / Directives must start the first non-empty line, outside quotes and code
+  blocks. Embedded examples and later lines no longer set directive fields.
+  Unknown fields or conflicting values return an error without changing the
+  previous contract. Put task text after `--`, `: `, or a newline.
+- Runtime 查询与标注命令遵守相同的首行规则，缩进示例不能写入标注。
+  / Runtime queries and label commands use the same first-line rule.
+  Indented examples cannot write annotations.
+- Claude slash 指令转换保留缩进与换行边界，不把代码示例转换为授权。
+  / Claude slash normalization preserves indentation and line boundaries
+  instead of turning code examples into authorization.
+- OpenCode 引用中的指令不再触发可编辑模式的隐式授权；分段消息中的字段必须
+  留在首行，后续部分作为正文。/ Quoted directives suppress OpenCode's
+  implicit editable-agent promotion. Keep directive fields on the first line
+  of a multipart message; later parts are task text.
 
 - Corrected Hermes terminal `failed` results so synchronous batches and bound
   background children return their reserved capacity after a confirmed failure.
@@ -35,6 +55,72 @@
   / Confirmed joined results or bound-child termination release capacity.
   Stop attempts and session-end notifications alone do not clear reservations.
   Adapters use explicit host IDs rather than FIFO guesses.
+
+### 依赖 / Dependencies
+
+- 将 Ajv 的间接开发依赖 `fast-uri` 从 3.1.5 更新到 3.1.6，修复已报告的
+  安全告警；不改变 Ajv 或其他依赖版本。
+  / Updates Ajv's transitive development dependency `fast-uri` from 3.1.5
+  to 3.1.6 to address reported security advisories. Ajv and the other
+  dependency versions are unchanged.
+
+### Skill 与文档 / Skill and documentation
+
+- **Stop Ladder — [#46](https://github.com/lennney/stop-that-shit/pull/46)**：以完整履行任务责任为起点，先采用直接方案，再根据真实
+  缺口扩展；保留必要验证、兼容与迁移，不把少写代码当作目标。
+  / The Skill starts with the complete task responsibility, uses a direct
+  solution, and expands when a concrete gap requires it. Necessary validation,
+  compatibility, and migration remain part of the task; shorter code is not
+  the goal.
+- **Korean README — [#47](https://github.com/lennney/stop-that-shit/pull/47)**：加入韩语 README 和语言入口，保留已有社区讨论链接。
+  / Adds a Korean README and language links, and retains community discussion
+  links.
+- 同步 package、插件清单、安装版本引用和 Hook 检查说明。
+  / Aligns package and plugin versions, pinned installation references, and
+  Hook review instructions.
+- 发布清单和安装包补齐韩语 README 与旧中文兼容入口；安装文档补充验证前的
+  依赖安装步骤，并说明会话状态与 Runtime 元数据的区别。
+  / Includes the Korean README and legacy Chinese entry in release and package
+  manifests. Documents development dependency setup and separates session
+  state from metadata-only runtime events.
+
+### 贡献与反馈 / Credits
+
+- 感谢 @Kazaorus 在 [#44](https://github.com/lennney/stop-that-shit/issues/44)
+  报告 `agents=N` 被静默截断至 8 和累计计数的问题，并发起、持续修订
+  [#45](https://github.com/lennney/stop-that-shit/pull/45)。这是其在本仓库首个合并的 PR。
+  / Thanks to @Kazaorus for reporting the silent cap and cumulative counting
+  in #44, and for opening and revising #45, their first merged PR here.
+- 感谢 @KumaCool 在 [#44 的讨论](https://github.com/lennney/stop-that-shit/issues/44#issuecomment-5594846899)
+  中补充使用反馈，帮助明确限制应针对同时运行的子代理，而不是累计委派次数。
+  / Thanks to @KumaCool for usage feedback that helped clarify concurrent
+  capacity rather than cumulative delegation counts.
+- 维护者 @lennney 完成 #45 的后续生命周期修复与审查，以及
+  [LINUX DO 社区链接 #42](https://github.com/lennney/stop-that-shit/pull/42)、
+  [Skill 与 README 更新 #46](https://github.com/lennney/stop-that-shit/pull/46)
+  和[韩语 README #47](https://github.com/lennney/stop-that-shit/pull/47)。
+  / Maintainer @lennney completed the lifecycle follow-up fixes and review
+  in #45, community links in #42, Skill and README updates in #46, and the
+  Korean README in #47.
+
+### 升级说明 / Upgrade notes
+
+- `agents=N` 表示预留并发容量，不是整个会话累计调用次数。新会话默认不限；
+  旧会话的有效预算（包括 `0`）会保留。
+  / `agents=N` limits reserved concurrent capacity, not cumulative calls.
+  New sessions default to unlimited. Valid existing budgets, including `0`,
+  are preserved.
+- Schema 4 迁移保留无法确认结束的历史活动。有限额的 Guard 需要匹配的终结证据，
+  或开启新宿主会话；升级与 SessionEnd 不会自动清空这些记录。
+  / Schema 4 preserves unresolved legacy activity. Finite Guard requires
+  matching terminal evidence or a new host session. Upgrading or receiving
+  SessionEnd does not clear that history.
+- 升级后按宿主要求重启或重新加载；Codex 用户应重新检查新增或变化的 Hook。
+  / Restart or reload as required by the host. Codex users must review new or
+  changed Hooks. See [INSTALL.md](INSTALL.md#review-the-packaged-hooks).
+- 此版本不加入自动续跑或通用任务完成判定，也不宣称模型效果提升。
+  / This version adds no automatic continuation or general task-completion
+  judge. It makes no new model-effectiveness claim.
 
 ## 0.2.1 — 2026-09-03 (Scoped Guard false-allow fixes / 受限 Guard 误放行修复)
 

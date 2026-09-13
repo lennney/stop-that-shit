@@ -13,17 +13,15 @@ const {
   toSubagentStopEvent
 } = require('../src/adapters/opencode-hooks.cjs');
 const { contractContext, handleControlEvent } = require('../src/controller.cjs');
-const { parseContractPrompt } = require('../src/contracts.cjs');
 const { readState, updateSession } = require('../src/state.cjs');
 
 const CONTEXT_PREFIX = 'Stop That Shit context:';
 const MAX_PROCESSED_MESSAGES = 1024;
 
-// Mirror the contract parser exactly: a message is a directive whenever the
-// parser would take the directive branch, including mid-text mentions such as
-// the quoted prompts produced by `opencode run`.
-function isDirective(text) {
-  return Boolean(parseContractPrompt(String(text || '')).directive);
+// Even a quoted mention must suppress implicit host-mode promotion. The core
+// parser alone decides whether the text is a direct contract invocation.
+function mentionsDirective(text) {
+  return /\$stop-that-shit\b/i.test(String(text || ''));
 }
 
 function fallbackDataDir() {
@@ -258,7 +256,7 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
       };
       const output = { message: info || {}, parts: [{ type: 'text', text }] };
       result = handleOpenCodeMessage(input, output, { controlSessionID, directory }, { dataDir });
-      if (!isDirective(text) && await advanceReviewOnEditableAgent(controlSessionID, info)) {
+      if (!mentionsDirective(text) && await advanceReviewOnEditableAgent(controlSessionID, info)) {
         result = null;
       }
     }
