@@ -11,6 +11,17 @@
   blocks. Embedded examples and later lines no longer set directive fields.
   Unknown fields or conflicting values return an error without changing the
   previous contract. Put task text after `--`, `: `, or a newline.
+- 自然语言纠正会跳过代码示例、显式 Markdown 引用行和带引号的文本。
+  在 README 中添加 `review only` 示例不再把当前编辑任务切成只读；
+  正文中的真实只读要求仍然生效。
+  / Natural-language corrections skip code examples, explicit Markdown quote
+  lines, and quoted text. Documenting `review only` no longer changes an active
+  edit task to review. Actual review instructions in prose still apply.
+- OpenCode 和 Hermes 显示无效指令错误，并暂停工具调用直到用户提交纠正指令。
+  Pi 显示错误并拒绝启动该输入对应的模型回合；通知失败也不会放行。
+  / OpenCode and Hermes report invalid instructions and pause tool calls until
+  the user corrects the instruction. Pi shows the error and handles the input
+  without starting a model turn, even if feedback delivery fails.
 - Runtime 查询与标注命令遵守相同的首行规则，缩进示例不能写入标注。
   / Runtime queries and label commands use the same first-line rule.
   Indented examples cannot write annotations.
@@ -27,8 +38,11 @@
 - Added adapter-owned lifecycle declarations. Historical adapters that import
   a new core's protocol number can no longer masquerade as current adapters or
   release reservations through old stop semantics.
-- Invalid-directive residue now respects watch/off for subsequent actions;
+- Shared policy handling of invalid-directive residue respects watch/off;
   permitted work remains accounted for when the session returns to Guard.
+  This is separate from rejecting invalid input at the host adapter. Submit a
+  valid directive to clear an OpenCode or Hermes input pause, including when
+  selecting watch/off.
 - Centralized delegation facts, reservation transitions, and per-call unresolved
   activity. Confirmed terminal evidence releases the corresponding call;
   unknown bounded results retain only their original reserved capacity.

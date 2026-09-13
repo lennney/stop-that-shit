@@ -122,8 +122,32 @@ function invalidAgentLimit(token) {
   };
 }
 
+function correctionProse(prompt) {
+  let fence = null;
+  // Keep a separator: removing an example must not join words into a new
+  // instruction, or expose a quoted "fix" as the start of the user's prompt.
+  const omitted = '\uFFFC';
+  return prompt.split(/\r?\n/).map((line) => {
+    if (fence) {
+      const close = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
+      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
+      return omitted;
+    }
+    if (/^(?: {0,3}>| {4}|\t)/.test(line)) return omitted;
+    const open = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (open && (open[1][0] !== '`' || !line.slice(open[0].length).includes('`'))) {
+      fence = open[1];
+      return omitted;
+    }
+    return line;
+  }).join('\n')
+    .replace(/(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g, omitted)
+    .replace(/"(?:\\.|[^"\\])*"|(?<![\p{L}\p{N}\\])'[\s\S]*?(?<!\\)'(?![\p{L}\p{N}])|“[^”]*”|‘[^’]*’|「[^」]*」|『[^』]*』/gu, omitted)
+    .trim();
+}
+
 function naturalCorrection(prompt, previous) {
-  const text = prompt.trim();
+  const text = correctionProse(prompt);
 
   if (/^(?:stop|stop now|停止|停下来)[.!。！\s]*$/i.test(text)) {
     return { mode: 'answer', source: 'explicit-stop' };

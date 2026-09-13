@@ -16,8 +16,11 @@ function workspace(t) {
 
 function fakePi() {
   const handlers = new Map();
+  const messages = [];
   return {
     handlers,
+    messages,
+    sendMessage(message, options) { messages.push({ message, options }); },
     on(name, handler) {
       handlers.set(name, handler);
     }
@@ -80,6 +83,44 @@ test('extension-origin input cannot arm or switch a contract', (t) => {
   const event = input('$stop-that-shit change -- mutate', { source: 'extension' });
   assert.deepEqual(pi.handlers.get('input')(event, ctx), { action: 'continue' });
   assert.equal(readState('extension-source', dataDir).contract.mode, 'unconfirmed');
+});
+
+test('invalid Pi instructions are handled visibly without starting a turn and recover after correction', (t) => {
+  for (const hasUI of [true, false]) {
+    const dataDir = workspace(t);
+    const pi = fakePi();
+    const ctx = fakeContext(`invalid-${hasUI}`, { hasUI });
+    registerPiExtension(pi, { dataDir });
+    pi.handlers.get('input')(input('$stop-that-shit change -- implement'), ctx);
+    const previous = readState(`invalid-${hasUI}`, dataDir).contract;
+    const result = pi.handlers.get('input')(input('$stop-that-shit review hash=alow -- inspect only'), ctx);
+    assert.deepEqual(result, { action: 'handled' });
+    assert.deepEqual(readState(`invalid-${hasUI}`, dataDir).contract, previous);
+    assert.equal(pi.handlers.get('before_agent_start')({}, ctx), undefined);
+    assert.match(pi.messages[0].message.content, /INVALID_DIRECTIVE_TOKEN/);
+    assert.equal(pi.messages[0].message.display, true);
+    assert.equal(pi.messages[0].options.triggerTurn, false);
+
+    assert.deepEqual(pi.handlers.get('input')(input('$stop-that-shit review hash=allow -- inspect only'), ctx), { action: 'continue' });
+    assert.match(pi.handlers.get('before_agent_start')({}, ctx).message.content, /mode=review/);
+    const tool = { type: 'tool_call', toolCallId: 'write-after-correction', toolName: 'write', input: { path: '/repo/out.txt', content: 'x' } };
+    assert.equal(pi.handlers.get('tool_call')(tool, ctx).block, true);
+    pi.handlers.get('input')(input('$stop-that-shit change -- apply the requested fix'), ctx);
+    assert.equal(pi.handlers.get('tool_call')(tool, ctx), undefined);
+  }
+});
+
+test('Pi still handles invalid input when error-message delivery fails', (t) => {
+  for (const notificationThrows of [false, true]) {
+    const pi = fakePi();
+    const ctx = fakeContext(`notify-failure-${notificationThrows}`);
+    pi.sendMessage = () => { throw new Error('message unavailable'); };
+    if (notificationThrows) ctx.ui.notify = () => { throw new Error('UI unavailable'); };
+    registerPiExtension(pi, { dataDir: workspace(t) });
+    assert.deepEqual(pi.handlers.get('input')(input('$stop-that-shit review hash=alow -- inspect'), ctx), { action: 'handled' });
+    assert.equal(pi.handlers.get('before_agent_start')({}, ctx), undefined);
+    if (!notificationThrows) assert.match(ctx.notifications[0].message, /INVALID_DIRECTIVE_TOKEN/);
+  }
 });
 
 test('mid-turn contract switches are handled without changing the active contract', (t) => {

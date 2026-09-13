@@ -19,15 +19,16 @@ Last updated: 2026-09-14
 ## 0.2.2 candidate
 
 This candidate includes the merged lifecycle and Skill updates, plus the
-directive-entry fix. It has not been tagged or published. No new live Codex
+directive-entry and host error-handling fixes. It has not been tagged or
+published. No new live Codex
 installation or paid-model comparison has been run for this candidate. Earlier
 host results below remain historical evidence, not current install acceptance.
 Host effect remains `unobserved`.
 
 Local checks on Windows with Node.js 24.14.1:
 
-- `npm test`: 379 passed, zero failed; one optional installed OpenCode smoke
-  was skipped because its host probe was unavailable (380 tests total);
+- `npm test`: 387 passed, zero failed; one optional installed OpenCode smoke
+  was skipped because its host probe was unavailable (388 tests total);
 - `npm run eval`: all 18 executable Bad/Good policy case arms passed;
 - `npm run release:check`: passed for version 0.2.2 and 197 allowlisted files;
 - `npm run hermes:check`: the rebuilt runtime matched the shared source;
@@ -38,7 +39,11 @@ Local checks on Windows with Node.js 24.14.1:
 
 The new regressions cover direct versus quoted authorization, newline and
 multipart boundaries, conflicting fields, Claude slash normalization,
-OpenCode implicit promotion, and quoted runtime labels. Existing direct change
+OpenCode implicit promotion, and quoted runtime labels. They also cover
+natural-language corrections around examples, the Codex README-edit path,
+OpenCode input rejection across reload and child calls, Pi input handling when
+notifications fail, and Hermes error recovery through the bundled entrypoint.
+Existing direct change
 and required-checksum paths still return allow. These are deterministic
 parser and adapter results, not proof of real-host prevention or model benefit.
 

@@ -8,6 +8,7 @@ const __modules = {
 
 const { PROTOCOL_VERSION } = __require("src/control-protocol.cjs");
 const { handleControlEvent } = __require("src/controller.cjs");
+const { readState } = __require("src/state.cjs");
 const {
   classifyHermesTool,
   countHermesDelegation,
@@ -111,8 +112,14 @@ function toControlEvent(input) {
   return event;
 }
 
+function directiveErrorText(error) {
+  return `Stop That Shit directive rejected (${error.code}): ${error.message} `
+    + 'The previous contract is unchanged. Tools are paused until you submit a corrected instruction.';
+}
+
 function fromControlResult(result, kind) {
   if (!result || result.kind === 'none') return null;
+  if (result.kind === 'prompt-error') return { context: directiveErrorText(result.error) };
   if (result.kind === 'context') {
     if (['subagent.start', 'subagent.stop', 'session.end'].includes(kind)) return null;
     return { context: result.text };
@@ -124,7 +131,19 @@ function fromControlResult(result, kind) {
 function handleHermesHook(input, options = {}) {
   const event = toControlEvent(input);
   if (!event) return null;
-  return fromControlResult(handleControlEvent(event, options), event.kind);
+  // pre_llm_call can add context but cannot reject a user turn. Keep invalid
+  // input from executing through the existing pre_tool_call block response.
+  if (event.kind === 'action.before') {
+    const error = readState(event.sessionId, options.dataDir).directiveError;
+    if (error) return { action: 'block', message: directiveErrorText(error) };
+  }
+  const result = handleControlEvent(event, options);
+  const output = fromControlResult(result, event.kind);
+  if (event.kind === 'prompt.submit' && result.kind !== 'prompt-error') {
+    const error = readState(event.sessionId, options.dataDir).directiveError;
+    if (error) return { context: directiveErrorText(error) + (output ? `\n${output.context}` : '') };
+  }
+  return output;
 }
 
 module.exports = {
@@ -649,8 +668,32 @@ function invalidAgentLimit(token) {
   };
 }
 
+function correctionProse(prompt) {
+  let fence = null;
+  // Keep a separator: removing an example must not join words into a new
+  // instruction, or expose a quoted "fix" as the start of the user's prompt.
+  const omitted = '\uFFFC';
+  return prompt.split(/\r?\n/).map((line) => {
+    if (fence) {
+      const close = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
+      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
+      return omitted;
+    }
+    if (/^(?: {0,3}>| {4}|\t)/.test(line)) return omitted;
+    const open = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (open && (open[1][0] !== '`' || !line.slice(open[0].length).includes('`'))) {
+      fence = open[1];
+      return omitted;
+    }
+    return line;
+  }).join('\n')
+    .replace(/(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g, omitted)
+    .replace(/"(?:\\.|[^"\\])*"|(?<![\p{L}\p{N}\\])'[\s\S]*?(?<!\\)'(?![\p{L}\p{N}])|“[^”]*”|‘[^’]*’|「[^」]*」|『[^』]*』/gu, omitted)
+    .trim();
+}
+
 function naturalCorrection(prompt, previous) {
-  const text = prompt.trim();
+  const text = correctionProse(prompt);
 
   if (/^(?:stop|stop now|停止|停下来)[.!。！\s]*$/i.test(text)) {
     return { mode: 'answer', source: 'explicit-stop' };

@@ -82,6 +82,28 @@ function lifecycle(session, hookEventName, extra = {}) {
   });
 }
 
+test('Hermes reports invalid input and pauses tools until a corrected instruction', (t) => {
+  const options = workspace(t);
+  const { handleHermesHook } = adapter();
+  const session = 'invalid-hermes';
+  handleHermesHook(prompt(session, '$stop-that-shit change -- implement'), options);
+  const previous = readState(session, options.dataDir).contract;
+  const invalid = handleHermesHook(prompt(session, '$stop-that-shit review hash=alow -- inspect'), options);
+  assert.match(invalid.context, /INVALID_DIRECTIVE_TOKEN/);
+  assert.deepEqual(readState(session, options.dataDir).contract, previous);
+  assert.match(handleHermesHook(prompt(session, 'Continue.'), options).context, /INVALID_DIRECTIVE_TOKEN/);
+  for (const tool of ['read_file', 'write_file']) {
+    const result = handleHermesHook(pre(session, tool, { path: 'README.md', content: 'x' }), options);
+    assert.equal(result.action, 'block');
+    assert.match(result.message, /INVALID_DIRECTIVE_TOKEN/);
+  }
+  handleHermesHook(prompt(session, '$stop-that-shit review hash=allow -- inspect'), options);
+  assert.equal(handleHermesHook(pre(session, 'read_file', { path: 'README.md' }), options), null);
+  assert.match(handleHermesHook(pre(session, 'write_file', { path: 'README.md', content: 'x' }), options).message, /MODE_FORBIDS_MUTATION/);
+  handleHermesHook(prompt(session, '$stop-that-shit watch change -- implement'), options);
+  assert.equal(handleHermesHook(pre(session, 'write_file', { path: 'README.md', content: 'x' }), options), null);
+});
+
 test('maps real Hermes hook envelope fields to ControlEvent v2', () => {
   const { toControlEvent } = adapter();
   const promptEvent = toControlEvent(prompt('map-session', '$stop-that-shit review -- inspect only'));

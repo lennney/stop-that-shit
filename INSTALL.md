@@ -104,6 +104,16 @@ Do not put an introduction before the directive. Embedded examples do not set
 directive fields. Unknown fields and conflicting values return an error and
 preserve the previous contract; submit a corrected directive before continuing.
 
+Natural-language mode corrections also skip code examples, explicit Markdown
+quote lines, and quoted text. For example, adding a `review only` example to
+README does not switch an active edit task to review.
+
+Codex and Claude return a prompt-block response for an invalid directive.
+Pi handles the input without starting a model turn. OpenCode and Hermes add
+error context and pause tool calls until a corrected instruction clears the
+error. A valid watch/off directive also clears that pause. This input rejection
+does not change the previous contract or the shared watch/off policy.
+
 ## Upgrade to 0.2.2
 
 Update the plugin or standalone Skill through its host installation flow, then

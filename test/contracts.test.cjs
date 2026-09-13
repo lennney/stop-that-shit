@@ -208,3 +208,35 @@ test('ambiguous directive heads fail atomically rather than selecting permissive
   assert.equal(good.contract.mode, 'change');
   assert.equal(good.contract.hashPolicy, 'allow');
 });
+
+test('natural corrections ignore quoted examples without disabling real task corrections', () => {
+  const previous = { ...defaultContract(), mode: 'change', level: 'guard' };
+  for (const example of [
+    '```text\n$stop-that-shit review -- review only\n```',
+    '~~~text\nanswer only\n~~~',
+    '> review only',
+    '    monitor only',
+    '\t只审查',
+    '`review only`',
+    '``example `review only` here``',
+    '"review only"',
+    "'Don't edit anything'",
+    '“只看不改”',
+    '「不要修改文件」',
+    '『只回答』',
+    '‘monitor only’'
+  ]) {
+    const result = parseContractPrompt(`Add this usage example to README.md:\n${example}`, previous);
+    assert.deepEqual(result.contract, previous, example);
+    assert.equal(result.correction, false, example);
+  }
+  for (const text of ['Review only. Do not edit anything.', '只审查，不要修改代码。']) {
+    assert.equal(parseContractPrompt(text, previous).contract.mode, 'review');
+  }
+  assert.equal(parseContractPrompt('"review only" is an example.\nReview only.', previous).contract.mode, 'review');
+  assert.equal(parseContractPrompt('review `example` only', previous).contract.mode, 'change');
+  const review = { ...previous, mode: 'review' };
+  assert.equal(parseContractPrompt('Fix "src/config.cjs" now.', review).contract.mode, 'change');
+  assert.equal(parseContractPrompt('"Fix the bug" is an example.', review).contract.mode, 'review');
+  assert.equal(parseContractPrompt("Don't edit anything.", previous).contract.mode, 'review');
+});

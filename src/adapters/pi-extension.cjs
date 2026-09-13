@@ -46,6 +46,17 @@ function registerPiExtension(pi, options = {}) {
 
       pendingPromptContext.delete(context.sessionId);
       const result = handlePiPrompt(event, context, options);
+      if (result && result.kind === 'prompt-error') {
+        const message = `Stop That Shit directive rejected (${result.error.code}): ${result.message} `
+          + 'The previous contract is unchanged. Submit a corrected instruction.';
+        try {
+          pi.sendMessage({ customType: 'stop-that-shit-error', content: message, display: true }, { triggerTurn: false });
+        } catch {
+          // Feedback failure must not turn rejected input into a model turn.
+          try { notify(ctx, message, 'error'); } catch {}
+        }
+        return { action: 'handled' };
+      }
       if (result && result.kind === 'context') {
         pendingPromptContext.set(context.sessionId, result.text);
       }

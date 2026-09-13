@@ -158,6 +158,34 @@ test('documented message.part.updated arms a review contract and blocks writes',
   );
 });
 
+test('OpenCode keeps invalid-input rejection across failed notification, reload, and child calls', async (t) => {
+  const sessions = { root: { id: 'root' }, child: { id: 'child', parentID: 'root' } };
+  const messages = {
+    review: message('root', 'review', '$stop-that-shit review -- inspect'),
+    invalid: message('root', 'invalid', '$stop-that-shit change hash=alow -- implement'),
+    ordinary: message('root', 'ordinary', 'Continue.'),
+    corrected: message('root', 'corrected', '$stop-that-shit off change -- implement')
+  };
+  const initial = await plugin(t, sessions, messages);
+  await sendPartEvent(initial.hooks, messages.review.parts[0]);
+  initial.client.session.prompt = async () => { throw new Error('context unavailable'); };
+  await sendPartEvent(initial.hooks, messages.invalid.parts[0]);
+
+  const reloaded = await plugin(t, sessions, messages, { dataDir: initial.dataDir });
+  await sendPartEvent(reloaded.hooks, messages.ordinary.parts[0]);
+  assert.equal(readState('root', initial.dataDir).contract.mode, 'review');
+  for (const sessionID of ['root', 'child']) {
+    await assert.rejects(reloaded.hooks['tool.execute.before'](
+      { tool: 'read', sessionID, callID: `read-${sessionID}` }, { args: { filePath: '/repo/README.md' } }
+    ), /INVALID_DIRECTIVE_TOKEN/);
+  }
+  await sendPartEvent(reloaded.hooks, messages.corrected.parts[0]);
+  assert.equal(readState('root', initial.dataDir).directiveError, null);
+  await reloaded.hooks['tool.execute.before'](
+    { tool: 'edit', sessionID: 'child', callID: 'recovered' }, { args: { filePath: '/repo/a.txt', oldString: 'a', newString: 'b' } }
+  );
+});
+
 test('multi-part user messages are joined before parsing the contract', async (t) => {
   const sessions = { root: { id: 'root' } };
   const messages = {
@@ -562,6 +590,37 @@ test('a quoted command cannot arm a fresh OpenCode session', async (t) => {
   assert.equal(contract.mode, 'unconfirmed');
   assert.equal(contract.level, 'watch');
   assert.equal(contract.hashPolicy, 'deny');
+});
+
+test('invalid OpenCode directives report the error and pause tools until corrected', async (t) => {
+  const sessions = { root: { id: 'root' } };
+  const messages = {
+    start: message('root', 'start', '$stop-that-shit change -- implement'),
+    invalid: message('root', 'invalid', '$stop-that-shit review hash=alow -- inspect only'),
+    corrected: message('root', 'corrected', '$stop-that-shit review hash=allow -- inspect only'),
+    change: message('root', 'change', '$stop-that-shit change -- apply the requested fix')
+  };
+  const { client, dataDir, hooks } = await plugin(t, sessions, messages);
+  const edit = () => hooks['tool.execute.before'](
+    { tool: 'edit', sessionID: 'root', callID: 'edit-after-error' },
+    { args: { filePath: '/repo/out.txt', oldString: 'a', newString: 'b' } }
+  );
+  await sendPartEvent(hooks, messages.start.parts[0]);
+  await assert.doesNotReject(edit);
+  const previous = readState('root', dataDir).contract;
+  await sendPartEvent(hooks, messages.invalid.parts[0]);
+  assert.deepEqual(readState('root', dataDir).contract, previous);
+  assert.match(client.prompts.at(-1).parts[0].text, /INVALID_DIRECTIVE_TOKEN/);
+  await assert.rejects(edit, /INVALID_DIRECTIVE_TOKEN/);
+
+  await sendPartEvent(hooks, messages.corrected.parts[0]);
+  await assert.rejects(edit, /MODE_FORBIDS_MUTATION/);
+  await assert.doesNotReject(hooks['tool.execute.before'](
+    { tool: 'read', sessionID: 'root', callID: 'read-after-correction' },
+    { args: { filePath: '/repo/out.txt' } }
+  ));
+  await sendPartEvent(hooks, messages.change.parts[0]);
+  await assert.doesNotReject(edit);
 });
 
 test('later OpenCode message parts cannot extend the directive header', async (t) => {

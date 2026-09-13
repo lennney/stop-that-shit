@@ -24,6 +24,11 @@ function mentionsDirective(text) {
   return /\$stop-that-shit\b/i.test(String(text || ''));
 }
 
+function directiveErrorText(error) {
+  return `Stop That Shit directive rejected (${error.code}): ${error.message} `
+    + 'The previous contract is unchanged. Tools are paused until you submit a corrected instruction.';
+}
+
 function fallbackDataDir() {
   const root = process.platform === 'win32'
     ? process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local')
@@ -232,11 +237,12 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
   // edit-capable agent while the contract is review, advance the contract to
   // change so the host's build mode and the guard no longer deadlock.
   async function advanceReviewOnEditableAgent(controlSessionID, info) {
-    if (readState(controlSessionID, dataDir).contract.mode !== 'review') return false;
+    const current = readState(controlSessionID, dataDir);
+    if (current.directiveError || current.contract.mode !== 'review') return false;
     const agentName = info && info.agent;
     if (!agentName || !(await agentAllowsEdits(agentName))) return false;
     return updateSession(controlSessionID, dataDir, (state) => {
-      if (state.contract.mode !== 'review') return false;
+      if (state.directiveError || state.contract.mode !== 'review') return false;
       state.contract = { ...state.contract, mode: 'change', source: 'host' };
       return true;
     });
@@ -262,7 +268,8 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
     }
     const state = readState(controlSessionID, dataDir);
     const active = contractContext(state.contract, state.delegation);
-    const contextText = result && result.kind === 'context' ? result.text : active;
+    const resultText = result && result.kind === 'context' ? result.text : active;
+    const contextText = state.directiveError ? `${directiveErrorText(state.directiveError)}\n${resultText}` : resultText;
     await injectContext(controlSessionID, info, contextText);
   }
 
@@ -320,13 +327,20 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
       const prior = pending.get(controlSessionID) || pending.get(input.sessionID);
       if (prior) await prior;
       let result;
+      let directiveError;
       try {
-        result = handleOpenCodeTool(input, output, { controlSessionID, directory }, { dataDir });
+        directiveError = readState(controlSessionID, dataDir).directiveError;
+        if (!directiveError) {
+          result = handleOpenCodeTool(input, output, { controlSessionID, directory }, { dataDir });
+        }
       } catch (error) {
         await logFailure('tool.execute.before', error);
         return;
       }
 
+      // The event callback cannot reject a user turn. Stop its tool calls at
+      // the host's pre-execution hook instead; do not treat this as fail-open.
+      if (directiveError) throw new Error(directiveErrorText(directiveError));
       if (result.kind === 'context') queueContext(`${input.sessionID}:${input.callID}`, result.text);
       if (result.kind === 'deny') throw new Error(result.message);
     },
