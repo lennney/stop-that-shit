@@ -137,7 +137,7 @@ Expand your host. For guidance without runtime enforcement, [install only the Sk
 <details>
 <summary>Claude Code</summary>
 
-Download and extract the [0.2.1 source](https://github.com/lennney/stop-that-shit/archive/refs/tags/0.2.1.zip), then run from the checkout root:
+Download and extract the [0.2.2 source](https://github.com/lennney/stop-that-shit/archive/refs/tags/0.2.2.zip), then run from the checkout root:
 
 ```bash
 claude plugin validate .
@@ -157,13 +157,14 @@ Restart Claude Code or run `/reload-plugins`, then invoke:
 <summary>Codex</summary>
 
 ```bash
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.1
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.2
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
-`--ref 0.2.1` pins the install to a version tag instead of mutable
-`main`. Restart Codex. In a fresh CLI TUI, enter `/hooks` and trust
-`UserPromptSubmit` and `PreToolUse` after inspecting their commands. You can
+`--ref 0.2.2` pins the install to a version tag instead of mutable
+`main`. Restart Codex. In a fresh CLI TUI, enter `/hooks`, compare the
+[packaged Hook list](INSTALL.md#review-the-packaged-hooks), and trust the
+commands after inspection. You can
 also give [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) to Codex for the
 non-interactive steps.
 
@@ -227,13 +228,14 @@ invoke:
 /skill:stop-that-shit review -- Review this diff. Report findings; do not edit.
 ```
 
-The `0.2.1` tag includes the Pi adapter and both Skills. See [INSTALL.md](INSTALL.md#pi-coding-agent).
+The `0.2.2` tag includes the Pi adapter and both Skills. See [INSTALL.md](INSTALL.md#pi-coding-agent).
 
 </details>
 
 ## Use it
 
-In Codex or a host-neutral prompt, state the task:
+In Codex or a host-neutral prompt, start the first non-empty line with one
+directive, outside quotes and code blocks. Put task text after `--`:
 
 ```text
 $stop-that-shit review -- Review this diff. Report findings; do not edit.
@@ -340,8 +342,9 @@ security isolation.
 
 **Does it save my code or conversations?**
 
-The local Runtime stores task-boundary state and metadata, without code or
-conversation text. See [PRIVACY.md](PRIVACY.md).
+Runtime events do not store code or conversation text. Separate session state
+retains explicit paths, correlation IDs, and directive errors. Inspect that
+state before sharing plugin data. See [PRIVACY.md](PRIVACY.md).
 
 **How do I update, uninstall, or work on it?**
 

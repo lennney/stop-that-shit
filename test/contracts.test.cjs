@@ -134,3 +134,109 @@ test('off remains off before a mode is confirmed', () => {
   const result = parseContractPrompt('$stop-that-shit off');
   assert.equal(result.contract.level, 'off');
 });
+
+test('quoted, embedded, and code examples do not update the contract', () => {
+  const command = '$stop-that-shit off change agents=9 hash=allow deps=allow files=** -- example';
+  const examples = [
+    `请解释这段示例：${command}，不执行`,
+    `Explain this example: ${command}`,
+    `"${command}"`,
+    `'${command}'`,
+    `\`${command}\``,
+    `> ${command}`,
+    `- ${command}`,
+    `\`\`\`text\n${command}\n\`\`\``,
+    `~~~text\n${command}\n~~~`,
+    `    ${command}`,
+    `\t${command}`,
+    `Example:\n${command}`,
+    command.replace('$stop-that-shit', '$stop-that-shit-example')
+  ];
+  for (const previous of [defaultContract(), {
+    ...defaultContract(), mode: 'review', level: 'lock', agentBudget: 0,
+    allowedPaths: ['src/config.cjs']
+  }]) {
+    for (const prompt of examples) {
+      const result = parseContractPrompt(prompt, previous);
+      assert.deepEqual(result.contract, previous, prompt);
+      assert.equal(result.directive, false, prompt);
+      assert.equal(result.changed, false, prompt);
+      assert.equal(result.error, null, prompt);
+    }
+  }
+});
+
+test('a direct directive still updates authority after blank lines and light indentation', () => {
+  const previous = { ...defaultContract(), mode: 'review', level: 'guard' };
+  for (const prefix of ['', '\n', '\r\n\r\n', '  ']) {
+    const result = parseContractPrompt(`${prefix}$stop-that-shit change hash=allow -- add the required checksum`, previous);
+    assert.equal(result.contract.mode, 'change');
+    assert.equal(result.contract.hashPolicy, 'allow');
+    assert.equal(result.error, null);
+  }
+});
+
+test('directive fields cannot spill into the next line or task body', () => {
+  const previous = { ...defaultContract(), mode: 'review', level: 'guard' };
+  for (const separator of ['\n', '\r\n', ' -- ', ': ']) {
+    const result = parseContractPrompt(`$stop-that-shit${separator}change hash=allow`, previous);
+    assert.equal(result.contract.mode, 'review');
+    assert.equal(result.contract.hashPolicy, 'deny');
+    assert.equal(result.changed, false);
+  }
+  const result = parseContractPrompt('$stop-that-shit review\n$stop-that-shit off change hash=allow', previous);
+  assert.equal(result.contract.mode, 'review');
+  assert.equal(result.contract.level, 'guard');
+  assert.equal(result.contract.hashPolicy, 'deny');
+});
+
+test('ambiguous directive heads fail atomically rather than selecting permissive tokens', () => {
+  const previous = { ...defaultContract(), mode: 'review', level: 'lock', agentBudget: 0 };
+  for (const head of [
+    'example change hash=allow', 'change review', 'review change',
+    'lock off change', 'change agents=0 agents=3',
+    'change hash=deny hash=allow', 'change deps=ask deps=allow',
+    'change files=src/** files=**', 'change hash=alow'
+  ]) {
+    const result = parseContractPrompt(`$stop-that-shit ${head} -- example`, previous);
+    assert.ok(result.error, head);
+    assert.deepEqual(result.contract, previous, head);
+    assert.equal(result.changed, false, head);
+  }
+  const good = parseContractPrompt('$stop-that-shit change change hash=allow HASH=ALLOW -- required checksum', previous);
+  assert.equal(good.error, null);
+  assert.equal(good.contract.mode, 'change');
+  assert.equal(good.contract.hashPolicy, 'allow');
+});
+
+test('natural corrections ignore quoted examples without disabling real task corrections', () => {
+  const previous = { ...defaultContract(), mode: 'change', level: 'guard' };
+  for (const example of [
+    '```text\n$stop-that-shit review -- review only\n```',
+    '~~~text\nanswer only\n~~~',
+    '> review only',
+    '    monitor only',
+    '\t只审查',
+    '`review only`',
+    '``example `review only` here``',
+    '"review only"',
+    "'Don't edit anything'",
+    '“只看不改”',
+    '「不要修改文件」',
+    '『只回答』',
+    '‘monitor only’'
+  ]) {
+    const result = parseContractPrompt(`Add this usage example to README.md:\n${example}`, previous);
+    assert.deepEqual(result.contract, previous, example);
+    assert.equal(result.correction, false, example);
+  }
+  for (const text of ['Review only. Do not edit anything.', '只审查，不要修改代码。']) {
+    assert.equal(parseContractPrompt(text, previous).contract.mode, 'review');
+  }
+  assert.equal(parseContractPrompt('"review only" is an example.\nReview only.', previous).contract.mode, 'review');
+  assert.equal(parseContractPrompt('review `example` only', previous).contract.mode, 'change');
+  const review = { ...previous, mode: 'review' };
+  assert.equal(parseContractPrompt('Fix "src/config.cjs" now.', review).contract.mode, 'change');
+  assert.equal(parseContractPrompt('"Fix the bug" is an example.', review).contract.mode, 'review');
+  assert.equal(parseContractPrompt("Don't edit anything.", previous).contract.mode, 'review');
+});

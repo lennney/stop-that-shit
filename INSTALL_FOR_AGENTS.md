@@ -43,7 +43,7 @@ general improvement in model behavior.
 2. Run these commands one at a time:
 
    ```powershell
-   codex plugin marketplace add lennney/stop-that-shit --ref 0.2.1
+   codex plugin marketplace add lennney/stop-that-shit --ref 0.2.2
    codex plugin add stop-that-shit@stop-that-shit
    ```
 
@@ -51,16 +51,24 @@ general improvement in model behavior.
 4. Ask the user to open a fresh Codex CLI TUI and enter `/hooks`.
 5. Stop and let the user inspect and trust the Hook commands.
 
-A correct Guard installation has these two active events:
+A current candidate registers these six events:
 
 ```text
-UserPromptSubmit  Installed 1  Active 1
-PreToolUse        Installed 1  Active 1
+UserPromptSubmit
+PreToolUse
+PostToolUse
+SubagentStart
+SubagentStop
+SessionEnd
 ```
 
-The other events, including `Stop`, should show zero installed Hooks. An update
-can require another review because Codex records trust for the Hook definition.
-Do not disable or work around this review.
+Compare the plugin sources with `hooks/codex-hooks.json` and confirm its
+handlers are active after review. Other plugins can add entries. Stop That Shit
+does not register `Stop`; its current Codex adapter ignores `SubagentStart`
+and `SubagentStop`, so these entries do not prove delegation completion.
+An update can require another review because Codex records trust for the Hook
+definition. Do not disable or work around this review. See
+[upgrade notes](INSTALL.md#upgrade-to-022) for version and state migration.
 
 ## Hermes Agent CLI
 
@@ -127,10 +135,10 @@ general improvement in model behavior.
 If the user does not want Hooks, install the advisory Skill instead:
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.1/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.2/skills/stop-that-shit
 ```
 
-If the user asks for only Stop That Shit Slop, run this from a `0.2.1` checkout:
+If the user asks for only Stop That Shit Slop, run this from a `0.2.2` checkout:
 
 ```bash
 npx skills add ./skills/stss --global

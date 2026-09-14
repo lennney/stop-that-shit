@@ -13,17 +13,20 @@ const {
   toSubagentStopEvent
 } = require('../src/adapters/opencode-hooks.cjs');
 const { contractContext, handleControlEvent } = require('../src/controller.cjs');
-const { parseContractPrompt } = require('../src/contracts.cjs');
 const { readState, updateSession } = require('../src/state.cjs');
 
 const CONTEXT_PREFIX = 'Stop That Shit context:';
 const MAX_PROCESSED_MESSAGES = 1024;
 
-// Mirror the contract parser exactly: a message is a directive whenever the
-// parser would take the directive branch, including mid-text mentions such as
-// the quoted prompts produced by `opencode run`.
-function isDirective(text) {
-  return Boolean(parseContractPrompt(String(text || '')).directive);
+// Even a quoted mention must suppress implicit host-mode promotion. The core
+// parser alone decides whether the text is a direct contract invocation.
+function mentionsDirective(text) {
+  return /\$stop-that-shit\b/i.test(String(text || ''));
+}
+
+function directiveErrorText(error) {
+  return `Stop That Shit directive rejected (${error.code}): ${error.message} `
+    + 'The previous contract is unchanged. Tools are paused until you submit a corrected instruction.';
 }
 
 function fallbackDataDir() {
@@ -234,11 +237,12 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
   // edit-capable agent while the contract is review, advance the contract to
   // change so the host's build mode and the guard no longer deadlock.
   async function advanceReviewOnEditableAgent(controlSessionID, info) {
-    if (readState(controlSessionID, dataDir).contract.mode !== 'review') return false;
+    const current = readState(controlSessionID, dataDir);
+    if (current.directiveError || current.contract.mode !== 'review') return false;
     const agentName = info && info.agent;
     if (!agentName || !(await agentAllowsEdits(agentName))) return false;
     return updateSession(controlSessionID, dataDir, (state) => {
-      if (state.contract.mode !== 'review') return false;
+      if (state.directiveError || state.contract.mode !== 'review') return false;
       state.contract = { ...state.contract, mode: 'change', source: 'host' };
       return true;
     });
@@ -258,13 +262,14 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
       };
       const output = { message: info || {}, parts: [{ type: 'text', text }] };
       result = handleOpenCodeMessage(input, output, { controlSessionID, directory }, { dataDir });
-      if (!isDirective(text) && await advanceReviewOnEditableAgent(controlSessionID, info)) {
+      if (!mentionsDirective(text) && await advanceReviewOnEditableAgent(controlSessionID, info)) {
         result = null;
       }
     }
     const state = readState(controlSessionID, dataDir);
     const active = contractContext(state.contract, state.delegation);
-    const contextText = result && result.kind === 'context' ? result.text : active;
+    const resultText = result && result.kind === 'context' ? result.text : active;
+    const contextText = state.directiveError ? `${directiveErrorText(state.directiveError)}\n${resultText}` : resultText;
     await injectContext(controlSessionID, info, contextText);
   }
 
@@ -322,13 +327,20 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
       const prior = pending.get(controlSessionID) || pending.get(input.sessionID);
       if (prior) await prior;
       let result;
+      let directiveError;
       try {
-        result = handleOpenCodeTool(input, output, { controlSessionID, directory }, { dataDir });
+        directiveError = readState(controlSessionID, dataDir).directiveError;
+        if (!directiveError) {
+          result = handleOpenCodeTool(input, output, { controlSessionID, directory }, { dataDir });
+        }
       } catch (error) {
         await logFailure('tool.execute.before', error);
         return;
       }
 
+      // The event callback cannot reject a user turn. Stop its tool calls at
+      // the host's pre-execution hook instead; do not treat this as fail-open.
+      if (directiveError) throw new Error(directiveErrorText(directiveError));
       if (result.kind === 'context') queueContext(`${input.sessionID}:${input.callID}`, result.text);
       if (result.kind === 'deny') throw new Error(result.message);
     },

@@ -101,12 +101,17 @@ Claude Code plugin:
 /stop-that-shit:stop-that-shit review -- Review this diff. Report findings; do not edit.
 ```
 
-Codex plugin or host-neutral directive inside a prompt:
+Codex plugin or host-neutral directive at the start of a prompt:
 
 ```text
 $stop-that-shit change -- Fix the failing config test.
 $stop-that-shit review -- Review this diff. Report findings; do not edit.
 ```
+
+Submit one directive on the first non-empty line, outside quotes and code
+blocks. Put task text after `--`, `: `, or a newline. Embedded examples do not
+set directive fields. Unknown fields or conflicting values leave the previous
+contract unchanged and require a corrected directive.
 
 An installed Guard begins in observation-only `unconfirmed` mode. Do not claim
 that an action was blocked unless an explicit mode armed the Guard and the Guard

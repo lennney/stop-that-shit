@@ -56,10 +56,20 @@ Pi Extension          ----> Pi Adapter -----------/  decision(contract, action)
 
 ## Host event boundaries
 
+Direct contract commands start the first non-empty line, outside quotes or code
+blocks. Only that line's directive head sets fields; `--`, `: `, or a newline
+starts task text. Unknown fields and conflicting values return an error without
+partially updating the contract. Runtime queries and label commands follow the
+same first-line boundary. This is syntax validation, not a general interpreter
+of user intent. See [directive entry](INSTALL.md#directive-entry).
+
 Codex maps `UserPromptSubmit` to `prompt.submit`, `PreToolUse` to
 `action.before`, `PostToolUse` to `action.after`, and `SessionEnd` to `session.end`.
-Its spawn result binds a child; confirmed wait results release it. Claude Code
-uses its `Agent` tool's `tool_use_id` and completed result, and injects context
+Its spawn result binds a child; confirmed wait results release it. Codex ignores
+the registered `SubagentStart` and `SubagentStop` events.
+
+Claude Code retains line boundaries when normalizing its native slash form.
+It uses its `Agent` tool's `tool_use_id` and completed result, and injects context
 on `SubagentStart`. Both hosts' `SubagentStop` events are stop attempts and do
 not release reservations. Claude background work without a supported joined
 result stays reserved. `UserPromptExpansion` remains an optional Claude prompt
@@ -101,6 +111,10 @@ documented hooks: `message.part.updated` and session events through `event`, plu
 the SDK `client.session.message` call, injects contract context with
 `client.session.prompt({ noReply: true })`, and maps child sessions to the root
 contract so a subagent cannot silently replace user authority.
+An embedded directive mention cannot arm the contract or trigger the plugin's
+implicit promotion from review to an editable host mode. Separate text parts
+are joined with newlines, so directive fields must stay in the first part's
+first non-empty line.
 
 Pi maps `input`, `before_agent_start`, `tool_call`, `tool_result`, and
 `session_shutdown`. The first two arm and inject the shared contract;

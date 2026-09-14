@@ -1,6 +1,9 @@
-# Install Stop That Shit 0.2.1
+# Install Stop That Shit 0.2.2
 
-These instructions target [`0.2.1`](https://github.com/lennney/stop-that-shit/releases/tag/0.2.1).
+These instructions target [`0.2.2`](https://github.com/lennney/stop-that-shit/releases/tag/0.2.2).
+
+For local checkout validation, use the flow under
+[Local Guard development](#local-guard-development).
 
 If an agent is doing the installation for you, give it
 [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md). That guide separates commands
@@ -17,7 +20,7 @@ claude plugin marketplace add ./
 claude plugin install stop-that-shit@stop-that-shit
 ```
 
-Restart Claude Code after installation. The plugin registers four Hook events:
+Restart Claude Code after installation. The packaged manifest registers:
 
 - `SessionStart` — injects the current contract into a new session;
 - `UserPromptSubmit` — reads host-neutral `$stop-that-shit ...` directives,
@@ -26,7 +29,11 @@ Restart Claude Code after installation. The plugin registers four Hook events:
   armed even on hosts that do not expose the `UserPromptExpansion` event;
 - `PreToolUse` — classifies covered actions and can return permission deny;
 - `SubagentStart` — injects the current contract into a started subagent. Agent
-  budget enforcement happens earlier on `PreToolUse` for the `Agent` tool.
+  budget enforcement happens earlier on `PreToolUse` for the `Agent` tool;
+- `PostToolUse` — reads available delegation results;
+- `PostToolUseFailure` — preserves capacity when completion is unproven;
+- `PermissionDenied` — releases a reservation for a call confirmed not started;
+- `SessionEnd` — preserves unresolved activity rather than assuming completion.
 
 Hosts that expose `UserPromptExpansion` may register it for earlier,
 pre-expansion arming; the adapter keeps that handler, but the packaged
@@ -38,7 +45,7 @@ The Guard requires Node.js 18 or newer. Add the repository as a Codex
 marketplace, then install the plugin:
 
 ```powershell
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.1
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.2
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
@@ -56,28 +63,67 @@ Inspect these executable surfaces before trusting them:
 From a local checkout, run:
 
 ```powershell
+npm ci
 npm test
 npm run eval
 npm run release:check
 ```
 
-## Review two Hooks
+## Review the packaged Hooks
 
 Codex records trust for the Hook definition hash, so inspect each Stop That Shit
 command before trusting it. Start a fresh Codex CLI TUI and enter `/hooks`.
 
-Only two events are required:
+Compare the plugin's entries with [`hooks/codex-hooks.json`](hooks/codex-hooks.json):
 
 - `UserPromptSubmit` reads the task mode and explicit boundaries;
-- `PreToolUse` checks a supported action before it runs.
+- `PreToolUse` checks a supported action before it runs;
+- `PostToolUse` reads supported delegation results;
+- `SubagentStart` and `SubagentStop` are registered, but the current Codex
+  adapter ignores these events. They do not prove parent association or release
+  capacity;
+- `SessionEnd` does not prove that unresolved children have completed.
 
-After review, both rows show `Installed 1 / Active 1 / Review 0`. `Stop 0` is
-expected; the plugin does not install a Stop handler.
+After review, confirm that the plugin's six handlers are active. Other plugins
+can add entries, so compare sources rather than total row counts. Stop That Shit
+does not install a `Stop` handler or automatically continue a finished turn.
 
 Some Codex Desktop builds send `/hooks` as an ordinary message. In that case,
 complete the review in the CLI TUI and restart Desktop. An update may require
 another review because Codex records trust against the Hook definition hash. Do
-not bypass Hook trust for ordinary installation.
+not bypass Hook trust for ordinary installation. See the official
+[Codex Hook trust documentation](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
+
+## Directive entry
+
+Submit one `$stop-that-shit` directive on the first non-empty line, outside
+quotes and code blocks. Up to three leading spaces are accepted; four spaces
+or a tab indicate a code example. Put task text after `--`, `: `, or a newline.
+Do not put an introduction before the directive. Embedded examples do not set
+directive fields. Unknown fields and conflicting values return an error and
+preserve the previous contract; submit a corrected directive before continuing.
+
+Natural-language mode corrections also skip code examples, explicit Markdown
+quote lines, and quoted text. For example, adding a `review only` example to
+README does not switch an active edit task to review.
+
+Codex and Claude return a prompt-block response for an invalid directive.
+Pi handles the input without starting a model turn. OpenCode and Hermes add
+error context and pause tool calls until a corrected instruction clears the
+error. A valid watch/off directive also clears that pause. This input rejection
+does not change the previous contract or the shared watch/off policy.
+
+## Upgrade to 0.2.2
+
+Update the plugin or standalone Skill through its host installation flow, then
+restart or reload. Checking a version is not an update. Codex users must inspect
+and trust new or changed Hook definitions before those handlers can run.
+
+`agents=N` now means reserved concurrent capacity, not cumulative calls. New
+sessions default to unlimited; migration preserves valid existing limits,
+including `0`. Schema 4 retains unresolved legacy activity. A finite Guard
+needs matching terminal evidence or a new host session; an upgrade or session
+end does not clear that activity.
 
 ## Run a smoke test
 
@@ -200,11 +246,11 @@ From a checkout that contains the Pi adapter, install it globally:
 pi install /absolute/path/to/stop-that-shit
 ```
 
-Add `-l` for a project-scoped installation. The `0.2.1` tagged release contains
+Add `-l` for a project-scoped installation. The `0.2.2` tagged release contains
 the Pi adapter; use this pinned Git ref instead of an unpinned branch:
 
 ```bash
-pi install git:github.com/lennney/stop-that-shit@0.2.1
+pi install git:github.com/lennney/stop-that-shit@0.2.2
 ```
 
 Start a new Pi process, or run `/reload` in the TUI after changing package
@@ -234,10 +280,10 @@ cp skills/stop-that-shit/SKILL.md ~/.claude/skills/stop-that-shit/SKILL.md
 For Codex, ask the built-in Skill Installer to install the shared Skill folder:
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.1/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.2/skills/stop-that-shit
 ```
 
-To install only Stop That Shit Slop from a `0.2.1` checkout:
+To install only Stop That Shit Slop from a `0.2.2` checkout:
 
 ```bash
 npx skills add ./skills/stss --global
@@ -260,6 +306,7 @@ codex plugin add stop-that-shit@stop-that-shit
 Run local validation from the checkout root:
 
 ```powershell
+npm ci
 npm test
 npm run eval
 npm run eval:paired -- --dry-run
@@ -315,6 +362,8 @@ Claude Code plugins are removed with the host's plugin controls. Claude Code
 cleans up `CLAUDE_PLUGIN_DATA` when the plugin is uninstalled from its last
 scope unless you uninstall with `--keep-data`.
 
-The Guard stores only the active per-session contract in the host-provided data
-directory (`PLUGIN_DATA` for Codex, `CLAUDE_PLUGIN_DATA` for Claude Code).
-Review that directory separately if you uninstall.
+The Guard stores per-session contracts and delegation state, metadata-only
+runtime events, and manual labels in the host-provided data directory
+(`PLUGIN_DATA` for Codex, `CLAUDE_PLUGIN_DATA` for Claude Code).
+Review that directory separately if you uninstall. See [PRIVACY.md](PRIVACY.md)
+for the distinction between session state and runtime events.

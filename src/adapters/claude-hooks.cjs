@@ -31,16 +31,15 @@ function isStopThatShitExpansion(input) {
 }
 
 function expansionDirective(input) {
-  const args = String(input.command_args || '').trim();
+  const args = String(input.command_args || '').replace(/^[ \t]+/, '');
   return `$stop-that-shit${args ? ` ${args}` : ''}`;
 }
 
 function slashDirective(prompt) {
-  const text = String(prompt || '').trim();
-  const match = /^\/(?:stop-that-shit:)?stop-that-shit(?:\s+([\s\S]*))?$/i.exec(text);
+  const text = String(prompt || '');
+  const match = /^(?:[ \t]*\r?\n)* {0,3}\/(?:stop-that-shit:)?stop-that-shit(?=$|[\s,:])/i.exec(text);
   if (!match) return null;
-  const args = (match[1] || '').trim();
-  return `$stop-that-shit${args ? ` ${args}` : ''}`;
+  return `$stop-that-shit${text.slice(match[0].length)}`;
 }
 
 

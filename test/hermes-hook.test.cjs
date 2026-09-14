@@ -123,6 +123,21 @@ test('Hermes entrypoint emits context for pre_llm_call and block JSON for denied
   assert.match(response.message, /I\/MODE_FORBIDS_MUTATION/);
 });
 
+test('Hermes bundled entrypoint retains invalid-input rejection between processes and recovers', (t) => {
+  const home = temporaryHome(t);
+  const invoke = (payload) => {
+    const result = runHook(home, JSON.stringify(payload));
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout ? JSON.parse(result.stdout) : null;
+  };
+  invoke(prompt('invalid-wire', '$stop-that-shit change -- implement'));
+  assert.match(invoke(prompt('invalid-wire', '$stop-that-shit review hash=alow -- inspect')).context, /INVALID_DIRECTIVE_TOKEN/);
+  const write = pre('invalid-wire', 'write_file', { path: 'README.md', content: 'x' });
+  assert.equal(invoke(write).action, 'block');
+  invoke(prompt('invalid-wire', '$stop-that-shit change -- implement'));
+  assert.equal(invoke(write), null);
+});
+
 test('allow, unknown events, and empty stdin exit zero without stdout', (t) => {
   const home = temporaryHome(t);
   const empty = runHook(home, '');

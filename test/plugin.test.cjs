@@ -9,6 +9,16 @@ const test = require('node:test');
 
 const root = path.join(__dirname, '..');
 
+test('release and package manifests include every README language and the legacy Chinese entry', () => {
+  const release = JSON.parse(fs.readFileSync(path.join(root, 'release-files.json'), 'utf8'));
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  for (const file of ['README.md', 'README_EN.md', 'README_KO.md', 'README_CN.md']) {
+    assert.ok(release.include.includes(file), `release omits ${file}`);
+    assert.ok(pkg.files.includes(file), `package omits ${file}`);
+    assert.ok(fs.existsSync(path.join(root, file)), `${file} is missing`);
+  }
+});
+
 test('Codex plugin manifest discovers both Skills and preserves its hook paths', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, '.codex-plugin', 'plugin.json'), 'utf8'));
   const hooks = JSON.parse(fs.readFileSync(path.join(root, 'hooks', 'codex-hooks.json'), 'utf8'));

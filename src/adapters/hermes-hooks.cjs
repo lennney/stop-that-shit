@@ -2,6 +2,7 @@
 
 const { PROTOCOL_VERSION } = require('../control-protocol.cjs');
 const { handleControlEvent } = require('../controller.cjs');
+const { readState } = require('../state.cjs');
 const {
   classifyHermesTool,
   countHermesDelegation,
@@ -105,8 +106,14 @@ function toControlEvent(input) {
   return event;
 }
 
+function directiveErrorText(error) {
+  return `Stop That Shit directive rejected (${error.code}): ${error.message} `
+    + 'The previous contract is unchanged. Tools are paused until you submit a corrected instruction.';
+}
+
 function fromControlResult(result, kind) {
   if (!result || result.kind === 'none') return null;
+  if (result.kind === 'prompt-error') return { context: directiveErrorText(result.error) };
   if (result.kind === 'context') {
     if (['subagent.start', 'subagent.stop', 'session.end'].includes(kind)) return null;
     return { context: result.text };
@@ -118,7 +125,19 @@ function fromControlResult(result, kind) {
 function handleHermesHook(input, options = {}) {
   const event = toControlEvent(input);
   if (!event) return null;
-  return fromControlResult(handleControlEvent(event, options), event.kind);
+  // pre_llm_call can add context but cannot reject a user turn. Keep invalid
+  // input from executing through the existing pre_tool_call block response.
+  if (event.kind === 'action.before') {
+    const error = readState(event.sessionId, options.dataDir).directiveError;
+    if (error) return { action: 'block', message: directiveErrorText(error) };
+  }
+  const result = handleControlEvent(event, options);
+  const output = fromControlResult(result, event.kind);
+  if (event.kind === 'prompt.submit' && result.kind !== 'prompt-error') {
+    const error = readState(event.sessionId, options.dataDir).directiveError;
+    if (error) return { context: directiveErrorText(error) + (output ? `\n${output.context}` : '') };
+  }
+  return output;
 }
 
 module.exports = {

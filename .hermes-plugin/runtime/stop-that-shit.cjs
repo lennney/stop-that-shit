@@ -8,6 +8,7 @@ const __modules = {
 
 const { PROTOCOL_VERSION } = __require("src/control-protocol.cjs");
 const { handleControlEvent } = __require("src/controller.cjs");
+const { readState } = __require("src/state.cjs");
 const {
   classifyHermesTool,
   countHermesDelegation,
@@ -111,8 +112,14 @@ function toControlEvent(input) {
   return event;
 }
 
+function directiveErrorText(error) {
+  return `Stop That Shit directive rejected (${error.code}): ${error.message} `
+    + 'The previous contract is unchanged. Tools are paused until you submit a corrected instruction.';
+}
+
 function fromControlResult(result, kind) {
   if (!result || result.kind === 'none') return null;
+  if (result.kind === 'prompt-error') return { context: directiveErrorText(result.error) };
   if (result.kind === 'context') {
     if (['subagent.start', 'subagent.stop', 'session.end'].includes(kind)) return null;
     return { context: result.text };
@@ -124,7 +131,19 @@ function fromControlResult(result, kind) {
 function handleHermesHook(input, options = {}) {
   const event = toControlEvent(input);
   if (!event) return null;
-  return fromControlResult(handleControlEvent(event, options), event.kind);
+  // pre_llm_call can add context but cannot reject a user turn. Keep invalid
+  // input from executing through the existing pre_tool_call block response.
+  if (event.kind === 'action.before') {
+    const error = readState(event.sessionId, options.dataDir).directiveError;
+    if (error) return { action: 'block', message: directiveErrorText(error) };
+  }
+  const result = handleControlEvent(event, options);
+  const output = fromControlResult(result, event.kind);
+  if (event.kind === 'prompt.submit' && result.kind !== 'prompt-error') {
+    const error = readState(event.sessionId, options.dataDir).directiveError;
+    if (error) return { context: directiveErrorText(error) + (output ? `\n${output.context}` : '') };
+  }
+  return output;
 }
 
 module.exports = {
@@ -320,7 +339,7 @@ function decisionMessage(result, contract, event, responseOutcome) {
 }
 
 function runtimeCommand(prompt) {
-  const match = /^\s*\$stop-that-shit\s+(status|runtime(?:\s+all)?|explain\s+(evt_[0-9a-f-]+)|label\s+(evt_[0-9a-f-]+)\s+(correct|incorrect|inconclusive))\s*$/i.exec(prompt);
+  const match = /^(?:[ \t]*\r?\n)* {0,3}\$stop-that-shit[ \t]+(status|runtime(?:[ \t]+all)?|explain[ \t]+(evt_[0-9a-f-]+)|label[ \t]+(evt_[0-9a-f-]+)[ \t]+(correct|incorrect|inconclusive))[ \t]*(?:\r?\n[ \t]*)*$/i.exec(prompt);
   if (!match) return null;
   const words = match[1].toLowerCase().split(/\s+/);
   return { name: words[0], all: words[1] === 'all', eventId: match[2] || match[3] || null, label: match[4] || null };
@@ -546,7 +565,7 @@ function defaultContract() {
 }
 
 function directiveHead(prompt, matchEnd) {
-  const tail = prompt.slice(matchEnd).trimStart();
+  const tail = prompt.slice(matchEnd).replace(/^[ \t]+/, '');
   const boundaries = [tail.indexOf('--'), tail.search(/:(?=\s|$)/), tail.indexOf('\n')]
     .filter((index) => index >= 0);
   const end = boundaries.length ? Math.min(...boundaries) : tail.length;
@@ -554,17 +573,37 @@ function directiveHead(prompt, matchEnd) {
 }
 
 function parseDirective(prompt) {
-  const mention = /\$stop-that-shit\b/i.exec(prompt);
+  // A directive starts the first non-empty line, outside quoted/code content.
+  // Four spaces or a tab denote an indented code example, not an invocation.
+  const mention = /^(?:[ \t]*\r?\n)* {0,3}\$stop-that-shit(?=$|[\s,:])/i.exec(prompt);
   if (!mention) return null;
 
   const head = directiveHead(prompt, mention.index + mention[0].length);
   const tokens = head.split(/[\s,]+/).map((token) => token.trim()).filter(Boolean);
   const parsed = { mentioned: true, error: null, warning: null };
 
+  function setField(field, value, token) {
+    if (Object.hasOwn(parsed, field) && JSON.stringify(parsed[field]) !== JSON.stringify(value)) {
+      parsed.error = {
+        code: 'CONFLICTING_DIRECTIVE', token,
+        message: `Conflicting values for ${field}. Submit one value per directive field.`
+      };
+    } else {
+      parsed[field] = value;
+    }
+  }
+
   for (const rawToken of tokens) {
+    if (parsed.error) break;
     const token = rawToken.toLowerCase();
-    if (MODES.has(token)) parsed.mode = token;
-    if (LEVELS.has(token)) parsed.level = token;
+    if (MODES.has(token)) {
+      setField('mode', token, rawToken);
+      continue;
+    }
+    if (LEVELS.has(token)) {
+      setField('level', token, rawToken);
+      continue;
+    }
     const agents = /^agents=(.*)$/i.exec(rawToken);
     if (agents) {
       const value = parseAgentLimit(agents[1]);
@@ -572,7 +611,7 @@ function parseDirective(prompt) {
         parsed.error = invalidAgentLimit(rawToken);
         break;
       }
-      parsed.agentBudget = value;
+      setField('agentBudget', value, rawToken);
       continue;
     }
     if (/^agents$/i.test(rawToken)) {
@@ -592,11 +631,24 @@ function parseDirective(prompt) {
       break;
     }
     const hash = /^hash=(deny|ask|allow)$/.exec(token);
-    if (hash && HASH_POLICIES.has(hash[1])) parsed.hashPolicy = hash[1];
+    if (hash && HASH_POLICIES.has(hash[1])) {
+      setField('hashPolicy', hash[1], rawToken);
+      continue;
+    }
     const files = /^files=(.*)$/i.exec(rawToken);
-    if (files) parsed.allowedPaths = files[1].split('|').map((value) => value.replace(/\\/g, '/')).filter(Boolean);
+    if (files) {
+      setField('allowedPaths', files[1].split('|').map((value) => value.replace(/\\/g, '/')).filter(Boolean), rawToken);
+      continue;
+    }
     const dependencies = /^deps=(deny|ask|allow)$/.exec(token);
-    if (dependencies && SCOPE_POLICIES.has(dependencies[1])) parsed.dependencyPolicy = dependencies[1];
+    if (dependencies && SCOPE_POLICIES.has(dependencies[1])) {
+      setField('dependencyPolicy', dependencies[1], rawToken);
+      continue;
+    }
+    parsed.error = {
+      code: 'INVALID_DIRECTIVE_TOKEN', token: rawToken,
+      message: 'Unknown directive field. Put task text after -- or on the next line.'
+    };
   }
 
   return parsed;
@@ -616,8 +668,32 @@ function invalidAgentLimit(token) {
   };
 }
 
+function correctionProse(prompt) {
+  let fence = null;
+  // Keep a separator: removing an example must not join words into a new
+  // instruction, or expose a quoted "fix" as the start of the user's prompt.
+  const omitted = '\uFFFC';
+  return prompt.split(/\r?\n/).map((line) => {
+    if (fence) {
+      const close = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
+      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
+      return omitted;
+    }
+    if (/^(?: {0,3}>| {4}|\t)/.test(line)) return omitted;
+    const open = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (open && (open[1][0] !== '`' || !line.slice(open[0].length).includes('`'))) {
+      fence = open[1];
+      return omitted;
+    }
+    return line;
+  }).join('\n')
+    .replace(/(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g, omitted)
+    .replace(/"(?:\\.|[^"\\])*"|(?<![\p{L}\p{N}\\])'[\s\S]*?(?<!\\)'(?![\p{L}\p{N}])|“[^”]*”|‘[^’]*’|「[^」]*」|『[^』]*』/gu, omitted)
+    .trim();
+}
+
 function naturalCorrection(prompt, previous) {
-  const text = prompt.trim();
+  const text = correctionProse(prompt);
 
   if (/^(?:stop|stop now|停止|停下来)[.!。！\s]*$/i.test(text)) {
     return { mode: 'answer', source: 'explicit-stop' };
@@ -1363,7 +1439,7 @@ module.exports = { readRuntime, recordDecision };
 "package.json": function(module, exports, __require) {
 module.exports = {
   "name": "stop-that-shit",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "Keep agent work bounded and reduce defensive wording in Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi",
   "keywords": [
@@ -1391,7 +1467,10 @@ module.exports = {
     "INSTALL.md",
     "LICENSE",
     "PRIVACY.md",
-    "README.md"
+    "README.md",
+    "README_CN.md",
+    "README_EN.md",
+    "README_KO.md"
   ],
   "pi": {
     "extensions": [
@@ -2153,7 +2232,7 @@ module.exports = { optionalIdentifier, readAsyncLaunched };
 };
 __modules["package.json"] = function(module) { module.exports = {
   "name": "stop-that-shit",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "Keep agent work bounded and reduce defensive wording in Codex, Claude Code, OpenCode, Hermes Agent CLI, and Pi",
   "keywords": [
@@ -2181,7 +2260,10 @@ __modules["package.json"] = function(module) { module.exports = {
     "INSTALL.md",
     "LICENSE",
     "PRIVACY.md",
-    "README.md"
+    "README.md",
+    "README_CN.md",
+    "README_EN.md",
+    "README_KO.md"
   ],
   "pi": {
     "extensions": [

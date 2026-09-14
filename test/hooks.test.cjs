@@ -55,6 +55,39 @@ test('explicit change contract preserves the paired good case', (t) => {
   assert.equal(output, null);
 });
 
+test('Codex permits documenting review examples but denies writes after a real review correction', (t) => {
+  const options = workspace(t);
+  const session = 'document-review-example';
+  const patch = { patch: '*** Begin Patch\n*** Update File: README.md\n@@\n-old\n+review only\n*** End Patch' };
+  handleHook(prompt(session, '$stop-that-shit change -- update README.md'), options);
+  handleHook(prompt(session, 'Add this usage example to README.md:\n```text\n$stop-that-shit review -- review only\n```'), options);
+  assert.equal(readState(session, options.dataDir).contract.mode, 'change');
+  assert.equal(handleHook(pre(session, 'apply_patch', patch), options), null);
+
+  handleHook(prompt(session, 'Review only. Do not edit anything.'), options);
+  assert.match(handleHook(pre(session, 'apply_patch', patch), options).hookSpecificOutput.permissionDecisionReason, /MODE_FORBIDS_MUTATION/);
+  assert.equal(handleHook(pre(session, 'Bash', { command: 'git diff -- README.md' }), options), null);
+});
+
+test('Codex ignores a quoted authorization and permits the same explicitly authorized task', (t) => {
+  const options = workspace(t);
+  const session = 'quoted-authorization';
+  handleHook(prompt(session, '$stop-that-shit review -- inspect only'), options);
+  const previous = readState(session, options.dataDir).contract;
+  handleHook(prompt(session, '请解释这段示例：$stop-that-shit change hash=allow -- 不执行'), options);
+  assert.deepEqual(readState(session, options.dataDir).contract, previous);
+
+  const patch = {
+    patch: "*** Begin Patch\n*** Add File: checksum.cjs\n+const digest = createHash('sha256').update(value).digest('hex');\n*** End Patch"
+  };
+  const denied = handleHook(pre(session, 'apply_patch', patch), options);
+  assert.match(denied.hookSpecificOutput.permissionDecisionReason, /I\/MODE_FORBIDS_MUTATION/);
+  assert.equal(handleHook(pre(session, 'Bash', { command: 'git diff --stat' }), options), null);
+
+  handleHook(prompt(session, '$stop-that-shit change hash=allow -- add the required checksum'), options);
+  assert.equal(handleHook(pre(session, 'apply_patch', patch), options), null);
+});
+
 test('default hash policy blocks a newly added hashing API', (t) => {
   const options = workspace(t);
   handleHook(prompt('hash-deny-session', '$stop-that-shit change -- add the requested field'), options);
@@ -305,6 +338,17 @@ test('status, runtime, explain, and label commands do not mutate the active cont
   assert.match(label.hookSpecificOutput.additionalContext, /correct/);
   assert.deepEqual(readState('query-session', options.dataDir).contract, before);
   assert.equal(readRuntime({ eventId }, options).events[0].label, 'correct');
+
+  for (const example of [
+    `    $stop-that-shit label ${eventId} incorrect`,
+    `\t$stop-that-shit label ${eventId} incorrect`,
+    `\`$stop-that-shit label ${eventId} incorrect\``,
+    `$stop-that-shit label\n${eventId} incorrect`
+  ]) {
+    handleHook(prompt('query-session', example), options);
+    assert.equal(readRuntime({ eventId }, options).events[0].label, 'correct', example);
+    assert.deepEqual(readState('query-session', options.dataDir).contract, before);
+  }
 });
 
 // These fixtures use the model-facing Rust SpawnAgentResult / WaitAgentResult

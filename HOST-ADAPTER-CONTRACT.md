@@ -60,11 +60,25 @@ The normalized event is versioned as `ControlEvent v2`:
 
 ## Codex mapping
 
+The shared parser accepts one directive at the start of the first non-empty
+line, outside quotes and code blocks. Formal directive parsing does not scan
+later text for fields.
+Fields stay on that line before `--` or `: `. Unknown fields and conflicting
+values leave the previous contract unchanged and report an error. Runtime
+queries and labels use the same entry boundary.
+
+Natural-language corrections skip fenced and indented code, inline code,
+explicit Markdown quote lines, and quoted strings. This is a bounded text
+filter, not a full Markdown parser. It preserves actual corrections in prose:
+documenting `review only` leaves an edit task unchanged, while a direct request
+to review without editing still selects review.
+
 The Codex adapter binds `spawn_agent` results `{agent_id, nickname}` to the
 originating call. JSON objects and serialized JSON results are accepted.
 `wait_agent` releases only requested UUID targets reported as completed or shut
 down. Path aliases, errored statuses, and `close_agent.previous_status` do not
-prove terminal execution. `SubagentStop` is a stop attempt in the child's
+prove terminal execution. Both `SubagentStart` and `SubagentStop` are registered
+but ignored by this adapter. `SubagentStop` is a stop attempt in the child's
 session and can be continued by hooks; it does not mutate the parent's ledger.
 Finite Guard rejects `send_input` and `resume_agent` because a resumed run lacks
 a completion incarnation. The original `hooks/codex-hooks.json` entrypoint stays.
@@ -85,6 +99,9 @@ PostToolUseFailure    -> action.after / unknown
 SessionEnd            -> session.end
 UserPromptExpansion  -> prompt.submit (Stop That Shit Skill only; optional on hosts that expose it)
 ```
+
+Direct slash normalization preserves code indentation and newline boundaries.
+It does not turn a quoted or indented slash example into a contract command.
 
 The Claude adapter returns a `PreToolUse` `permissionDecision: "deny"` when the
 shared controller denies an action. `agents=N` is enforced before a Claude
@@ -134,14 +151,25 @@ messages cannot feed back into contract parsing. Per-session processing is
 serialized, and `tool.execute.before` waits for in-flight message processing
 before it evaluates the contract.
 
-An explicit host mode switch is treated as authorization. When a root-session
-user message that is not a `$stop-that-shit` directive arrives under an
-edit-capable agent (resolved through `client.app.agents()`; unknown agents fail
+The existing host-mode path treats editable-agent messages as authorization.
+When a root-session user message containing no `$stop-that-shit` mention arrives
+under an edit-capable agent (resolved through `client.app.agents()`; unknown agents fail
 open) while the contract is `review`, the plugin advances the contract to
 `change` with `source: host`, preserving file, dependency, and hash settings.
-Explicit directives always win, read-only agents never advance, subagent
-messages never advance the root contract, and the host permission layer
+Quoted and embedded mentions suppress that promotion without becoming direct
+authorization. Multipart text is joined with newlines; later parts cannot add
+directive fields to the first line. Explicit directives always win. Read-only
+agents and subagent messages never advance the root contract. The host permission layer
 continues to apply independently.
+
+An invalid directive adds error context and preserves the previous contract.
+The event callback cannot reject a user turn, so `tool.execute.before` throws
+the directive error until a corrected instruction clears it. This also applies
+after reload, to child-session calls, and when context injection fails. Pending
+errors prevent implicit editable-agent promotion. This input pause is separate
+from shared Guard policy and applies even if the previous level was watch/off;
+a valid watch/off directive clears it. Input pauses do not create shared
+policy-denial audit events.
 
 OpenCode creates a new session identifier for each `task` subagent. The plugin
 maps child sessions to the root session contract. A task
@@ -183,6 +211,12 @@ top-level turn id) to `turnId`. A context result is rendered as
 `cwd` to `action.before`. A denied action is rendered as
 `{"action":"block","message":"..."}`. Unknown events, empty payloads, and
 non-applicable allow results produce no stdout and exit successfully.
+
+An invalid directive returns error context from `pre_llm_call`; it does not
+abort the model call. Until a corrected instruction clears the error,
+`pre_tool_call` returns a block response, including after a runtime restart.
+As with OpenCode, this is input rejection, independent of the previous
+watch/off level, and does not create shared policy-denial audit events.
 
 The adapter reserves the complete `delegate_task` batch. Its serialized JSON
 result identifies a background dispatch through `status: dispatched`,
@@ -246,6 +280,12 @@ decision path is used in UI and headless modes; notifications are UI-only.
 user authority. Pi can receive queued input while an Agent turn is streaming;
 contract changes in that state are handled without changing the active
 contract and must be submitted again after Pi is idle.
+
+Invalid directives return `action: handled` from `input`, so that input does
+not start a model turn. A visible custom message reports the error in UI and
+headless sessions without triggering a turn. If delivery fails, the adapter
+tries a UI notification and still returns handled. The previous contract is
+unchanged; a corrected directive can start the next turn normally.
 
 The explicit Pi table covers `read`, `grep`, `find`, `ls`, `write`, `edit`,
 `bash`, and `powershell`. Every unlisted custom or package tool remains

@@ -104,7 +104,7 @@ await writeFile("report.csv", csv);
 <details>
 <summary>Claude Code</summary>
 
-下载并解压 [0.2.1 源码](https://github.com/lennney/stop-that-shit/archive/refs/tags/0.2.1.zip)，在仓库根目录执行：
+下载并解压 [0.2.2 源码](https://github.com/lennney/stop-that-shit/archive/refs/tags/0.2.2.zip)，在仓库根目录执行：
 
 ```bash
 claude plugin validate .
@@ -124,11 +124,11 @@ claude plugin install stop-that-shit@stop-that-shit
 <summary>Codex</summary>
 
 ```bash
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.1
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.2
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
-`--ref 0.2.1` 把安装固定到版本 tag，不跟随可变的 `main`。重启 Codex。在新的 CLI TUI 中输入 `/hooks`，检查命令后信任 `UserPromptSubmit` 和 `PreToolUse`。也可以把 [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) 交给 Codex，让它完成非交互步骤。
+`--ref 0.2.2` 把安装固定到版本 tag，不跟随可变的 `main`。重启 Codex。在新的 CLI TUI 中输入 `/hooks`，对照[打包的 Hook 清单](INSTALL.md#review-the-packaged-hooks)检查并信任命令。也可以把 [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) 交给 Codex，让它完成非交互步骤。
 
 </details>
 
@@ -183,13 +183,13 @@ pi install /absolute/path/to/stop-that-shit
 /skill:stop-that-shit review -- Review 这个 diff，只报告问题，不要修改。
 ```
 
-从 `0.2.1` tag 安装即可获得 Pi Adapter 和两个 Skill。详见 [INSTALL.md](INSTALL.md#pi-coding-agent)。
+从 `0.2.2` tag 安装即可获得 Pi Adapter 和两个 Skill。详见 [INSTALL.md](INSTALL.md#pi-coding-agent)。
 
 </details>
 
 ## 使用
 
-在 Codex 或支持宿主无关指令的 prompt 中，先说清这次要做什么：
+在 Codex 或支持宿主无关指令的 prompt 中，把一条指令放在消息首个非空行，不要包在引用或代码块里。用 `--` 分隔任务正文：
 
 ```text
 $stop-that-shit review -- Review 这个 diff，只报告问题，不要修改。
@@ -276,7 +276,7 @@ npx skills add ./skills/stss --global
 
 **会保存我的代码和对话吗？**
 
-本地 Runtime 只保存任务边界状态和元数据记录，不保存代码或对话正文。详见 [PRIVACY.md](PRIVACY.md)。
+Runtime 事件不保存代码或对话正文；会话状态另存显式路径、关联 ID 和指令错误等控制信息。分享插件数据前应先检查会话状态，详见 [PRIVACY.md](PRIVACY.md)。
 
 **怎么更新、卸载或参与开发？**
 

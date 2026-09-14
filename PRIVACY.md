@@ -1,8 +1,9 @@
 # Privacy
 
-Stop That Shit makes no automatic network requests. It has no telemetry, cloud
-service, transcript upload, or analytics endpoint. The Guard and both Skills
-run locally.
+The Guard runtime makes no automatic external network requests. It has no
+telemetry, cloud service, transcript upload, or analytics endpoint. It runs
+locally. Both Skills are local instruction files; the host and model provider
+still determine how the model processes their content and the user's task.
 
 The optional `sts doctor --check-update` command sends one unauthenticated HTTPS
 request to the public GitHub Releases API only when the user invokes it. The
@@ -22,6 +23,14 @@ diffs, tool output, model responses, or raw session identifiers. Manual labels
 (`correct`, `incorrect`, or `inconclusive`) are stored in a separate append-only
 annotation log. The most recent label is used for summaries; prior labels are
 not rewritten.
+
+Session state is separate from these metadata-only runtime events. It includes
+the explicit file boundary, delegation reservations, host action/agent IDs and
+aliases used for correlation, unresolved activity, and directive errors. An
+error can retain the invalid directive token. The last generated contract
+context is also retained to avoid repeated injection. These fields are not
+transcript logging, but they can contain user-supplied paths or directive text.
+Review session state before sharing the plugin data directory.
 
 The session filename is derived from the opaque host session identifier so that
 the identifier itself is not exposed as a path. This local derivation is not an

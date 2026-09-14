@@ -45,6 +45,26 @@ function pre(session, toolName, toolInput, cwd = root, toolUseId = `${toolName}-
   };
 }
 
+test('Claude slash normalization preserves quoted examples and directive line boundaries', (t) => {
+  const options = workspace(t);
+  const session = 'slash-authority-boundary';
+  handleClaudeHook(prompt(session, '/stop-that-shit:stop-that-shit review -- inspect only'), options);
+  const previous = readState(session, options.dataDir).contract;
+  for (const text of [
+    '    /stop-that-shit:stop-that-shit change hash=allow',
+    '\t/stop-that-shit:stop-that-shit change hash=allow',
+    '"/stop-that-shit:stop-that-shit change hash=allow"',
+    '/stop-that-shit:stop-that-shit\nchange hash=allow'
+  ]) {
+    handleClaudeHook(prompt(session, text), options);
+    assert.deepEqual(readState(session, options.dataDir).contract, previous, text);
+  }
+  handleClaudeHook(expansion(session, '\nchange hash=allow'), options);
+  assert.deepEqual(readState(session, options.dataDir).contract, previous);
+  handleClaudeHook(prompt(session, '/stop-that-shit:stop-that-shit change hash=allow -- required checksum'), options);
+  assert.equal(handleClaudeHook(pre(session, 'Write', { file_path: 'checksum.cjs', content: 'required' }), options), null);
+});
+
 test('Claude Adapter maps official Hook fields to ControlEvent v2', () => {
   const event = toControlEvent(pre('map-session', 'NotebookEdit', {
     notebook_path: path.join(root, 'notebooks', 'demo.ipynb'),
