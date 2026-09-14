@@ -11,18 +11,18 @@ actions, context responses, and permission denies. It records host effect as
 `unobserved`; a returned permission deny is not evidence that the host skipped
 the action.
 
-Version: 0.2.2 Authorization, lifecycle, and Skill updates (release candidate)
-Release target (not yet published): https://github.com/lennney/stop-that-shit/releases/tag/0.2.2
+Version: 0.2.2 Authorization, lifecycle, and Skill updates
+Release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.2
 Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.1
 Last updated: 2026-09-14
 
-## 0.2.2 candidate
+## 0.2.2 validation
 
-This candidate includes the merged lifecycle and Skill updates, plus the
-directive-entry and host error-handling fixes. It has not been tagged or
-published. No new live Codex
-installation or paid-model comparison has been run for this candidate. Earlier
-host results below remain historical evidence, not current install acceptance.
+This version includes the merged lifecycle and Skill updates, plus the
+directive-entry and host error-handling fixes. The maintainer reported
+completing 0.2.2 installation acceptance before release. This report does not
+include a new recorded live-host run or paid-model comparison for 0.2.2.
+Earlier host results below remain historical evidence.
 Host effect remains `unobserved`.
 
 Local checks on Windows with Node.js 24.14.1:

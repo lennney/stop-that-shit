@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.2 — Unreleased (Authorization, lifecycle, and Skill updates / 授权、生命周期与 Skill 更新)
+## 0.2.2 — 2026-09-14 (Authorization, lifecycle, and Skill updates / 授权、生命周期与 Skill 更新)
 
 ### 修复 / Fixed
 

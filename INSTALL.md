@@ -2,8 +2,7 @@
 
 These instructions target [`0.2.2`](https://github.com/lennney/stop-that-shit/releases/tag/0.2.2).
 
-Version 0.2.2 is a release candidate until that tag is published. For local
-candidate validation, use the checkout flow under
+For local checkout validation, use the flow under
 [Local Guard development](#local-guard-development).
 
 If an agent is doing the installation for you, give it
