@@ -74,19 +74,24 @@ npm run release:check
 Codex records trust for the Hook definition hash, so inspect each Stop That Shit
 command before trusting it. Start a fresh Codex CLI TUI and enter `/hooks`.
 
-Compare the plugin's entries with [`hooks/codex-hooks.json`](hooks/codex-hooks.json):
+Compare the plugin's entries with [`hooks/codex-hooks.json`](hooks/codex-hooks.json).
+This source candidate registers four handlers:
 
 - `UserPromptSubmit` reads the task mode and explicit boundaries;
 - `PreToolUse` checks a supported action before it runs;
 - `PostToolUse` reads supported delegation results;
-- `SubagentStart` and `SubagentStop` are registered, but the current Codex
-  adapter ignores these events. They do not prove parent association or release
-  capacity;
 - `SessionEnd` does not prove that unresolved children have completed.
 
-After review, confirm that the plugin's six handlers are active. Other plugins
-can add entries, so compare sources rather than total row counts. Stop That Shit
-does not install a `Stop` handler or automatically continue a finished turn.
+After review, confirm that the handlers listed by the installed definition are
+active. Other plugins can add entries, so compare sources rather than total row
+counts. This candidate does not register `Stop`, `SubagentStart`, or
+`SubagentStop` for Codex, and does not automatically continue a finished turn.
+Subagent events from older Codex
+configurations remain ignored; they do not prove completion or release capacity.
+
+The four-handler list describes this source candidate. Published `0.2.2` still
+registers the two ignored Subagent handlers. When checking that release, compare
+against its installed `hooks/codex-hooks.json` rather than the candidate count.
 
 Some Codex Desktop builds send `/hooks` as an ordinary message. In that case,
 complete the review in the CLI TUI and restart Desktop. An update may require
