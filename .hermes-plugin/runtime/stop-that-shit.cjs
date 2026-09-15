@@ -2170,22 +2170,44 @@ function detectDependencyIntent(toolName, toolInput) {
   return false;
 }
 
-function classifyGitBranchArguments(argumentsText) {
-  const args = argumentsText.trim();
-  if (!args) return 'read';
-  const mutation = /(?:^|\s)(?:-[a-zA-Z]*[dDmMcCf][a-zA-Z]*|--(?:delete|move|copy|force|edit-description|set-upstream-to|unset-upstream|track|no-track|create-reflog)(?:=[^\s]*)?)(?:\s|$)/;
-  if (mutation.test(args)) return 'write';
-  // These documented filters imply --list. Plain positional arguments create
-  // a branch, so do not infer a read from the command name alone.
-  const listing = /(?:^|\s)(?:-l|--(?:list|contains|no-contains|merged|no-merged|points-at))(?:[=\s]|$)/;
-  if (listing.test(args)) return 'read';
-  const readOption = /^(?:-[arv]+|--(?:show-current|all|remotes|verbose|no-color|no-column)|--color=(?:always|never|auto))$/;
-  return args.split(/\s+/).every(arg => readOption.test(arg)) ? 'read' : 'unknown';
+function classifyGitBranchArguments(args) {
+  let listing = false, positional = false;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--') { positional ||= i + 1 < args.length; break; }
+    if (!arg.startsWith('-')) { positional = true; continue; }
+    if (/^(?:-[a-zA-Z]*[dDmMcCf][a-zA-Z]*|--(?:delete|move|copy|force|edit-description|set-upstream-to|unset-upstream|track|no-track|create-reflog)(?:=.*)?)$/.test(arg)) return 'write';
+    if (arg === '--list' || /^-[alrv]+$/.test(arg)) {
+      listing ||= arg === '--list' || arg.includes('l');
+      continue;
+    }
+    if (/^--(?:contains|no-contains|merged|no-merged)(?:=.*)?$/.test(arg)) {
+      listing = true;
+      if (!arg.includes('=') && args[i + 1] && !args[i + 1].startsWith('-')) i++;
+      continue;
+    }
+    if (/^--(?:points-at|format|sort)(?:=.*)?$/.test(arg)) {
+      listing ||= arg === '--points-at' || arg.startsWith('--points-at=');
+      if (!arg.includes('=')) {
+        if (i + 1 === args.length) return 'unknown';
+        i++;
+      }
+      continue;
+    }
+    if (/^--(?:show-current|all|remotes|verbose|no-color|column|no-column|ignore-case|omit-empty|no-abbrev)$/.test(arg)
+        || /^--(?:color=(?:always|never|auto)|abbrev(?:=\d+)?|column=.+)$/.test(arg)) continue;
+    // Negation and abbreviations can cancel --list or select a mutation.
+    return 'unknown';
+  }
+  return positional && !listing ? 'unknown' : 'read';
 }
 
-const READ_SHELL_COMMANDS = new Set([
+const READ_POWERSHELL_COMMANDS = new Set([
   'get-content', 'get-childitem', 'get-item', 'test-path', 'resolve-path',
-  'select-string', 'select-object', 'measure-object', 'compare-object', 'where-object',
+  'select-string', 'select-object', 'measure-object', 'compare-object', 'where-object'
+]);
+const READ_SHELL_COMMANDS = new Set([
+  ...READ_POWERSHELL_COMMANDS,
   'rg', 'grep', 'findstr', 'cat', 'ls', 'dir', 'pwd', 'head', 'tail', 'wc', 'type'
 ]);
 const WRITE_SHELL_COMMANDS = new Set([
@@ -2199,13 +2221,26 @@ const WRITE_SHELL_COMMANDS = new Set([
 function staticShellCommands(text) {
   const commands = [];
   let args = [], word = '', inWord = false, quote = null, separator = null;
+  let nativeQuotes = false;
   const finishWord = () => {
     if (inWord) args.push(word);
     word = ''; inWord = false;
   };
+  const finishCommand = () => {
+    commands.push({ args, nativeQuotes });
+    args = []; nativeQuotes = false;
+  };
   for (let i = 0; i < text.length; i++) {
     const char = text[i], next = text[i + 1];
+    // PowerShell recognizes these quotes; Bash treats them as ordinary text.
+    // They are literal only inside a quote of the opposite kind.
+    const smartQuote = /[\u2018-\u201b]/.test(char) ? "'"
+      : /[\u201c-\u201e]/.test(char) ? '"' : null;
+    if (smartQuote && (!quote || quote === smartQuote)) return null;
     if (quote) {
+      // Legacy PowerShell native argv can split embedded double quotes back
+      // into options. Cmdlets receive the literal argument directly.
+      if (quote === "'" && char === '"' || quote === '"' && char === '"' && next === '"') nativeQuotes = true;
       if (char === quote) { quote = null; continue; }
       if (quote === '"' && (char === '$' || char === '`'
           || char === '\\' && /["$`\\\r\n]/.test(next || ''))) return null;
@@ -2216,14 +2251,16 @@ function staticShellCommands(text) {
     if (/[ \t]/.test(char)) { finishWord(); continue; }
     if (char === '>') return { redirected: true };
     if (/[$`{}()<@%*?\[\]#]/.test(char)) return null;
-    if (char === '\\' && (!next || /[\s'"$`;&|<>]/.test(next))) return null;
+    // Bash removes even an escape before an ordinary letter (e.g. --out\put).
+    // Without a shell identity, do not interpret an unquoted backslash.
+    if (char === '\\') return null;
     if (char === '\r' || char === '\n' || char === ';' || char === '|' || char === '&') {
       finishWord();
       // PowerShell also accepts a standalone CR as a command separator.
       const operator = char === '\r' ? '\n'
         : (char === '&' || char === '|') && next === char ? char + text[++i] : char;
       if (operator === '&') return null;
-      if (args.length) { commands.push(args); args = []; }
+      if (args.length) finishCommand();
       else if (operator === '\n') continue;
       else return null;
       separator = operator;
@@ -2234,14 +2271,15 @@ function staticShellCommands(text) {
   }
   if (quote) return null;
   finishWord();
-  if (args.length) commands.push(args);
+  if (args.length) finishCommand();
   else if (['&&', '||', '|'].includes(separator)) return null;
   return commands.length ? { commands } : null;
 }
 
-function classifyStaticCommand([program, ...args]) {
+function classifyStaticCommand({ args: [program, ...args], nativeQuotes }) {
   const name = String(program || '').toLowerCase();
   if (WRITE_SHELL_COMMANDS.has(name)) return 'write';
+  if (nativeQuotes && !READ_POWERSHELL_COMMANDS.has(name)) return 'unknown';
   if (name === 'git') {
     // Only these global options preserve the supported command interpretation.
     while (args.length) {
@@ -2251,8 +2289,10 @@ function classifyStaticCommand([program, ...args]) {
     }
     const subcommand = args.shift();
     if (['add', 'commit', 'push', 'merge', 'rebase', 'checkout', 'switch', 'reset', 'restore', 'clean', 'tag'].includes(subcommand)) return 'write';
-    if (args.some(arg => /^--output(?:=|$)/.test(arg))) return 'write';
-    if (subcommand === 'branch') return classifyGitBranchArguments(args.join(' '));
+    const separator = args.indexOf('--');
+    const options = separator < 0 ? args : args.slice(0, separator);
+    if (options.some(arg => /^--output(?:=|$)/.test(arg))) return 'write';
+    if (subcommand === 'branch') return classifyGitBranchArguments(args);
     if (['status', 'diff', 'log', 'show', 'rev-parse'].includes(subcommand)) return 'read';
     return 'unknown';
   }
