@@ -22,7 +22,7 @@ function detectHashIntent(toolName, toolInput) {
   if (!text) return false;
 
   if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
-    return HASH_COMMAND.test(text);
+    return analyzeShell(text).hashIntent;
   }
 
   if (name === 'apply_patch') {
@@ -86,7 +86,7 @@ function detectDependencyIntent(toolName, toolInput) {
   const name = String(toolName || '');
   const text = inputText(toolInput);
   if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
-    return DEPENDENCY_COMMAND.test(text);
+    return analyzeShell(text).dependencyIntent;
   }
   if (name === 'apply_patch') {
     const manifest = /(?:^|\/)(?:package\.json|pyproject\.toml|requirements[^/]*\.txt|Cargo\.toml|go\.mod|composer\.json|Gemfile)$/i;
@@ -233,10 +233,64 @@ function classifyRipgrepArguments(args) {
   return 'read';
 }
 
-function classifyStaticCommand({ args: [program, ...args], nativeQuotes }) {
-  const name = String(program || '').toLowerCase();
-  if (WRITE_SHELL_COMMANDS.has(name)) return 'write';
-  if (nativeQuotes && !READ_POWERSHELL_COMMANDS.has(name)) return 'unknown';
+// Required values consume the following argument, even when it is --. Optional
+// values must be attached with =. Unknown options cannot establish a read.
+const GIT_QUERY_VALUE_OPTIONS = new Set([
+  '--word-diff-regex', '--src-prefix', '--dst-prefix', '--line-prefix',
+  '--output-indicator-new', '--output-indicator-old', '--output-indicator-context',
+  '--diff-algorithm', '--anchored', '--ignore-matching-lines', '--diff-filter',
+  '--stat-width', '--stat-name-width', '--stat-graph-width', '--stat-count',
+  '--inter-hunk-context', '--rotate-to', '--skip-to', '--find-object'
+]);
+const GIT_QUERY_FLAGS = new Set([
+  '--short', '--branch', '--show-stash', '--no-index', '--numstat', '--shortstat',
+  '--name-only', '--name-status', '--check', '--summary', '--patch', '--no-patch',
+  '--raw', '--binary', '--cached', '--staged', '--exit-code', '--quiet',
+  '--no-color', '--no-ext-diff', '--no-textconv', '--ignore-all-space',
+  '--ignore-space-change', '--ignore-space-at-eol', '--ignore-cr-at-eol',
+  '--ignore-blank-lines', '--patience', '--histogram', '--minimal',
+  '--oneline', '--all', '--reverse', '--first-parent', '--no-merges', '--merges',
+  '--graph', '--no-decorate', '--topo-order', '--date-order', '--no-renames',
+  '--pickaxe-all', '--pickaxe-regex', '--no-prefix', '--default-prefix',
+  '--show-toplevel', '--show-prefix', '--show-cdup', '--git-dir', '--git-common-dir',
+  '--is-inside-work-tree', '--is-bare-repository', '--verify', '--symbolic-full-name'
+]);
+const GIT_QUERY_OPTIONAL_VALUES = new Set([
+  '--stat', '--color', '--word-diff', '--color-words', '--relative', '--unified',
+  '--abbrev', '--short', '--abbrev-ref', '--porcelain', '--untracked-files', '--ignored',
+  '--find-renames', '--find-copies', '--break-rewrites', '--decorate', '--pretty'
+]);
+const GIT_QUERY_ATTACHED_ONLY = new Set([
+  '--format', '--date', '--since', '--until', '--before', '--after', '--author',
+  '--committer', '--grep', '--max-count', '--skip', '--diff-merges', '--encoding'
+]);
+
+function classifyGitQueryArguments(args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--') break;
+    if (!arg.startsWith('-')) continue;
+    if (/^--output(?:=|$)/.test(arg)) return 'write';
+    const name = arg.split('=', 1)[0];
+    if (GIT_QUERY_VALUE_OPTIONS.has(name)) {
+      if (arg === name && ++i === args.length) return 'unknown';
+      continue;
+    }
+    if (GIT_QUERY_FLAGS.has(arg) || GIT_QUERY_OPTIONAL_VALUES.has(name)
+        || arg.includes('=') && GIT_QUERY_ATTACHED_ONLY.has(name)) continue;
+    if (/^-[SGOIn]$/.test(arg)) {
+      if (++i === args.length) return 'unknown';
+      continue;
+    }
+    if (/^-[SGOI].+/.test(arg) || /^-n\d+$/.test(arg) || /^-\d+$/.test(arg)
+        || /^-[pwsbz]+$/.test(arg) || /^-[UMCB](?:\d+%?)?$/.test(arg)
+        || /^-u(?:no|normal|all)?$/.test(arg)) continue;
+    return 'unknown';
+  }
+  return 'read';
+}
+
+function classifyCommandArguments(name, args) {
   if (name === 'git') {
     // Only these global options preserve the supported command interpretation.
     while (args.length) {
@@ -246,11 +300,8 @@ function classifyStaticCommand({ args: [program, ...args], nativeQuotes }) {
     }
     const subcommand = args.shift();
     if (['add', 'commit', 'push', 'merge', 'rebase', 'checkout', 'switch', 'reset', 'restore', 'clean', 'tag'].includes(subcommand)) return 'write';
-    const separator = args.indexOf('--');
-    const options = separator < 0 ? args : args.slice(0, separator);
-    if (options.some(arg => /^--output(?:=|$)/.test(arg))) return 'write';
     if (subcommand === 'branch') return classifyGitBranchArguments(args);
-    if (['status', 'diff', 'log', 'show', 'rev-parse'].includes(subcommand)) return 'read';
+    if (['status', 'diff', 'log', 'show', 'rev-parse'].includes(subcommand)) return classifyGitQueryArguments(args);
     return 'unknown';
   }
   if (['npm', 'pnpm', 'yarn'].includes(name) && ['add', 'install', 'remove', 'uninstall', 'publish'].includes(args[0])) return 'write';
@@ -262,14 +313,44 @@ function classifyStaticCommand({ args: [program, ...args], nativeQuotes }) {
   return 'unknown';
 }
 
-function classifyShell(command) {
-  const text = String(command || '').replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
-  const analysis = staticShellCommands(text);
-  if (!analysis) return 'unknown';
-  if (analysis.redirected) return 'write';
-  const kinds = analysis.commands.map(classifyStaticCommand);
+function combineMutabilities(kinds) {
   if (kinds.includes('write')) return 'write';
   return kinds.every(kind => kind === 'read') ? 'read' : 'unknown';
+}
+
+function classifyStaticCommand({ args: [program, ...args], nativeQuotes }) {
+  const name = String(program || '').toLowerCase();
+  if (WRITE_SHELL_COMMANDS.has(name)) return 'write';
+  const cmdlet = READ_POWERSHELL_COMMANDS.has(name);
+  if (nativeQuotes && !cmdlet) return 'unknown';
+  const kinds = [classifyCommandArguments(name, [...args])];
+  // Legacy PowerShell drops empty native argv entries. A read must remain a
+  // read in both interpretations; cmdlets receive their arguments directly.
+  if (!cmdlet && args.includes('')) kinds.push(classifyCommandArguments(name, args.filter(arg => arg !== '')));
+  return combineMutabilities(kinds);
+}
+
+function analyzeShell(command) {
+  const text = String(command || '').replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
+  const analysis = staticShellCommands(text);
+  if (!analysis || analysis.redirected) return {
+    mutability: analysis?.redirected ? 'write' : 'unknown',
+    hashIntent: HASH_COMMAND.test(text), dependencyIntent: DEPENDENCY_COMMAND.test(text)
+  };
+  const commands = analysis.commands.map(command => ({
+    mutability: classifyStaticCommand(command), text: command.args.join(' ')
+  }));
+  // Proven reads treat their arguments as data. Keep the existing intent checks
+  // for writes and unproven programs, independently for each command in a chain.
+  return {
+    mutability: combineMutabilities(commands.map(command => command.mutability)),
+    hashIntent: commands.some(command => command.mutability !== 'read' && HASH_COMMAND.test(command.text)),
+    dependencyIntent: commands.some(command => command.mutability !== 'read' && DEPENDENCY_COMMAND.test(command.text))
+  };
+}
+
+function classifyShell(command) {
+  return analyzeShell(command).mutability;
 }
 
 function classifyCodexTool(toolName, toolInput) {

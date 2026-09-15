@@ -475,6 +475,73 @@ test('Codex review blocks ripgrep executable options while literal searches rema
   assert.equal(handleHook(pre(session, 'Bash', { command: 'rg --hostname-bin=helper fixture input.txt' }), options), null);
 });
 
+test('Codex review distinguishes Git option values from the end of options', (t) => {
+  const options = workspace(t);
+  const session = 'git-option-values';
+  handleHook(prompt(session, '$stop-that-shit review -- inspect only'), options);
+  for (const command of [
+    'git --no-pager diff --no-index --word-diff-regex -- --output=marker.txt before.txt after.txt',
+    'git diff --src-prefix -- --output=marker.txt',
+    'git log -S -- --output=marker.txt',
+    'git show --future-option -- --output=marker.txt'
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options)?.hookSpecificOutput?.permissionDecision, 'deny', command);
+  }
+  for (const command of [
+    'git diff --word-diff-regex -- -- README.md',
+    'git diff --src-prefix=-- -- --output=tracked.txt',
+    'git diff --stat', 'git diff --check', 'git diff --name-only', 'git diff --cached -U3',
+    'git log --oneline -n 5', "git log --format='%h %s' -- README.md",
+    'git show --stat HEAD', 'git rev-parse --show-toplevel', 'git status --porcelain=v1 -uno',
+    'git diff -- --output=tracked.txt'
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options), null, command);
+  }
+});
+
+test('Codex review checks native commands with and without empty arguments', (t) => {
+  const options = workspace(t);
+  const session = 'empty-native-arguments';
+  handleHook(prompt(session, '$stop-that-shit review -- inspect only'), options);
+  for (const command of [
+    "rg -e '' -- --hostname-bin=helper input.txt",
+    'rg -e "" -- --pre=helper input.txt',
+    "git --no-pager diff --no-index --word-diff-regex '' -- --output=marker.txt before.txt after.txt"
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options)?.hookSpecificOutput?.permissionDecision, 'deny', command);
+  }
+  for (const command of ["rg '' input.txt", "rg -e '' -- input.txt", "Select-String -Pattern '' -LiteralPath input.txt"]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options), null, command);
+  }
+  handleHook(prompt(session, '$stop-that-shit change -- run the requested hostname helper'), options);
+  assert.equal(handleHook(pre(session, 'Bash', { command: "rg -e '' -- --hostname-bin=helper input.txt" }), options), null);
+});
+
+test('shell intent checks preserve literal searches and still inspect real operations', (t) => {
+  const options = workspace(t);
+  const session = 'literal-shell-intents';
+  handleHook(prompt(session, '$stop-that-shit review -- search examples'), options);
+  for (const command of [
+    "rg -n 'npm install' README.md", "rg -n 'Get-FileHash' README.md", "rg -n 'sha256sum' README.md",
+    "Select-String -SimpleMatch 'npm install' -LiteralPath README.md",
+    "rg -e 'npm install' README.md; rg -e 'sha256sum' README.md"
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options), null, command);
+  }
+  handleHook(prompt(session, '$stop-that-shit change -- inspect the requested command'), options);
+  for (const [command, reason] of [
+    ["rg -n 'sha256sum' README.md; npm install fixture", 'DEPENDENCY_NOT_AUTHORIZED'],
+    ["rg -n 'npm install' README.md; sha256sum fixture.txt", 'HASH_NOT_AUTHORIZED'],
+    ['sha256sum fixture.txt', 'HASH_NOT_AUTHORIZED'],
+    ['npm install fixture', 'DEPENDENCY_NOT_AUTHORIZED'],
+    ['sh -c "sha256sum fixture.txt"', 'HASH_NOT_AUTHORIZED']
+  ]) {
+    assert.match(handleHook(pre(session, 'Bash', { command }), options)?.hookSpecificOutput?.permissionDecisionReason || '', new RegExp(reason), command);
+  }
+  handleHook(prompt(session, '$stop-that-shit change hash=allow deps=allow -- run the requested operations'), options);
+  assert.equal(handleHook(pre(session, 'Bash', { command: 'sha256sum fixture.txt; npm install fixture' }), options), null);
+});
+
 test('watch level warns but does not deny mutation', (t) => {
   const options = workspace(t);
   handleHook(prompt('watch-session', '$stop-that-shit watch review -- inspect only'), options);

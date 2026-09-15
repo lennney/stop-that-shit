@@ -330,6 +330,9 @@ Embedded double quotes and doubled double quotes can become new arguments
 under legacy PowerShell native argument passing. Such native program calls
 remain unknown. Known PowerShell read cmdlets receive their literal arguments
 directly, so their quoted searches remain available.
+Legacy PowerShell also drops empty native arguments. Calls with empty arguments
+must be reads both with the arguments preserved and with them removed. This
+keeps harmless empty searches available while checking for newly exposed options.
 
 Executable names must match supported commands; an argument containing
 `git status` does not make an unknown program read-only. Git `-C` and
@@ -344,6 +347,16 @@ Git branch classification keeps argument boundaries and accepts only supported
 query options. Unknown negations and abbreviations cannot borrow an earlier
 `--list`. Values passed to `--format` remain data; arguments after `--` are
 operands, including paths that happen to start with `--output=`.
+Supported Git queries consume required option values before recognizing `--`
+as an option terminator. For example, `--word-diff-regex --` consumes a regex;
+it cannot hide a later `--output`. Unknown query options remain unknown, and
+optional values must use their attached form.
+
+Shell hash and dependency checks reuse this command analysis. Arguments to
+proven reads are data, so searching for `npm install` or `Get-FileHash` does not
+request those operations. Each command in a chain is checked separately; an
+actual installation or hash operation keeps its existing authorization check.
+Unproven shell syntax retains the conservative text checks.
 
 ## Support matrix and evidence boundary
 
