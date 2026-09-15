@@ -233,6 +233,42 @@ function classifyRipgrepArguments(args) {
   return 'read';
 }
 
+function combineMutabilities(kinds) {
+  if (kinds.includes('write')) return 'write';
+  return kinds.every(kind => kind === 'read') ? 'read' : 'unknown';
+}
+
+function classifyStaticCommand({ args: [program, ...args], nativeQuotes }) {
+  const name = String(program || '').toLowerCase();
+  if (WRITE_SHELL_COMMANDS.has(name)) return 'write';
+  const cmdlet = READ_POWERSHELL_COMMANDS.has(name);
+  if (nativeQuotes && !cmdlet) return 'unknown';
+  const kinds = [classifyCommandArguments(name, [...args])];
+  // Legacy PowerShell drops empty native argv entries. A read must remain a
+  // read in both interpretations; cmdlets receive their arguments directly.
+  if (!cmdlet && args.includes('')) kinds.push(classifyCommandArguments(name, args.filter(arg => arg !== '')));
+  return combineMutabilities(kinds);
+}
+
+function analyzeShell(command) {
+  const text = String(command || '').replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
+  const analysis = staticShellCommands(text);
+  if (!analysis || analysis.redirected) return {
+    mutability: analysis?.redirected ? 'write' : 'unknown',
+    hashIntent: HASH_COMMAND.test(text), dependencyIntent: DEPENDENCY_COMMAND.test(text)
+  };
+  const commands = analysis.commands.map(command => ({
+    mutability: classifyStaticCommand(command), text: command.args.join(' ')
+  }));
+  // Proven reads treat their arguments as data. Keep the existing intent checks
+  // for writes and unproven programs, independently for each command in a chain.
+  return {
+    mutability: combineMutabilities(commands.map(command => command.mutability)),
+    hashIntent: commands.some(command => command.mutability !== 'read' && HASH_COMMAND.test(command.text)),
+    dependencyIntent: commands.some(command => command.mutability !== 'read' && DEPENDENCY_COMMAND.test(command.text))
+  };
+}
+
 // Required values consume the following argument, even when it is --. Optional
 // values must be attached with =. Unknown options cannot establish a read.
 const GIT_QUERY_VALUE_OPTIONS = new Set([
@@ -311,42 +347,6 @@ function classifyCommandArguments(name, args) {
   if (READ_SHELL_COMMANDS.has(name)) return 'read';
   if (['node', 'python', 'python3', 'py'].includes(name) && args.length === 1 && args[0] === '--version') return 'read';
   return 'unknown';
-}
-
-function combineMutabilities(kinds) {
-  if (kinds.includes('write')) return 'write';
-  return kinds.every(kind => kind === 'read') ? 'read' : 'unknown';
-}
-
-function classifyStaticCommand({ args: [program, ...args], nativeQuotes }) {
-  const name = String(program || '').toLowerCase();
-  if (WRITE_SHELL_COMMANDS.has(name)) return 'write';
-  const cmdlet = READ_POWERSHELL_COMMANDS.has(name);
-  if (nativeQuotes && !cmdlet) return 'unknown';
-  const kinds = [classifyCommandArguments(name, [...args])];
-  // Legacy PowerShell drops empty native argv entries. A read must remain a
-  // read in both interpretations; cmdlets receive their arguments directly.
-  if (!cmdlet && args.includes('')) kinds.push(classifyCommandArguments(name, args.filter(arg => arg !== '')));
-  return combineMutabilities(kinds);
-}
-
-function analyzeShell(command) {
-  const text = String(command || '').replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
-  const analysis = staticShellCommands(text);
-  if (!analysis || analysis.redirected) return {
-    mutability: analysis?.redirected ? 'write' : 'unknown',
-    hashIntent: HASH_COMMAND.test(text), dependencyIntent: DEPENDENCY_COMMAND.test(text)
-  };
-  const commands = analysis.commands.map(command => ({
-    mutability: classifyStaticCommand(command), text: command.args.join(' ')
-  }));
-  // Proven reads treat their arguments as data. Keep the existing intent checks
-  // for writes and unproven programs, independently for each command in a chain.
-  return {
-    mutability: combineMutabilities(commands.map(command => command.mutability)),
-    hashIntent: commands.some(command => command.mutability !== 'read' && HASH_COMMAND.test(command.text)),
-    dependencyIntent: commands.some(command => command.mutability !== 'read' && DEPENDENCY_COMMAND.test(command.text))
-  };
 }
 
 function classifyShell(command) {
