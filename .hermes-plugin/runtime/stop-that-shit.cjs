@@ -2170,19 +2170,109 @@ function detectDependencyIntent(toolName, toolInput) {
   return false;
 }
 
+function classifyGitBranchArguments(argumentsText) {
+  const args = argumentsText.trim();
+  if (!args) return 'read';
+  const mutation = /(?:^|\s)(?:-[a-zA-Z]*[dDmMcCf][a-zA-Z]*|--(?:delete|move|copy|force|edit-description|set-upstream-to|unset-upstream|track|no-track|create-reflog)(?:=[^\s]*)?)(?:\s|$)/;
+  if (mutation.test(args)) return 'write';
+  // These documented filters imply --list. Plain positional arguments create
+  // a branch, so do not infer a read from the command name alone.
+  const listing = /(?:^|\s)(?:-l|--(?:list|contains|no-contains|merged|no-merged|points-at))(?:[=\s]|$)/;
+  if (listing.test(args)) return 'read';
+  const readOption = /^(?:-[arv]+|--(?:show-current|all|remotes|verbose|no-color|no-column)|--color=(?:always|never|auto))$/;
+  return args.split(/\s+/).every(arg => readOption.test(arg)) ? 'read' : 'unknown';
+}
+
+const READ_SHELL_COMMANDS = new Set([
+  'get-content', 'get-childitem', 'get-item', 'test-path', 'resolve-path',
+  'select-string', 'select-object', 'measure-object', 'compare-object', 'where-object',
+  'rg', 'grep', 'findstr', 'cat', 'ls', 'dir', 'pwd', 'head', 'tail', 'wc', 'type'
+]);
+const WRITE_SHELL_COMMANDS = new Set([
+  'remove-item', 'move-item', 'copy-item', 'set-content', 'add-content', 'out-file',
+  'new-item', 'rm', 'del', 'erase', 'rmdir', 'mv', 'cp', 'touch', 'mkdir', 'tee', 'apply_patch'
+]);
+
+// Analyze only static words, literal quotes and simple command chains. The
+// hook does not expose a shell AST. Expansions, script blocks and ambiguous
+// escapes stay unknown instead of being interpreted as Bash or PowerShell.
+function staticShellCommands(text) {
+  const commands = [];
+  let args = [], word = '', inWord = false, quote = null, separator = null;
+  const finishWord = () => {
+    if (inWord) args.push(word);
+    word = ''; inWord = false;
+  };
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i], next = text[i + 1];
+    if (quote) {
+      if (char === quote) { quote = null; continue; }
+      if (quote === '"' && (char === '$' || char === '`'
+          || char === '\\' && /["$`\\\r\n]/.test(next || ''))) return null;
+      word += char;
+      continue;
+    }
+    if (char === "'" || char === '"') { quote = char; inWord = true; continue; }
+    if (/[ \t]/.test(char)) { finishWord(); continue; }
+    if (char === '>') return { redirected: true };
+    if (/[$`{}()<@%*?\[\]#]/.test(char)) return null;
+    if (char === '\\' && (!next || /[\s'"$`;&|<>]/.test(next))) return null;
+    if (char === '\r' || char === '\n' || char === ';' || char === '|' || char === '&') {
+      finishWord();
+      // PowerShell also accepts a standalone CR as a command separator.
+      const operator = char === '\r' ? '\n'
+        : (char === '&' || char === '|') && next === char ? char + text[++i] : char;
+      if (operator === '&') return null;
+      if (args.length) { commands.push(args); args = []; }
+      else if (operator === '\n') continue;
+      else return null;
+      separator = operator;
+      continue;
+    }
+    if (/\s/.test(char)) return null;
+    word += char; inWord = true;
+  }
+  if (quote) return null;
+  finishWord();
+  if (args.length) commands.push(args);
+  else if (['&&', '||', '|'].includes(separator)) return null;
+  return commands.length ? { commands } : null;
+}
+
+function classifyStaticCommand([program, ...args]) {
+  const name = String(program || '').toLowerCase();
+  if (WRITE_SHELL_COMMANDS.has(name)) return 'write';
+  if (name === 'git') {
+    // Only these global options preserve the supported command interpretation.
+    while (args.length) {
+      if (args[0] === '--no-pager' || args[0] === '--literal-pathspecs') args.shift();
+      else if (args[0] === '-C' && args.length > 1) args.splice(0, 2);
+      else break;
+    }
+    const subcommand = args.shift();
+    if (['add', 'commit', 'push', 'merge', 'rebase', 'checkout', 'switch', 'reset', 'restore', 'clean', 'tag'].includes(subcommand)) return 'write';
+    if (args.some(arg => /^--output(?:=|$)/.test(arg))) return 'write';
+    if (subcommand === 'branch') return classifyGitBranchArguments(args.join(' '));
+    if (['status', 'diff', 'log', 'show', 'rev-parse'].includes(subcommand)) return 'read';
+    return 'unknown';
+  }
+  if (['npm', 'pnpm', 'yarn'].includes(name) && ['add', 'install', 'remove', 'uninstall', 'publish'].includes(args[0])) return 'write';
+  if (['pip', 'pip3'].includes(name) && args[0] === 'install') return 'write';
+  if (name === 'gh' && /^(?:pr (?:create|merge|close)|issue (?:create|close)|release create)$/.test(args.slice(0, 2).join(' '))) return 'write';
+  if (name === 'rg' && args.some(arg => /^--pre(?:=|$)/.test(arg))) return 'unknown';
+  if (READ_SHELL_COMMANDS.has(name)) return 'read';
+  if (['node', 'python', 'python3', 'py'].includes(name) && args.length === 1 && args[0] === '--version') return 'read';
+  return 'unknown';
+}
+
 function classifyShell(command) {
-  const text = String(command || '').trim();
-  if (!text) return 'unknown';
-
-  const writePattern = /\b(?:Remove-Item|Move-Item|Copy-Item|Set-Content|Add-Content|Out-File|New-Item|rm|del|erase|rmdir|mv|cp|touch|mkdir|tee|apply_patch)\b|\bgit\s+(?:add|commit|push|merge|rebase|checkout|switch|reset|clean|tag)\b|\b(?:npm|pnpm|yarn)\s+(?:add|install|remove|uninstall|publish)\b|\bpip\s+install\b|\bgh\s+(?:pr\s+(?:create|merge|close)|issue\s+(?:create|close)|release\s+create)\b/i;
-  const redirection = /(^|[^<])>{1,2}\s*[^&]/;
-  if (writePattern.test(text) || redirection.test(text)) return 'write';
-
-  const dynamicProgram = /\b(?:node|python|python3|py|ruby|perl)\s+(?!-{1,2}version\b)(?:-e|-c|[^-\s][^\s]*)/i;
-  if (dynamicProgram.test(text)) return 'unknown';
-
-  const readPattern = /\b(?:Get-Content|Get-ChildItem|Get-Item|Test-Path|Resolve-Path|Select-String|Measure-Object|Compare-Object|Where-Object|ForEach-Object|rg|grep|findstr|cat|ls|dir|pwd|head|tail|wc|type)\b|\bgit\s+(?:status|diff|log|show|rev-parse|branch)\b|\b(?:node|python|python3|py)\s+--version\b/i;
-  return readPattern.test(text) ? 'read' : 'unknown';
+  const text = String(command || '').replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
+  const analysis = staticShellCommands(text);
+  if (!analysis) return 'unknown';
+  if (analysis.redirected) return 'write';
+  const kinds = analysis.commands.map(classifyStaticCommand);
+  if (kinds.includes('write')) return 'write';
+  return kinds.every(kind => kind === 'read') ? 'read' : 'unknown';
 }
 
 function classifyCodexTool(toolName, toolInput) {

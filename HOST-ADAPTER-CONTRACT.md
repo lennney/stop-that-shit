@@ -83,6 +83,31 @@ session and can be continued by hooks; it does not mutate the parent's ledger.
 Finite Guard rejects `send_input` and `resume_agent` because a resumed run lacks
 a completion incarnation. The original `hooks/codex-hooks.json` entrypoint stays.
 
+### Shell classification
+
+Codex Rules evaluate argument prefixes and the host execution path can parse
+supported shell chains. That does not make `codex execpolicy check` a complete
+shell parser for the plugin. Reuse requires a verified callable interface;
+otherwise use bounded analysis and retain unknown results. See [Rules](https://learn.chatgpt.com/docs/rules).
+The shared classifier analyzes a bounded static grammar. It does not expose
+or duplicate the host's complete shell parser.
+
+The shared shell classifier examines each command in a static chain before
+classifying the whole call. Every command must be a supported read to return
+`read`; a known write returns `write`, and otherwise the result is `unknown`.
+It recognizes literal quoted arguments and simple `;`, newline, `&&`, `||` and
+pipe separators. Quoted command examples remain data. Expansions, script blocks,
+unproven shell wrappers, ambiguous escapes and incomplete syntax remain unknown.
+This intentionally limited grammar applies without guessing the user's shell.
+
+Executable names must match supported commands; an argument containing
+`git status` does not make an unknown program read-only. Git `-C` and
+`--no-pager` preserve supported query classification. Branch mutations,
+`git restore` and Git output-file options cannot pass review as reads.
+Ripgrep preprocessing commands remain unknown. Native sandbox and permission
+controls remain responsible for execution, including programs' configured
+behavior and unsupported invocation forms.
+
 ## Claude Code mapping
 
 `src/adapters/claude-hooks.cjs` maps:
