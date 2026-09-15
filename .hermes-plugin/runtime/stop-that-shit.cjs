@@ -2276,6 +2276,35 @@ function staticShellCommands(text) {
   return commands.length ? { commands } : null;
 }
 
+// Consume ripgrep option values before interpreting -- or executable options.
+// Otherwise a pattern named -- can hide a later --hostname-bin, or an option
+// name used as a literal pattern can be mistaken for an executable option.
+const RIPGREP_VALUE_OPTIONS = new Set([
+  '--regexp', '--file', '--pre-glob', '--dfa-size-limit', '--encoding', '--engine',
+  '--max-count', '--regex-size-limit', '--threads', '--glob', '--iglob',
+  '--ignore-file', '--max-depth', '--max-filesize', '--type', '--type-not',
+  '--type-add', '--type-clear', '--after-context', '--before-context', '--color',
+  '--colors', '--context', '--context-separator', '--field-context-separator',
+  '--field-match-separator', '--hyperlink-format', '--max-columns',
+  '--path-separator', '--replace', '--sort', '--sortr', '--generate'
+]);
+
+function classifyRipgrepArguments(args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--') break;
+    if (/^--(?:pre|hostname-bin)(?:=|$)/.test(arg)) return 'unknown';
+    let consumesValue = RIPGREP_VALUE_OPTIONS.has(arg);
+    if (/^-[^-]/.test(arg)) {
+      // A value can be attached to a short option, including in a flag cluster.
+      const valueFlag = /[efEmjgdtTABCMr]/.exec(arg.slice(1));
+      consumesValue = Boolean(valueFlag && valueFlag.index === arg.length - 2);
+    }
+    if (consumesValue && ++i === args.length) return 'unknown';
+  }
+  return 'read';
+}
+
 function classifyStaticCommand({ args: [program, ...args], nativeQuotes }) {
   const name = String(program || '').toLowerCase();
   if (WRITE_SHELL_COMMANDS.has(name)) return 'write';
@@ -2299,7 +2328,7 @@ function classifyStaticCommand({ args: [program, ...args], nativeQuotes }) {
   if (['npm', 'pnpm', 'yarn'].includes(name) && ['add', 'install', 'remove', 'uninstall', 'publish'].includes(args[0])) return 'write';
   if (['pip', 'pip3'].includes(name) && args[0] === 'install') return 'write';
   if (name === 'gh' && /^(?:pr (?:create|merge|close)|issue (?:create|close)|release create)$/.test(args.slice(0, 2).join(' '))) return 'write';
-  if (name === 'rg' && args.some(arg => /^--pre(?:=|$)/.test(arg))) return 'unknown';
+  if (name === 'rg') return classifyRipgrepArguments(args);
   if (READ_SHELL_COMMANDS.has(name)) return 'read';
   if (['node', 'python', 'python3', 'py'].includes(name) && args.length === 1 && args[0] === '--version') return 'read';
   return 'unknown';

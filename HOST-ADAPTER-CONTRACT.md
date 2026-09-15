@@ -335,8 +335,10 @@ Executable names must match supported commands; an argument containing
 `git status` does not make an unknown program read-only. Git `-C` and
 `--no-pager` preserve supported query classification. Branch mutations,
 `git restore` and Git output-file options cannot pass review as reads.
-Ripgrep preprocessing commands remain unknown. Native sandbox and permission
-controls remain responsible for execution, including programs' configured
+Ripgrep `--pre` and `--hostname-bin` executable options remain unknown. Option
+values and operands after `--` remain data, including literal option names.
+Native sandbox and permission controls remain responsible for execution,
+including programs' configured
 behavior and unsupported invocation forms.
 Git branch classification keeps argument boundaries and accepts only supported
 query options. Unknown negations and abbreviations cannot borrow an earlier

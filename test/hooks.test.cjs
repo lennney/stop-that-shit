@@ -438,6 +438,43 @@ test('Codex review leaves dynamic and incomplete shell structure unproven', (t) 
   }
 });
 
+test('Codex review blocks ripgrep executable options while literal searches remain readable', (t) => {
+  const options = workspace(t);
+  const session = 'ripgrep-executables';
+  handleHook(prompt(session, '$stop-that-shit review -- inspect only'), options);
+  for (const command of [
+    'rg --hostname-bin=helper fixture input.txt',
+    'rg --hostname-bin helper fixture input.txt',
+    'rg fixture input.txt --hostname-bin=helper',
+    'rg --pre=helper fixture input.txt',
+    'rg --pre helper fixture input.txt',
+    'rg -e -- --hostname-bin=helper input.txt',
+    'rg --regexp -- --hostname-bin=helper input.txt',
+    'rg --glob -- --hostname-bin=helper input.txt',
+    'rg -ne -- --hostname-bin=helper input.txt'
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options)?.hookSpecificOutput?.permissionDecision, 'deny', command);
+  }
+  for (const command of [
+    'rg -n fixture input.txt',
+    'rg -n -- --hostname-bin=helper input.txt',
+    'rg fixture -- --hostname-bin=helper',
+    'rg fixture -- --pre=helper',
+    "rg -e '--hostname-bin=helper' input.txt",
+    "rg --regexp '--hostname-bin=helper' input.txt",
+    "rg -ne '--hostname-bin=helper' input.txt",
+    'rg -e--hostname-bin=helper input.txt',
+    'rg --regexp=--hostname-bin=helper input.txt',
+    "rg -e '--pre=helper' input.txt",
+    "rg --glob '--hostname-bin=helper' fixture .",
+    "rg --file '--hostname-bin=helper' input.txt"
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options), null, command);
+  }
+  handleHook(prompt(session, '$stop-that-shit change -- run the requested search helper'), options);
+  assert.equal(handleHook(pre(session, 'Bash', { command: 'rg --hostname-bin=helper fixture input.txt' }), options), null);
+});
+
 test('watch level warns but does not deny mutation', (t) => {
   const options = workspace(t);
   handleHook(prompt('watch-session', '$stop-that-shit watch review -- inspect only'), options);
