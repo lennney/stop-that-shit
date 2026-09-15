@@ -51,21 +51,23 @@ general improvement in model behavior.
 4. Ask the user to open a fresh Codex CLI TUI and enter `/hooks`.
 5. Stop and let the user inspect and trust the Hook commands.
 
-A current candidate registers these six events:
+A current candidate registers these four events:
 
 ```text
 UserPromptSubmit
 PreToolUse
 PostToolUse
-SubagentStart
-SubagentStop
 SessionEnd
 ```
 
 Compare the plugin sources with `hooks/codex-hooks.json` and confirm its
-handlers are active after review. Other plugins can add entries. Stop That Shit
-does not register `Stop`; its current Codex adapter ignores `SubagentStart`
-and `SubagentStop`, so these entries do not prove delegation completion.
+handlers are active after review. Other plugins can add entries. This candidate
+does not register `Stop`, `SubagentStart`, or `SubagentStop` for Codex. Subagent
+events from older configurations remain ignored and do not prove delegation
+completion or release capacity.
+The `0.2.2` commands above install the published release, which still registers
+the two ignored Subagent handlers. Verify that version against its installed
+`hooks/codex-hooks.json`; the four-event list describes this source candidate.
 An update can require another review because Codex records trust for the Hook
 definition. Do not disable or work around this review. See
 [upgrade notes](INSTALL.md#upgrade-to-022) for version and state migration.

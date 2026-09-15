@@ -58,6 +58,59 @@ The normalized event is versioned as `ControlEvent v2`:
 }
 ```
 
+## Ownership and native capability reuse
+
+The host owns execution and its system permissions. STS owns the additional
+constraints of the user's task. An STS pass means that it adds no restriction;
+the action still has to satisfy host permissions. The Codex adapter returns no
+permission override for a pass.
+
+| Responsibility | Owner | STS boundary |
+| --- | --- | --- |
+| Process execution, filesystem and network isolation | Host | Use native enforcement. STS path checks express task scope; they do not implement a sandbox. |
+| Permission prompts, plugin trust and installation | Host | Use supported host flows. Do not change global settings to make a task pass. |
+| Hook matching, process launch and timeouts | Host | Configure the needed events and supported budgets. Keep only necessary STS work in each handler. |
+| Task mode, file scope, hash/dependency authority and task delegation budget | STS | Parse explicit directives, preserve corrections and explain decisions. A host permission grant does not create task authority. |
+| Tool identity and event translation | Adapter | Preserve raw names and map verified host operations to shared facts. Do not infer identity from arbitrary prefixes. |
+| Shell structure | Callable host interface or an appropriate parser | Verify access and coverage before reuse. STS applies task semantics to supported facts; unknown command structure must not become read-only through a partial match. |
+| Agent creation, restart, interruption and native concurrency control | Host | Track additional task reservations from correlated host facts. STS does not schedule or terminate agents itself. |
+| Task decisions and explanations | STS | Extend the existing status, runtime and explain surfaces. Keep audit data limited to metadata and distinguish responses from observed effects. |
+
+Before replacing STS behavior with a native capability, establish:
+
+1. The interface is callable from the installed integration, not only used
+   inside the host or exposed to a separate client.
+2. Its semantics cover the required actions and state transitions.
+3. It operates at the intended task scope without changing other sessions.
+4. The installed version demonstrates the expected result and failure behavior.
+
+If native behavior covers the requirement, keep only the adapter and the
+remaining task-specific logic. If it covers part, document that part. Missing
+host facts remain unknown; local identifiers and timers cannot replace them.
+
+### Codex reuse limits
+
+Codex documents native filesystem/network permissions, hook matchers and a
+spawned-thread concurrency setting. See [permissions](https://learn.chatgpt.com/docs/permissions),
+[hooks](https://learn.chatgpt.com/docs/hooks) and the
+[configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
+The current configuration reference names the limit
+`agents.max_concurrent_threads_per_session`, with `agents.max_threads` as a
+legacy alias. It counts concurrently open spawned threads, excluding the primary
+thread. STS `agents=N` counts reserved task capacity, including uncertain work.
+These are different contracts. Native limits, zero, restarts and task-local
+updates need equivalent-behavior evidence before replacing STS accounting.
+
+A normal Hook does not select the active thread's permissions or agent limit.
+App-server client settings are a separate integration surface; their existence
+does not give an installed plugin control of its current thread. STS must not
+edit shared Codex configuration to emulate a per-task directive.
+
+Codex's documented `PreToolUse` does not support `permissionDecision: "ask"`.
+The current adapter maps a decision that needs renewed task authority to a
+supported denial and explanation. It does not claim to open a native approval
+dialog. A later corrected directive can supply the missing task authority.
+
 ## Codex mapping
 
 The shared parser accepts one directive at the start of the first non-empty
@@ -73,15 +126,52 @@ filter, not a full Markdown parser. It preserves actual corrections in prose:
 documenting `review only` leaves an edit task unchanged, while a direct request
 to review without editing still selects review.
 
-The Codex adapter binds `spawn_agent` results `{agent_id, nickname}` to the
-originating call. JSON objects and serialized JSON results are accepted.
+The Codex adapter binds UUID-based `spawn_agent` results `{agent_id, nickname}`
+to the originating call. JSON objects and serialized JSON results are accepted.
 `wait_agent` releases only requested UUID targets reported as completed or shut
-down. Path aliases, errored statuses, and `close_agent.previous_status` do not
-prove terminal execution. Both `SubagentStart` and `SubagentStop` are registered
-but ignored by this adapter. `SubagentStop` is a stop attempt in the child's
-session and can be continued by hooks; it does not mutate the parent's ledger.
-Finite Guard rejects `send_input` and `resume_agent` because a resumed run lacks
-a completion incarnation. The original `hooks/codex-hooks.json` entrypoint stays.
+down. The adapter also recognizes the exact names `multi_agent_v1wait_agent`,
+`multi_agent_v1send_input`, `multi_agent_v1resume_agent`, and
+`multi_agent_v1close_agent` emitted by namespaced v1 tools. Codex still reports
+their spawn tool as `spawn_agent`. See the pinned [hook dispatch code](https://github.com/openai/codex/blob/b0af519c39766c173191fc39b341808619b51c74/codex-rs/core/src/tools/registry.rs)
+and [tool-name flattening](https://github.com/openai/codex/blob/b0af519c39766c173191fc39b341808619b51c74/codex-rs/core/src/tools/mod.rs).
+
+Codex desktop `0.154.0-alpha.6.2` uses a `collaboration` namespace. Its hook
+names concatenate that prefix and the tool name, for example
+`collaborationspawn_agent`, `collaborationfollowup_task`, and
+`collaborationlist_agents`. The adapter maps the six known collaboration tools
+to their short names before classification and lifecycle handling. It does not
+strip arbitrary prefixes from third-party tools.
+
+MultiAgentV2 returns `{task_name, nickname?}` from `spawn_agent` and
+`{message, timed_out}` from `wait_agent`. The wait reports mailbox activity, not
+completion. The adapter retains these spawn reservations because it cannot bind
+them to a UUID. A path-only `list_agents` snapshot does not release them. Finite
+`agents=N` capacity can therefore remain occupied after v2 work completes.
+This is a compatibility limit; do not use path order or mailbox text to infer
+completion. See the pinned [v2 tool implementation](https://github.com/openai/codex/tree/b0af519c39766c173191fc39b341808619b51c74/codex-rs/core/src/tools/handlers/multi_agents_v2).
+
+Path aliases, errored statuses, and `close_agent.previous_status` do not prove
+terminal execution. `SubagentStart` and `SubagentStop` are not registered;
+payloads from older configurations remain ignored. `SubagentStop` is a stop
+attempt that other hooks can continue.
+Finite Guard rejects `send_input`, `resume_agent`, and v2 `followup_task` because
+the host does not identify each restarted run in its completion results.
+V2 `send_message` queues a message without starting a turn and does not enter
+this restart gate. Watch mode reports restart uncertainty without denying the
+call; that uncertainty persists if a later directive sets a finite Guard limit.
+
+`interrupt_agent` and `close_agent` are control operations and remain available
+in review mode. Their previous-status responses do not release reservations.
+The native `PostToolUse` matcher selects only spawn and wait results, including
+the supported namespaced names and the `Agent` alias. Ordinary tool results do
+not launch that hook. The adapter also ignores ordinary results from older
+configurations. Waits without supported completion facts do not enter the state
+writer. Spawn results still record missing completion evidence, and proven UUID
+wait results still update reservations under the lock.
+
+Audit records use the same requested delegation count as admission decisions.
+A rejected single-agent request records one requested unit and zero newly
+reserved units; it does not report that an agent ran.
 
 ## Claude Code mapping
 

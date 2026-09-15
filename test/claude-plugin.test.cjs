@@ -60,12 +60,12 @@ test('Claude local install docs use an explicit relative marketplace path', () =
   }
 });
 
-test('Codex manifest registers the supported lifecycle hook surface', () => {
+test('Codex manifest registers the handled lifecycle hook surface', () => {
   const manifest = readJson('.codex-plugin', 'plugin.json');
   const hooks = readJson('hooks', 'codex-hooks.json');
   assert.equal(manifest.hooks, './hooks/codex-hooks.json');
   assert.deepEqual(Object.keys(hooks.hooks).sort(), [
-    'PostToolUse', 'PreToolUse', 'SessionEnd', 'SubagentStart', 'SubagentStop', 'UserPromptSubmit'
+    'PostToolUse', 'PreToolUse', 'SessionEnd', 'UserPromptSubmit'
   ]);
 });
 

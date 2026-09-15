@@ -87,6 +87,7 @@ test('Codex ignores PostToolUse events without a valid action identifier', () =>
   const fallback = toControlEvent({
     session_id: 'fallback-after',
     hook_event_name: 'PostToolUse',
+    tool_name: 'spawn_agent',
     tool_use_id: 42,
     tool_call_id: 'fallback-call'
   });

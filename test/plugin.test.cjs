@@ -29,7 +29,7 @@ test('Codex plugin manifest discovers both Skills and preserves its hook paths',
   assert.ok(fs.existsSync(path.join(root, 'skills', 'stss', 'SKILL.md')));
   assert.ok(manifest.interface.defaultPrompt.some((prompt) => prompt.startsWith('$stss rewrite --')));
   assert.deepEqual(Object.keys(hooks.hooks).sort(), [
-    'PostToolUse', 'PreToolUse', 'SessionEnd', 'SubagentStart', 'SubagentStop', 'UserPromptSubmit'
+    'PostToolUse', 'PreToolUse', 'SessionEnd', 'UserPromptSubmit'
   ]);
 });
 
@@ -89,4 +89,17 @@ test('the packaged Codex hook entrypoint still accepts a Codex event on stdin', 
   const output = JSON.parse(result.stdout);
   assert.equal(output.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
   assert.match(output.hookSpecificOutput.additionalContext, /mode=review/);
+});
+
+test('Codex native PostToolUse matcher subscribes only to delegation results', () => {
+  const config = JSON.parse(fs.readFileSync(path.join(root, 'hooks', 'codex-hooks.json'), 'utf8'));
+  const pattern = config.hooks.PostToolUse[0].matcher;
+  const matches = name => !pattern || pattern === '*' || new RegExp(pattern).test(name);
+  for (const name of ['spawn_agent', 'Agent', 'wait_agent', 'collaborationspawn_agent', 'collaborationwait_agent', 'multi_agent_v1wait_agent']) {
+    assert.ok(matches(name), name);
+  }
+  for (const name of ['Bash', 'apply_patch', 'collaborationlist_agents', 'collaborationinterrupt_agent', 'mcp__example__spawn_agent']) {
+    assert.equal(matches(name), false, name);
+  }
+  assert.equal(config.hooks.PreToolUse[0].matcher, '*');
 });
