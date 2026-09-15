@@ -22,7 +22,7 @@ function detectHashIntent(toolName, toolInput) {
   if (!text) return false;
 
   if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
-    return HASH_COMMAND.test(text);
+    return analyzeShell(text).hashIntent;
   }
 
   if (name === 'apply_patch') {
@@ -86,7 +86,7 @@ function detectDependencyIntent(toolName, toolInput) {
   const name = String(toolName || '');
   const text = inputText(toolInput);
   if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
-    return DEPENDENCY_COMMAND.test(text);
+    return analyzeShell(text).dependencyIntent;
   }
   if (name === 'apply_patch') {
     const manifest = /(?:^|\/)(?:package\.json|pyproject\.toml|requirements[^/]*\.txt|Cargo\.toml|go\.mod|composer\.json|Gemfile)$/i;
@@ -98,19 +98,259 @@ function detectDependencyIntent(toolName, toolInput) {
   return false;
 }
 
+function classifyGitBranchArguments(args) {
+  let listing = false, positional = false;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--') { positional ||= i + 1 < args.length; break; }
+    if (!arg.startsWith('-')) { positional = true; continue; }
+    if (/^(?:-[a-zA-Z]*[dDmMcCf][a-zA-Z]*|--(?:delete|move|copy|force|edit-description|set-upstream-to|unset-upstream|track|no-track|create-reflog)(?:=.*)?)$/.test(arg)) return 'write';
+    if (arg === '--list' || /^-[alrv]+$/.test(arg)) {
+      listing ||= arg === '--list' || arg.includes('l');
+      continue;
+    }
+    if (/^--(?:contains|no-contains|merged|no-merged)(?:=.*)?$/.test(arg)) {
+      listing = true;
+      if (!arg.includes('=') && args[i + 1] && !args[i + 1].startsWith('-')) i++;
+      continue;
+    }
+    if (/^--(?:points-at|format|sort)(?:=.*)?$/.test(arg)) {
+      listing ||= arg === '--points-at' || arg.startsWith('--points-at=');
+      if (!arg.includes('=')) {
+        if (i + 1 === args.length) return 'unknown';
+        i++;
+      }
+      continue;
+    }
+    if (/^--(?:show-current|all|remotes|verbose|no-color|column|no-column|ignore-case|omit-empty|no-abbrev)$/.test(arg)
+        || /^--(?:color=(?:always|never|auto)|abbrev(?:=\d+)?|column=.+)$/.test(arg)) continue;
+    // Negation and abbreviations can cancel --list or select a mutation.
+    return 'unknown';
+  }
+  return positional && !listing ? 'unknown' : 'read';
+}
+
+const READ_POWERSHELL_COMMANDS = new Set([
+  'get-content', 'get-childitem', 'get-item', 'test-path', 'resolve-path',
+  'select-string', 'select-object', 'measure-object', 'compare-object', 'where-object'
+]);
+const READ_SHELL_COMMANDS = new Set([
+  ...READ_POWERSHELL_COMMANDS,
+  'rg', 'grep', 'findstr', 'cat', 'ls', 'dir', 'pwd', 'head', 'tail', 'wc', 'type'
+]);
+const WRITE_SHELL_COMMANDS = new Set([
+  'remove-item', 'move-item', 'copy-item', 'set-content', 'add-content', 'out-file',
+  'new-item', 'rm', 'del', 'erase', 'rmdir', 'mv', 'cp', 'touch', 'mkdir', 'tee', 'apply_patch'
+]);
+
+// Analyze only static words, literal quotes and simple command chains. The
+// hook does not expose a shell AST. Expansions, script blocks and ambiguous
+// escapes stay unknown instead of being interpreted as Bash or PowerShell.
+function staticShellCommands(text) {
+  const commands = [];
+  let args = [], word = '', inWord = false, quote = null, separator = null;
+  let nativeQuotes = false;
+  const finishWord = () => {
+    if (inWord) args.push(word);
+    word = ''; inWord = false;
+  };
+  const finishCommand = () => {
+    commands.push({ args, nativeQuotes });
+    args = []; nativeQuotes = false;
+  };
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i], next = text[i + 1];
+    // PowerShell recognizes these quotes; Bash treats them as ordinary text.
+    // They are literal only inside a quote of the opposite kind.
+    const smartQuote = /[\u2018-\u201b]/.test(char) ? "'"
+      : /[\u201c-\u201e]/.test(char) ? '"' : null;
+    if (smartQuote && (!quote || quote === smartQuote)) return null;
+    if (quote) {
+      // Legacy PowerShell native argv can split embedded double quotes back
+      // into options. Cmdlets receive the literal argument directly.
+      if (quote === "'" && char === '"' || quote === '"' && char === '"' && next === '"') nativeQuotes = true;
+      if (char === quote) { quote = null; continue; }
+      if (quote === '"' && (char === '$' || char === '`'
+          || char === '\\' && /["$`\\\r\n]/.test(next || ''))) return null;
+      word += char;
+      continue;
+    }
+    if (char === "'" || char === '"') { quote = char; inWord = true; continue; }
+    if (/[ \t]/.test(char)) { finishWord(); continue; }
+    if (char === '>') return { redirected: true };
+    if (/[$`{}()<@%*?\[\]#]/.test(char)) return null;
+    // Bash removes even an escape before an ordinary letter (e.g. --out\put).
+    // Without a shell identity, do not interpret an unquoted backslash.
+    if (char === '\\') return null;
+    if (char === '\r' || char === '\n' || char === ';' || char === '|' || char === '&') {
+      finishWord();
+      // PowerShell also accepts a standalone CR as a command separator.
+      const operator = char === '\r' ? '\n'
+        : (char === '&' || char === '|') && next === char ? char + text[++i] : char;
+      if (operator === '&') return null;
+      if (args.length) finishCommand();
+      else if (operator === '\n') continue;
+      else return null;
+      separator = operator;
+      continue;
+    }
+    if (/\s/.test(char)) return null;
+    word += char; inWord = true;
+  }
+  if (quote) return null;
+  finishWord();
+  if (args.length) finishCommand();
+  else if (['&&', '||', '|'].includes(separator)) return null;
+  return commands.length ? { commands } : null;
+}
+
+// Consume ripgrep option values before interpreting -- or executable options.
+// Otherwise a pattern named -- can hide a later --hostname-bin, or an option
+// name used as a literal pattern can be mistaken for an executable option.
+const RIPGREP_VALUE_OPTIONS = new Set([
+  '--regexp', '--file', '--pre-glob', '--dfa-size-limit', '--encoding', '--engine',
+  '--max-count', '--regex-size-limit', '--threads', '--glob', '--iglob',
+  '--ignore-file', '--max-depth', '--max-filesize', '--type', '--type-not',
+  '--type-add', '--type-clear', '--after-context', '--before-context', '--color',
+  '--colors', '--context', '--context-separator', '--field-context-separator',
+  '--field-match-separator', '--hyperlink-format', '--max-columns',
+  '--path-separator', '--replace', '--sort', '--sortr', '--generate'
+]);
+
+function classifyRipgrepArguments(args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--') break;
+    if (/^--(?:pre|hostname-bin)(?:=|$)/.test(arg)) return 'unknown';
+    let consumesValue = RIPGREP_VALUE_OPTIONS.has(arg);
+    if (/^-[^-]/.test(arg)) {
+      // A value can be attached to a short option, including in a flag cluster.
+      const valueFlag = /[efEmjgdtTABCMr]/.exec(arg.slice(1));
+      consumesValue = Boolean(valueFlag && valueFlag.index === arg.length - 2);
+    }
+    if (consumesValue && ++i === args.length) return 'unknown';
+  }
+  return 'read';
+}
+
+function combineMutabilities(kinds) {
+  if (kinds.includes('write')) return 'write';
+  return kinds.every(kind => kind === 'read') ? 'read' : 'unknown';
+}
+
+function classifyStaticCommand({ args: [program, ...args], nativeQuotes }) {
+  const name = String(program || '').toLowerCase();
+  if (WRITE_SHELL_COMMANDS.has(name)) return 'write';
+  const cmdlet = READ_POWERSHELL_COMMANDS.has(name);
+  if (nativeQuotes && !cmdlet) return 'unknown';
+  const kinds = [classifyCommandArguments(name, [...args])];
+  // Legacy PowerShell drops empty native argv entries. A read must remain a
+  // read in both interpretations; cmdlets receive their arguments directly.
+  if (!cmdlet && args.includes('')) kinds.push(classifyCommandArguments(name, args.filter(arg => arg !== '')));
+  return combineMutabilities(kinds);
+}
+
+function analyzeShell(command) {
+  const text = String(command || '').replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
+  const analysis = staticShellCommands(text);
+  if (!analysis || analysis.redirected) return {
+    mutability: analysis?.redirected ? 'write' : 'unknown',
+    hashIntent: HASH_COMMAND.test(text), dependencyIntent: DEPENDENCY_COMMAND.test(text)
+  };
+  const commands = analysis.commands.map(command => ({
+    mutability: classifyStaticCommand(command), text: command.args.join(' ')
+  }));
+  // Proven reads treat their arguments as data. Keep the existing intent checks
+  // for writes and unproven programs, independently for each command in a chain.
+  return {
+    mutability: combineMutabilities(commands.map(command => command.mutability)),
+    hashIntent: commands.some(command => command.mutability !== 'read' && HASH_COMMAND.test(command.text)),
+    dependencyIntent: commands.some(command => command.mutability !== 'read' && DEPENDENCY_COMMAND.test(command.text))
+  };
+}
+
+// Required values consume the following argument, even when it is --. Optional
+// values must be attached with =. Unknown options cannot establish a read.
+const GIT_QUERY_VALUE_OPTIONS = new Set([
+  '--word-diff-regex', '--src-prefix', '--dst-prefix', '--line-prefix',
+  '--output-indicator-new', '--output-indicator-old', '--output-indicator-context',
+  '--diff-algorithm', '--anchored', '--ignore-matching-lines', '--diff-filter',
+  '--stat-width', '--stat-name-width', '--stat-graph-width', '--stat-count',
+  '--inter-hunk-context', '--rotate-to', '--skip-to', '--find-object'
+]);
+const GIT_QUERY_FLAGS = new Set([
+  '--short', '--branch', '--show-stash', '--no-index', '--numstat', '--shortstat',
+  '--name-only', '--name-status', '--check', '--summary', '--patch', '--no-patch',
+  '--raw', '--binary', '--cached', '--staged', '--exit-code', '--quiet',
+  '--no-color', '--no-ext-diff', '--no-textconv', '--ignore-all-space',
+  '--ignore-space-change', '--ignore-space-at-eol', '--ignore-cr-at-eol',
+  '--ignore-blank-lines', '--patience', '--histogram', '--minimal',
+  '--oneline', '--all', '--reverse', '--first-parent', '--no-merges', '--merges',
+  '--graph', '--no-decorate', '--topo-order', '--date-order', '--no-renames',
+  '--pickaxe-all', '--pickaxe-regex', '--no-prefix', '--default-prefix',
+  '--show-toplevel', '--show-prefix', '--show-cdup', '--git-dir', '--git-common-dir',
+  '--is-inside-work-tree', '--is-bare-repository', '--verify', '--symbolic-full-name'
+]);
+const GIT_QUERY_OPTIONAL_VALUES = new Set([
+  '--stat', '--color', '--word-diff', '--color-words', '--relative', '--unified',
+  '--abbrev', '--short', '--abbrev-ref', '--porcelain', '--untracked-files', '--ignored',
+  '--find-renames', '--find-copies', '--break-rewrites', '--decorate', '--pretty'
+]);
+const GIT_QUERY_ATTACHED_ONLY = new Set([
+  '--format', '--date', '--since', '--until', '--before', '--after', '--author',
+  '--committer', '--grep', '--max-count', '--skip', '--diff-merges', '--encoding'
+]);
+
+function classifyGitQueryArguments(args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--') break;
+    if (!arg.startsWith('-')) continue;
+    if (/^--output(?:=|$)/.test(arg)) return 'write';
+    const name = arg.split('=', 1)[0];
+    if (GIT_QUERY_VALUE_OPTIONS.has(name)) {
+      if (arg === name && ++i === args.length) return 'unknown';
+      continue;
+    }
+    if (GIT_QUERY_FLAGS.has(arg) || GIT_QUERY_OPTIONAL_VALUES.has(name)
+        || arg.includes('=') && GIT_QUERY_ATTACHED_ONLY.has(name)) continue;
+    if (/^-[SGOIn]$/.test(arg)) {
+      if (++i === args.length) return 'unknown';
+      continue;
+    }
+    if (/^-[SGOI].+/.test(arg) || /^-n\d+$/.test(arg) || /^-\d+$/.test(arg)
+        || /^-[pwsbz]+$/.test(arg) || /^-[UMCB](?:\d+%?)?$/.test(arg)
+        || /^-u(?:no|normal|all)?$/.test(arg)) continue;
+    return 'unknown';
+  }
+  return 'read';
+}
+
+function classifyCommandArguments(name, args) {
+  if (name === 'git') {
+    // Only these global options preserve the supported command interpretation.
+    while (args.length) {
+      if (args[0] === '--no-pager' || args[0] === '--literal-pathspecs') args.shift();
+      else if (args[0] === '-C' && args.length > 1) args.splice(0, 2);
+      else break;
+    }
+    const subcommand = args.shift();
+    if (['add', 'commit', 'push', 'merge', 'rebase', 'checkout', 'switch', 'reset', 'restore', 'clean', 'tag'].includes(subcommand)) return 'write';
+    if (subcommand === 'branch') return classifyGitBranchArguments(args);
+    if (['status', 'diff', 'log', 'show', 'rev-parse'].includes(subcommand)) return classifyGitQueryArguments(args);
+    return 'unknown';
+  }
+  if (['npm', 'pnpm', 'yarn'].includes(name) && ['add', 'install', 'remove', 'uninstall', 'publish'].includes(args[0])) return 'write';
+  if (['pip', 'pip3'].includes(name) && args[0] === 'install') return 'write';
+  if (name === 'gh' && /^(?:pr (?:create|merge|close)|issue (?:create|close)|release create)$/.test(args.slice(0, 2).join(' '))) return 'write';
+  if (name === 'rg') return classifyRipgrepArguments(args);
+  if (READ_SHELL_COMMANDS.has(name)) return 'read';
+  if (['node', 'python', 'python3', 'py'].includes(name) && args.length === 1 && args[0] === '--version') return 'read';
+  return 'unknown';
+}
+
 function classifyShell(command) {
-  const text = String(command || '').trim();
-  if (!text) return 'unknown';
-
-  const writePattern = /\b(?:Remove-Item|Move-Item|Copy-Item|Set-Content|Add-Content|Out-File|New-Item|rm|del|erase|rmdir|mv|cp|touch|mkdir|tee|apply_patch)\b|\bgit\s+(?:add|commit|push|merge|rebase|checkout|switch|reset|clean|tag)\b|\b(?:npm|pnpm|yarn)\s+(?:add|install|remove|uninstall|publish)\b|\bpip\s+install\b|\bgh\s+(?:pr\s+(?:create|merge|close)|issue\s+(?:create|close)|release\s+create)\b/i;
-  const redirection = /(^|[^<])>{1,2}\s*[^&]/;
-  if (writePattern.test(text) || redirection.test(text)) return 'write';
-
-  const dynamicProgram = /\b(?:node|python|python3|py|ruby|perl)\s+(?!-{1,2}version\b)(?:-e|-c|[^-\s][^\s]*)/i;
-  if (dynamicProgram.test(text)) return 'unknown';
-
-  const readPattern = /\b(?:Get-Content|Get-ChildItem|Get-Item|Test-Path|Resolve-Path|Select-String|Measure-Object|Compare-Object|Where-Object|ForEach-Object|rg|grep|findstr|cat|ls|dir|pwd|head|tail|wc|type)\b|\bgit\s+(?:status|diff|log|show|rev-parse|branch)\b|\b(?:node|python|python3|py)\s+--version\b/i;
-  return readPattern.test(text) ? 'read' : 'unknown';
+  return analyzeShell(command).mutability;
 }
 
 function classifyCodexTool(toolName, toolInput) {
