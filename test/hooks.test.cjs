@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { handleHook } = require('../src/hook-policy.cjs');
-const { readState } = require('../src/state.cjs');
+const { acquireSessionLock, readState } = require('../src/state.cjs');
 const { readRuntime } = require('../src/runtime-audit.cjs');
 
 function workspace(t) {
@@ -373,15 +373,150 @@ test('Codex wait releases only explicit UUID targets with proven terminal result
     assert.deepEqual(toControlEvent({ ...base, tool_response: { status: { [id]: status }, timed_out: false } }).action.endedAgentIds, [id]);
   }
   for (const status of ['running', 'interrupted', { errored: 'transport failed' }]) {
-    assert.equal(toControlEvent({ ...base, tool_response: { status: { [id]: status }, timed_out: false } }).action.endedAgentIds, undefined);
+    assert.equal(toControlEvent({ ...base, tool_response: { status: { [id]: status }, timed_out: false } }), null);
   }
-  assert.equal(toControlEvent({ ...base, tool_input: { targets: ['/root/scout'] }, tool_response: { status: { '/root/scout': { completed: 'done' } }, timed_out: false } }).action.endedAgentIds, undefined);
+  assert.equal(toControlEvent({ ...base, tool_input: { targets: ['/root/scout'] }, tool_response: { status: { '/root/scout': { completed: 'done' } }, timed_out: false } }), null);
 });
 
 test('Codex stop attempts cannot release parent accounting and resumes expose uncertainty', () => {
   const { toControlEvent } = require('../src/adapters/codex-hooks.cjs');
   assert.equal(toControlEvent({ session_id: 'child', hook_event_name: 'SubagentStop', agent_id: 'child' }), null);
-  for (const tool_name of ['send_input', 'resume_agent']) {
+  for (const tool_name of ['send_input', 'resume_agent', 'followup_task', 'multi_agent_v1send_input', 'multi_agent_v1resume_agent']) {
     assert.equal(toControlEvent({ session_id: 'parent', hook_event_name: 'PreToolUse', tool_name, tool_use_id: 'resume-1', tool_input: {} }).action.delegationLifecycleUnproven, true);
+  }
+});
+
+test('Codex v2 follow-up cannot restart an agent under a finite Guard limit', (t) => {
+  const options = workspace(t);
+  for (const limit of [0, 1]) {
+    const session = `v2-followup-${limit}`;
+    handleHook(prompt(session, `$stop-that-shit change agents=${limit} -- inspect`), options);
+    const output = handleHook(pre(session, 'followup_task', { target: '/root/scout', message: 'Continue' }), options);
+    assert.equal(output?.hookSpecificOutput?.permissionDecision, 'deny');
+    assert.match(output.hookSpecificOutput.permissionDecisionReason, /DELEGATION_LIFECYCLE_UNPROVEN/);
+    assert.deepEqual(readState(session, options.dataDir).delegation.unresolved, {});
+    assert.equal(handleHook(pre(session, 'send_message', { target: '/root/scout', message: 'Context only' }), options), null);
+  }
+});
+
+test('Codex v2 follow-up preserves watch behavior and records uncertainty before a finite limit', (t) => {
+  const options = workspace(t);
+  for (const directive of ['watch change agents=1', 'change']) {
+    const session = `v2-followup-${directive}`;
+    handleHook(prompt(session, `$stop-that-shit ${directive} -- inspect`), options);
+    const output = handleHook(pre(session, 'followup_task', { target: '/root/scout', message: 'Continue' }), options);
+    assert.notEqual(output?.hookSpecificOutput?.permissionDecision, 'deny');
+    if (directive.startsWith('watch')) assert.match(output?.hookSpecificOutput?.additionalContext, /DELEGATION_LIFECYCLE_UNPROVEN/);
+    assert.equal(readState(session, options.dataDir).delegation.unresolved['followup_task-1'], 'unversioned_resume');
+    handleHook(prompt(session, '$stop-that-shit change agents=1 -- inspect'), options);
+    const spawn = handleHook(pre(session, 'spawn_agent', { task_name: 'next', message: 'Inspect' }), options);
+    assert.match(spawn.hookSpecificOutput.permissionDecisionReason, /DELEGATION_STATE_UNPROVEN/);
+  }
+});
+
+test('Codex v2 mailbox activity and path-only snapshots do not release an unbound spawn', (t) => {
+  const options = workspace(t);
+  const session = 'v2-unbound-spawn';
+  handleHook(prompt(session, '$stop-that-shit change agents=1 -- inspect'), options);
+  assert.equal(handleHook(pre(session, 'spawn_agent', { task_name: 'scout', message: 'Inspect' }), options), null);
+  const post = (tool_name, tool_use_id, tool_response) => handleHook({ session_id: session, hook_event_name: 'PostToolUse', tool_name, tool_use_id, tool_input: {}, tool_response }, options);
+  post('spawn_agent', 'spawn_agent-1', { task_name: '/root/scout', nickname: 'Scout' });
+  post('wait_agent', 'wait-1', { message: 'Wait completed.', timed_out: false });
+  post('list_agents', 'list-1', { agents: [{ agent_name: '/root/scout', agent_status: { completed: 'Done' } }] });
+  post('interrupt_agent', 'interrupt-1', { previous_status: 'running' });
+  const next = { ...pre(session, 'spawn_agent', { task_name: 'next', message: 'Inspect' }), tool_use_id: 'spawn-2' };
+  assert.match(handleHook(next, options).hookSpecificOutput.permissionDecisionReason, /AGENT_BUDGET_EXHAUSTED/);
+  assert.equal(handleHook(pre(session, 'Bash', { command: 'git status --short' }), options), null);
+});
+
+// Codex flat_tool_name concatenates the multi_agent_v1 namespace and tool name.
+// spawn_agent alone gets a canonical-name override in function_hook_tool_name.
+test('Codex namespaced v1 waits release UUID reservations and resumes retain the finite gate', (t) => {
+  const options = workspace(t);
+  const session = 'v1-namespaced';
+  const id = '019c6e27-e55b-73d1-87d8-4e01f1f75043';
+  handleHook(prompt(session, '$stop-that-shit change agents=1 -- inspect'), options);
+  assert.equal(handleHook(pre(session, 'spawn_agent', { message: 'Inspect' }), options), null);
+  handleHook({ session_id: session, hook_event_name: 'PostToolUse', tool_name: 'spawn_agent', tool_use_id: 'spawn_agent-1', tool_input: {}, tool_response: JSON.stringify({ agent_id: id, nickname: null }) }, options);
+  handleHook(prompt(session, '$stop-that-shit review agents=1 -- inspect'), options);
+  assert.equal(handleHook(pre(session, 'multi_agent_v1wait_agent', { targets: [id] }), options), null);
+  handleHook({ session_id: session, hook_event_name: 'PostToolUse', tool_name: 'multi_agent_v1wait_agent', tool_use_id: 'wait-1', tool_input: { targets: [id] }, tool_response: JSON.stringify({ status: { [id]: { completed: 'Done' } }, timed_out: false }) }, options);
+  assert.equal(handleHook({ ...pre(session, 'spawn_agent', { message: 'Inspect next' }), tool_use_id: 'spawn-2' }, options), null);
+  handleHook(prompt(session, '$stop-that-shit change agents=1 -- inspect'), options);
+  for (const name of ['multi_agent_v1send_input', 'multi_agent_v1resume_agent']) {
+    const result = handleHook(pre(session, name, { id, message: 'Continue' }), options);
+    assert.match(result?.hookSpecificOutput?.permissionDecisionReason, /DELEGATION_LIFECYCLE_UNPROVEN/);
+  }
+});
+
+// Codex desktop 0.154.0-alpha.6.2 emits collaboration + tool name to hooks.
+test('Codex desktop collaboration names obey no-delegation limits while reads remain available', (t) => {
+  const options = workspace(t);
+  const session = 'desktop-collaboration';
+  handleHook(prompt(session, '$stop-that-shit change agents=0 -- no delegation'), options);
+  const spawn = handleHook(pre(session, 'collaborationspawn_agent', { task_name: 'scout', message: 'Inspect' }), options);
+  assert.match(spawn?.hookSpecificOutput?.permissionDecisionReason, /AGENT_BUDGET_EXHAUSTED/);
+  const resume = handleHook(pre(session, 'collaborationfollowup_task', { target: '/root/scout', message: 'Continue' }), options);
+  assert.match(resume?.hookSpecificOutput?.permissionDecisionReason, /DELEGATION_LIFECYCLE_UNPROVEN/);
+  assert.equal(handleHook(pre(session, 'collaborationsend_message', { target: '/root/scout', message: 'Context only' }), options), null);
+  handleHook(prompt(session, '$stop-that-shit review agents=0 -- inspect'), options);
+  assert.equal(handleHook(pre(session, 'collaborationlist_agents', {}), options), null);
+  assert.equal(handleHook(pre(session, 'collaborationwait_agent', { timeout_ms: 10000 }), options), null);
+  assert.equal(handleHook(pre(session, 'mcp__example__collaborationlist_agents', {}), options)?.hookSpecificOutput?.permissionDecision, 'deny');
+});
+
+test('Codex ordinary tool results do not contend with a delegation writer', (t) => {
+  const options = workspace(t);
+  const session = 'ordinary-results';
+  handleHook(prompt(session, '$stop-that-shit change agents=1 -- inspect'), options);
+  handleHook(pre(session, 'spawn_agent', { message: 'Inspect' }), options);
+  const before = readState(session, options.dataDir);
+  const release = acquireSessionLock(session, options.dataDir);
+  try {
+    for (const tool_name of ['Bash', 'apply_patch', 'collaborationlist_agents', 'collaborationinterrupt_agent', 'mcp__example__read_file']) {
+      assert.equal(handleHook({ session_id: session, hook_event_name: 'PostToolUse', tool_name, tool_use_id: `result-${tool_name}`, tool_input: {}, tool_response: 'Done' }, options), null);
+    }
+    assert.equal(handleHook({ session_id: session, hook_event_name: 'PostToolUse', tool_name: 'collaborationwait_agent', tool_use_id: 'wait-1', tool_input: {}, tool_response: { message: 'Wait completed.', timed_out: false } }, options), null);
+    assert.deepEqual(readState(session, options.dataDir), before);
+  } finally {
+    release();
+  }
+});
+
+test('Codex read results do not create unused session state', (t) => {
+  const options = workspace(t);
+  handleHook({ session_id: 'unused-result', hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_use_id: 'read-1', tool_input: { command: 'git status' }, tool_response: 'clean' }, options);
+  assert.deepEqual(fs.readdirSync(options.dataDir), []);
+});
+
+test('Codex review permits stopping agents without treating previous status as completion', (t) => {
+  const options = workspace(t);
+  const session = 'cancel-review';
+  handleHook(prompt(session, '$stop-that-shit change agents=1 -- inspect'), options);
+  handleHook(pre(session, 'spawn_agent', { message: 'Inspect' }), options);
+  const id = '019c6e27-e55b-73d1-87d8-4e01f1f75043';
+  handleHook({ session_id: session, hook_event_name: 'PostToolUse', tool_name: 'spawn_agent', tool_use_id: 'spawn_agent-1', tool_input: { message: 'Inspect' }, tool_response: { agent_id: id, nickname: null } }, options);
+  handleHook(prompt(session, '$stop-that-shit review agents=0 -- stop delegated work and report'), options);
+  const before = readState(session, options.dataDir).delegation;
+  for (const tool_name of ['interrupt_agent', 'collaborationinterrupt_agent', 'close_agent', 'multi_agent_v1close_agent']) {
+    const tool_input = tool_name.endsWith('close_agent') ? { id } : { target: '/root/scout' };
+    assert.equal(handleHook(pre(session, tool_name, tool_input), options), null);
+    handleHook({ session_id: session, hook_event_name: 'PostToolUse', tool_name, tool_use_id: `${tool_name}-1`, tool_input, tool_response: { previous_status: { completed: 'Done' } } }, options);
+  }
+  assert.deepEqual(readState(session, options.dataDir).delegation, before);
+  assert.equal(handleHook(pre(session, 'mcp__github__close_issue', { number: 50 }), options)?.hookSpecificOutput?.permissionDecision, 'deny');
+});
+
+test('Codex audit records the same default delegation count used for admission', (t) => {
+  const options = workspace(t);
+  for (const budget of [0, 1]) {
+    const session = `audit-default-count-${budget}`;
+    handleHook(prompt(session, `$stop-that-shit change agents=${budget} -- inspect`), options);
+    handleHook(pre(session, 'collaborationspawn_agent', { task_name: 'scout', message: 'PRIVATE_TASK' }), options);
+    const [event] = readRuntime({ sessionId: session }, options).events;
+    assert.equal(event.action.toolName, 'collaborationspawn_agent');
+    assert.equal(event.action.delegationCount, 1);
+    assert.equal(event.contract.reservedUpperBound, budget);
+    assert.doesNotMatch(JSON.stringify(event), /PRIVATE_TASK/);
   }
 });
