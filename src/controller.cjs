@@ -248,7 +248,11 @@ function handleLifecycleContext(event, options) {
     state.delegation = applyDelegationFact(state.delegation, fact);
     return context(contractContext(state.contract, state.delegation, 'active', state.directiveWarning));
   };
-  return event.kind === 'session.start' ? update(readState(event.sessionId, options.dataDir))
+  // Ordinary session end carries no completion fact. Keep its context response
+  // without waiting for another writer or rewriting state during shutdown.
+  const readOnly = event.kind === 'session.start'
+    || event.kind === 'session.end' && event.allDelegationsStopped !== true;
+  return readOnly ? update(readState(event.sessionId, options.dataDir))
     : updateSession(event.sessionId, options.dataDir, update);
 }
 

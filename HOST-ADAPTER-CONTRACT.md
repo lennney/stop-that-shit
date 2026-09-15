@@ -83,6 +83,13 @@ session and can be continued by hooks; it does not mutate the parent's ledger.
 Finite Guard rejects `send_input` and `resume_agent` because a resumed run lacks
 a completion incarnation. The original `hooks/codex-hooks.json` entrypoint stays.
 
+### Session end
+
+Ordinary session end reads existing state without taking
+a writer lock or releasing reservations. Session exit alone does not prove that
+delegated work completed. An explicit `allDelegationsStopped` fact still follows
+the existing locked update path.
+
 ## Claude Code mapping
 
 `src/adapters/claude-hooks.cjs` maps:
