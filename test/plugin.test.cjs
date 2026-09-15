@@ -33,6 +33,11 @@ test('Codex plugin manifest discovers both Skills and preserves its hook paths',
   ]);
 });
 
+test('Codex SessionEnd hook uses the supported three-second timeout', () => {
+  const config = JSON.parse(fs.readFileSync(path.join(root, 'hooks', 'codex-hooks.json'), 'utf8'));
+  assert.equal(config.hooks.SessionEnd[0].hooks[0].timeout, 3);
+});
+
 test('Codex presentation metadata uses valid local assets', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, '.codex-plugin', 'plugin.json'), 'utf8'));
   for (const field of ['composerIcon', 'logo']) {

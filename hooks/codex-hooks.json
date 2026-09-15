@@ -68,7 +68,7 @@
           {
             "type": "command",
             "command": "node -e \"const p=require('node:path');require(p.join(process.env.PLUGIN_ROOT??process.env.CLAUDE_PLUGIN_ROOT,'hooks','stop-that-shit.cjs'))\"",
-            "timeout": 5
+            "timeout": 3
           }
         ]
       }
