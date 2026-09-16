@@ -24,3 +24,20 @@ jobs:
           fail_on_severity: high
           format: sarif
           upload_sarif: true
+
+      - name: Print scanner findings for diagnosis
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = Path("ai-plugin-scanner.sarif")
+          if report.is_file():
+              data = json.loads(report.read_text())
+              for run in data.get("runs", []):
+                  for finding in run.get("results", []):
+                      print(json.dumps(finding, ensure_ascii=True))
+          else:
+              print("Scanner report was not produced.")
+          PY
