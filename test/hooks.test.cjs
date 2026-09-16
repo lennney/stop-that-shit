@@ -287,6 +287,261 @@ test('review contract blocks a shell command with unproven mutability', (t) => {
   assert.match(output.hookSpecificOutput.permissionDecisionReason, /MUTABILITY_UNPROVEN/);
 });
 
+test('Codex review rejects branch mutation and restore while keeping branch queries', (t) => {
+  const options = workspace(t);
+  const session = 'git-review';
+  handleHook(prompt(session, '$stop-that-shit review -- inspect repository state'), options);
+  for (const command of ['git branch scratch', 'Git branch scratch', 'git branch -D scratch', 'git branch -M old new', 'git branch --list -D scratch', 'git status --short; git restore -- src/config.cjs']) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options)?.hookSpecificOutput?.permissionDecision, 'deny', command);
+  }
+  for (const command of ['git branch', 'git branch --show-current', 'git branch -a', "git branch --list 'fix/*'", 'git branch --contains HEAD']) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options), null, command);
+  }
+  handleHook(prompt(session, '$stop-that-shit change -- create the requested branch'), options);
+  assert.equal(handleHook(pre(session, 'Bash', { command: 'git branch scratch' }), options), null);
+});
+
+test('Codex review checks every command instead of allowing a partial read match', (t) => {
+  const options = workspace(t);
+  const session = 'compound-review';
+  handleHook(prompt(session, '$stop-that-shit review -- inspect only'), options);
+  for (const command of [
+    'git status --short; git config --local sts.probe value',
+    'git status --short\rgit config --local sts.probe value',
+    'git status --short\ncustom-build',
+    'git diff --stat && custom-build',
+    'git status || custom-build',
+    'Get-Content fixture.txt | custom-build',
+    "custom-build --description 'git status'",
+    'git status; git -C fixture restore -- tracked.txt',
+    'git diff --output=changed.txt; git status',
+    'rg --pre=custom-build needle; git status'
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options)?.hookSpecificOutput?.permissionDecision, 'deny', command);
+  }
+  handleHook(prompt(session, '$stop-that-shit change -- set the requested local Git setting'), options);
+  assert.equal(handleHook(pre(session, 'Bash', { command: 'git status --short; git config --local sts.probe value' }), options), null);
+});
+
+test('Codex review keeps static query chains and quoted command examples readable', (t) => {
+  const options = workspace(t);
+  const session = 'literal-review';
+  handleHook(prompt(session, '$stop-that-shit review -- inspect only'), options);
+  for (const command of [
+    'git status --short; git diff --stat',
+    'git status --short\rgit diff --stat',
+    'git status --short\r\n\r\ngit diff --stat',
+    'git status --short && git --no-pager diff --stat',
+    "git -C 'repo folder' status --short",
+    "rg -n 'git restore; custom-build' src",
+    "rg -n '$(example)' src",
+    'rg -n "git restore; custom-build" src',
+    "Get-Content -LiteralPath 'C:\\source files\\fixture.txt' | Select-Object -First 5",
+    "git branch --list 'fix/*'"
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options), null, command);
+  }
+});
+
+test('Codex review rejects shell-dependent quote boundaries and preserves literal searches', (t) => {
+  const options = workspace(t);
+  const session = 'shell-quotes';
+  handleHook(prompt(session, '$stop-that-shit review -- inspect only'), options);
+  for (const [quote, alternatives] of [["'", ['\u2018', '\u2019', '\u201a', '\u201b']], ['"', ['\u201c', '\u201d', '\u201e']]]) {
+    for (const closing of alternatives) {
+      const command = `Get-Content ${quote}missing${closing}; Set-Content -LiteralPath marker.txt -Value fixture; #${quote}`;
+      assert.equal(handleHook(pre(session, 'Bash', { command }), options)?.hookSpecificOutput?.permissionDecision, 'deny', command);
+    }
+  }
+  for (const command of [
+    'rg -F "it\u2019s ready" README.md',
+    "rg -F 'say \u201chello\u201d' README.md",
+    "Get-Content -LiteralPath 'C:\\source files\\fixture.txt'",
+    'Get-Content -LiteralPath "C:\\source files\\fixture.txt"'
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options), null, command);
+  }
+});
+
+test('Codex review checks Git option boundaries and disabled branch listing', (t) => {
+  const options = workspace(t);
+  const session = 'git-option-boundaries';
+  handleHook(prompt(session, '$stop-that-shit review -- inspect only'), options);
+  for (const command of [
+    'git branch --list --no-list created',
+    'git branch --list --no-l created',
+    'git branch --list --no-list --mov victim moved'
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options)?.hookSpecificOutput?.permissionDecision, 'deny', command);
+  }
+  for (const command of [
+    "git branch --list '--format=%(refname:short) -D'",
+    "git branch --list --format '%(refname:short) -D'",
+    'git branch --list -- -D',
+    'git branch --list --sort=-committerdate',
+    'git branch --contains HEAD',
+    'git branch --no-merged HEAD',
+    'git diff -- --output=tracked.txt',
+    'git log -- --output=tracked.txt',
+    'git show HEAD -- --output=tracked.txt'
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options), null, command);
+  }
+});
+
+test('Codex review does not treat unquoted shell escapes as literal arguments', (t) => {
+  const options = workspace(t);
+  const session = 'shell-escapes';
+  const command = String.raw`git --no-pager diff --no-index before.txt after.txt --out\put=marker.txt`;
+  handleHook(prompt(session, '$stop-that-shit review -- inspect only'), options);
+  assert.equal(handleHook(pre(session, 'Bash', { command }), options)?.hookSpecificOutput?.permissionDecision, 'deny');
+  handleHook(prompt(session, '$stop-that-shit change -- write the requested diff'), options);
+  assert.equal(handleHook(pre(session, 'Bash', { command }), options), null);
+});
+
+test('Codex review leaves legacy native argument quoting unproven while cmdlet searches work', (t) => {
+  const options = workspace(t);
+  const session = 'legacy-native-quotes';
+  handleHook(prompt(session, '$stop-that-shit review -- inspect only'), options);
+  for (const command of [
+    `git --no-pager diff --no-index before.txt after.txt '--src-prefix= " --output=marker.txt "--dst-prefix= '`,
+    'git --no-pager diff --no-index before.txt after.txt "--src-prefix= "" --output=marker.txt ""--dst-prefix= "'
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options)?.hookSpecificOutput?.permissionDecision, 'deny', command);
+  }
+  for (const command of [
+    `Select-String -SimpleMatch 'say "hello"' -LiteralPath README.md`,
+    'Select-String -SimpleMatch "say ""hello""" -LiteralPath README.md'
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options), null, command);
+  }
+});
+
+test('Codex review leaves dynamic and incomplete shell structure unproven', (t) => {
+  const options = workspace(t);
+  const session = 'dynamic-review';
+  handleHook(prompt(session, '$stop-that-shit review -- inspect only'), options);
+  for (const command of [
+    'git status; $tool',
+    'git status; & custom-build',
+    'git status; powershell -Command custom-build',
+    'git status; bash -c custom-build',
+    'Get-Content "$(custom-build)"',
+    'Get-Content "`custom-build`"',
+    "rg 'unterminated git status",
+    'git status &&',
+    'git status |',
+    'git status; ForEach-Object { custom-build }',
+    'git status; echo %COMMAND%'
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options)?.hookSpecificOutput?.permissionDecision, 'deny', command);
+  }
+});
+
+test('Codex review blocks ripgrep executable options while literal searches remain readable', (t) => {
+  const options = workspace(t);
+  const session = 'ripgrep-executables';
+  handleHook(prompt(session, '$stop-that-shit review -- inspect only'), options);
+  for (const command of [
+    'rg --hostname-bin=helper fixture input.txt',
+    'rg --hostname-bin helper fixture input.txt',
+    'rg fixture input.txt --hostname-bin=helper',
+    'rg --pre=helper fixture input.txt',
+    'rg --pre helper fixture input.txt',
+    'rg -e -- --hostname-bin=helper input.txt',
+    'rg --regexp -- --hostname-bin=helper input.txt',
+    'rg --glob -- --hostname-bin=helper input.txt',
+    'rg -ne -- --hostname-bin=helper input.txt'
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options)?.hookSpecificOutput?.permissionDecision, 'deny', command);
+  }
+  for (const command of [
+    'rg -n fixture input.txt',
+    'rg -n -- --hostname-bin=helper input.txt',
+    'rg fixture -- --hostname-bin=helper',
+    'rg fixture -- --pre=helper',
+    "rg -e '--hostname-bin=helper' input.txt",
+    "rg --regexp '--hostname-bin=helper' input.txt",
+    "rg -ne '--hostname-bin=helper' input.txt",
+    'rg -e--hostname-bin=helper input.txt',
+    'rg --regexp=--hostname-bin=helper input.txt',
+    "rg -e '--pre=helper' input.txt",
+    "rg --glob '--hostname-bin=helper' fixture .",
+    "rg --file '--hostname-bin=helper' input.txt"
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options), null, command);
+  }
+  handleHook(prompt(session, '$stop-that-shit change -- run the requested search helper'), options);
+  assert.equal(handleHook(pre(session, 'Bash', { command: 'rg --hostname-bin=helper fixture input.txt' }), options), null);
+});
+
+test('Codex review distinguishes Git option values from the end of options', (t) => {
+  const options = workspace(t);
+  const session = 'git-option-values';
+  handleHook(prompt(session, '$stop-that-shit review -- inspect only'), options);
+  for (const command of [
+    'git --no-pager diff --no-index --word-diff-regex -- --output=marker.txt before.txt after.txt',
+    'git diff --src-prefix -- --output=marker.txt',
+    'git log -S -- --output=marker.txt',
+    'git show --future-option -- --output=marker.txt'
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options)?.hookSpecificOutput?.permissionDecision, 'deny', command);
+  }
+  for (const command of [
+    'git diff --word-diff-regex -- -- README.md',
+    'git diff --src-prefix=-- -- --output=tracked.txt',
+    'git diff --stat', 'git diff --check', 'git diff --name-only', 'git diff --cached -U3',
+    'git log --oneline -n 5', "git log --format='%h %s' -- README.md",
+    'git show --stat HEAD', 'git rev-parse --show-toplevel', 'git status --porcelain=v1 -uno',
+    'git diff -- --output=tracked.txt'
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options), null, command);
+  }
+});
+
+test('Codex review checks native commands with and without empty arguments', (t) => {
+  const options = workspace(t);
+  const session = 'empty-native-arguments';
+  handleHook(prompt(session, '$stop-that-shit review -- inspect only'), options);
+  for (const command of [
+    "rg -e '' -- --hostname-bin=helper input.txt",
+    'rg -e "" -- --pre=helper input.txt',
+    "git --no-pager diff --no-index --word-diff-regex '' -- --output=marker.txt before.txt after.txt"
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options)?.hookSpecificOutput?.permissionDecision, 'deny', command);
+  }
+  for (const command of ["rg '' input.txt", "rg -e '' -- input.txt", "Select-String -Pattern '' -LiteralPath input.txt"]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options), null, command);
+  }
+  handleHook(prompt(session, '$stop-that-shit change -- run the requested hostname helper'), options);
+  assert.equal(handleHook(pre(session, 'Bash', { command: "rg -e '' -- --hostname-bin=helper input.txt" }), options), null);
+});
+
+test('shell intent checks preserve literal searches and still inspect real operations', (t) => {
+  const options = workspace(t);
+  const session = 'literal-shell-intents';
+  handleHook(prompt(session, '$stop-that-shit review -- search examples'), options);
+  for (const command of [
+    "rg -n 'npm install' README.md", "rg -n 'Get-FileHash' README.md", "rg -n 'sha256sum' README.md",
+    "Select-String -SimpleMatch 'npm install' -LiteralPath README.md",
+    "rg -e 'npm install' README.md; rg -e 'sha256sum' README.md"
+  ]) {
+    assert.equal(handleHook(pre(session, 'Bash', { command }), options), null, command);
+  }
+  handleHook(prompt(session, '$stop-that-shit change -- inspect the requested command'), options);
+  for (const [command, reason] of [
+    ["rg -n 'sha256sum' README.md; npm install fixture", 'DEPENDENCY_NOT_AUTHORIZED'],
+    ["rg -n 'npm install' README.md; sha256sum fixture.txt", 'HASH_NOT_AUTHORIZED'],
+    ['sha256sum fixture.txt', 'HASH_NOT_AUTHORIZED'],
+    ['npm install fixture', 'DEPENDENCY_NOT_AUTHORIZED'],
+    ['sh -c "sha256sum fixture.txt"', 'HASH_NOT_AUTHORIZED']
+  ]) {
+    assert.match(handleHook(pre(session, 'Bash', { command }), options)?.hookSpecificOutput?.permissionDecisionReason || '', new RegExp(reason), command);
+  }
+  handleHook(prompt(session, '$stop-that-shit change hash=allow deps=allow -- run the requested operations'), options);
+  assert.equal(handleHook(pre(session, 'Bash', { command: 'sha256sum fixture.txt; npm install fixture' }), options), null);
+});
+
 test('watch level warns but does not deny mutation', (t) => {
   const options = workspace(t);
   handleHook(prompt('watch-session', '$stop-that-shit watch review -- inspect only'), options);

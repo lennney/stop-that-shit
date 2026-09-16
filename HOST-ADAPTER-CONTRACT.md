@@ -306,6 +306,58 @@ Pi operational adapter errors are caught so they retain the shared fail-open
 behavior. Only a shared policy denial returns Pi's `block`; `terminate` is
 omitted so the Agent can recover with an in-scope action.
 
+## Shared shell classification
+
+Codex Rules evaluate argument prefixes and the host execution path can parse
+supported shell chains. That does not make `codex execpolicy check` a complete
+shell parser for the plugin. Reuse requires a verified callable interface;
+otherwise use bounded analysis and retain unknown results. See [Rules](https://learn.chatgpt.com/docs/rules).
+The shared classifier analyzes a bounded static grammar. It does not expose
+or duplicate the host's complete shell parser.
+
+The shared shell classifier examines each command in a static chain before
+classifying the whole call. Every command must be a supported read to return
+`read`; a known write returns `write`, and otherwise the result is `unknown`.
+It recognizes literal quoted arguments and simple `;`, newline, `&&`, `||` and
+pipe separators. Quoted command examples remain data. Expansions, script blocks,
+unproven shell wrappers, ambiguous escapes and incomplete syntax remain unknown.
+This intentionally limited grammar applies without guessing the user's shell.
+PowerShell's seven non-ASCII quote characters remain unknown where they can
+open or close a string. An unquoted backslash also remains unknown because
+Bash removes it before ordinary characters. Quoted Windows paths remain usable.
+
+Embedded double quotes and doubled double quotes can become new arguments
+under legacy PowerShell native argument passing. Such native program calls
+remain unknown. Known PowerShell read cmdlets receive their literal arguments
+directly, so their quoted searches remain available.
+Legacy PowerShell also drops empty native arguments. Calls with empty arguments
+must be reads both with the arguments preserved and with them removed. This
+keeps harmless empty searches available while checking for newly exposed options.
+
+Executable names must match supported commands; an argument containing
+`git status` does not make an unknown program read-only. Git `-C` and
+`--no-pager` preserve supported query classification. Branch mutations,
+`git restore` and Git output-file options cannot pass review as reads.
+Ripgrep `--pre` and `--hostname-bin` executable options remain unknown. Option
+values and operands after `--` remain data, including literal option names.
+Native sandbox and permission controls remain responsible for execution,
+including programs' configured
+behavior and unsupported invocation forms.
+Git branch classification keeps argument boundaries and accepts only supported
+query options. Unknown negations and abbreviations cannot borrow an earlier
+`--list`. Values passed to `--format` remain data; arguments after `--` are
+operands, including paths that happen to start with `--output=`.
+Supported Git queries consume required option values before recognizing `--`
+as an option terminator. For example, `--word-diff-regex --` consumes a regex;
+it cannot hide a later `--output`. Unknown query options remain unknown, and
+optional values must use their attached form.
+
+Shell hash and dependency checks reuse this command analysis. Arguments to
+proven reads are data, so searching for `npm install` or `Get-FileHash` does not
+request those operations. Each command in a chain is checked separately; an
+actual installation or hash operation keeps its existing authorization check.
+Unproven shell syntax retains the conservative text checks.
+
 ## Support matrix and evidence boundary
 
 | Hermes surface | Status | Evidence and boundary |
