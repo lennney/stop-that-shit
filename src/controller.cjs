@@ -157,10 +157,10 @@ function handleBeforeAction(event, options) {
     && ['delegate', 'control', 'unknown'].includes(event.action.mutability);
   const changesDelegation = event.action.mutability === 'delegate'
     || event.action.delegationLifecycleUnproven || legacyDelegationProtocol;
+  const delegationCount = event.action.mutability === 'delegate'
+    ? (Number.isInteger(event.action.delegationCount) ? event.action.delegationCount : 1)
+    : 0;
   const evaluate = (state) => {
-    const delegationCount = event.action.mutability === 'delegate'
-      ? (Number.isInteger(event.action.delegationCount) ? event.action.delegationCount : 1)
-      : 0;
     const action = {
       mutability: event.action.mutability,
       legacyDelegationProtocol,
@@ -203,7 +203,7 @@ function handleBeforeAction(event, options) {
     : result.outcome === 'report_and_defer' ? 'context_returned' : 'none';
   const auditEvent = recordDecision({
     sessionId: event.sessionId,
-    action: event.action,
+    action: { ...event.action, delegationCount },
     contract: state.contract,
     delegation: state.delegation,
     decision: result,

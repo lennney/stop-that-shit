@@ -4,7 +4,15 @@ const nodePath = require('node:path');
 
 const WRITE_NAME = /(?:^|__|_)(?:add|append|apply|archive|close|commit|copy|create|delete|deploy|edit|install|merge|move|patch|post|publish|push|remove|rename|send|set|submit|update|upload|write)(?:$|__|_)/i;
 const READ_NAME = /(?:^|__|_)(?:cat|check|diff|fetch|find|get|inspect|list|load|open|read|review|search|show|status|view)(?:$|__|_)/i;
-const CONTROL_TOOLS = new Set(['update_plan', 'request_user_input', 'wait', 'wait_agent']);
+const CONTROL_TOOLS = new Set(['update_plan', 'request_user_input', 'wait', 'wait_agent', 'interrupt_agent', 'close_agent']);
+// Match the host's known flattened namespaces exactly; do not strip arbitrary
+// prefixes from MCP or third-party tool names.
+const CODEX_TOOL_NAMES = new Map([
+  ...['send_input', 'resume_agent', 'wait_agent', 'close_agent']
+    .map(name => [`multi_agent_v1${name}`, name]),
+  ...['spawn_agent', 'followup_task', 'send_message', 'list_agents', 'wait_agent', 'interrupt_agent']
+    .map(name => [`collaboration${name}`, name])
+]);
 const CODE_PATH = /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|cs|php|rb|c|cc|cpp|h|hpp)$/i;
 const HASH_COMMAND = /\b(?:Get-FileHash|md5sum|sha(?:1|224|256|384|512)sum|shasum|b2sum)\b|\bcertutil\b[^\r\n]*\s-hashfile\b|\bopenssl\s+dgst\b/i;
 const HASH_API = /\b(?:createHash|createHmac)\s*\(|\bcrypto\.subtle\.digest\s*\(|\bhashlib\.(?:md5|sha1|sha224|sha256|sha384|sha512|blake2[bs])\s*\(|\bMessageDigest\.getInstance\s*\(|\bDigestUtils\.[A-Za-z0-9_]+\s*\(|\bsha(?:1|256|512)\.(?:New|Sum\w*)\s*\(|\b(?:bcrypt|argon2)\.hash\s*\(|\bpassword_hash\s*\(|\bPasswordHasher\s*\(/i;
@@ -353,8 +361,13 @@ function classifyShell(command) {
   return analyzeShell(command).mutability;
 }
 
-function classifyCodexTool(toolName, toolInput) {
+function canonicalCodexToolName(toolName) {
   const name = String(toolName || '');
+  return CODEX_TOOL_NAMES.get(name) || name;
+}
+
+function classifyCodexTool(toolName, toolInput) {
+  const name = canonicalCodexToolName(toolName);
   if (name === 'apply_patch' || name === 'Edit' || name === 'Write') return 'write';
   if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
     return classifyShell(toolInput && toolInput.command);
@@ -366,4 +379,4 @@ function classifyCodexTool(toolName, toolInput) {
   return 'unknown';
 }
 
-module.exports = { classifyCodexTool, classifyShell, detectDependencyIntent, detectHashIntent, extractAffectedPaths };
+module.exports = { canonicalCodexToolName, classifyCodexTool, classifyShell, detectDependencyIntent, detectHashIntent, extractAffectedPaths };

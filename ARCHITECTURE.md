@@ -65,8 +65,9 @@ of user intent. See [directive entry](INSTALL.md#directive-entry).
 
 Codex maps `UserPromptSubmit` to `prompt.submit`, `PreToolUse` to
 `action.before`, `PostToolUse` to `action.after`, and `SessionEnd` to `session.end`.
-Its spawn result binds a child; confirmed wait results release it. Codex ignores
-the registered `SubagentStart` and `SubagentStop` events.
+Its supported UUID spawn results bind a child; confirmed matching wait results
+release it. The plugin does not register `SubagentStart` or `SubagentStop` for
+Codex. Payloads from older configurations remain ignored.
 
 Claude Code retains line boundaries when normalizing its native slash form.
 It uses its `Agent` tool's `tool_use_id` and completed result, and injects context

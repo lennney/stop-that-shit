@@ -2,7 +2,7 @@
 
 const { PROTOCOL_VERSION } = require('../control-protocol.cjs');
 const { handleControlEvent } = require('../controller.cjs');
-const { classifyCodexTool, detectDependencyIntent, detectHashIntent, extractAffectedPaths } = require('./codex-tool-classifier.cjs');
+const { canonicalCodexToolName, classifyCodexTool, detectDependencyIntent, detectHashIntent, extractAffectedPaths } = require('./codex-tool-classifier.cjs');
 const { optionalIdentifier } = require('./lifecycle-fields.cjs');
 
 const EVENT_KIND = {
@@ -28,6 +28,7 @@ function toControlEvent(input) {
   if (!input || typeof input !== 'object') return null;
   const kind = EVENT_KIND[input.hook_event_name];
   if (!kind) return null;
+  const toolName = canonicalCodexToolName(input.tool_name);
 
   const event = {
     protocolVersion: PROTOCOL_VERSION,
@@ -44,17 +45,20 @@ function toControlEvent(input) {
 
   if (kind === 'prompt.submit') event.prompt = String(input.prompt || '');
   if (kind === 'action.after') {
+    // Only delegation results can change this adapter's ledger. Ordinary tool
+    // output must not acquire a writer lock just to rewrite unchanged state.
+    if (!['spawn_agent', 'Agent', 'wait_agent'].includes(toolName)) return null;
     const actionId = optionalIdentifier(input.tool_use_id, input.tool_call_id);
     if (!actionId) return null;
     event.action = { id: actionId, lifecycle: 'unknown' };
     const response = parsedResponse(input.tool_response);
-    if (input.tool_name === 'spawn_agent' && response && uuid(response.agent_id)) {
+    if (toolName === 'spawn_agent' && response && uuid(response.agent_id)) {
       event.action.lifecycle = 'running';
       event.action.agentId = response.agent_id;
     }
     // wait results name requested targets, which may also be path aliases.
     // Only UUID targets can be correlated without an authoritative alias map.
-    if (input.tool_name === 'wait_agent' && response && response.timed_out === false
+    if (toolName === 'wait_agent' && response && response.timed_out === false
         && response.status && typeof response.status === 'object') {
       const targets = Array.isArray(input.tool_input?.targets) ? input.tool_input.targets : [];
       const ended = Object.entries(response.status).filter(([id, status]) =>
@@ -65,6 +69,7 @@ function toControlEvent(input) {
       ).map(([id]) => id);
       if (ended.length) event.action.endedAgentIds = ended;
     }
+    if (toolName === 'wait_agent' && !event.action.endedAgentIds) return null;
     // close_agent exposes previous_status, not shutdown acknowledgement.
     // Errored can originate from an Error event before the turn terminates.
 
@@ -83,12 +88,12 @@ function toControlEvent(input) {
       affectedPaths: extractAffectedPaths(input.tool_name, input.tool_input, input.cwd),
       cwd: input.cwd
     };
-    if (['send_input', 'resume_agent'].includes(input.tool_name)) {
+    if (['send_input', 'resume_agent', 'followup_task'].includes(toolName)) {
       event.action.delegationLifecycleUnproven = true;
     }
   }
-  // SubagentStop is a stop attempt that other hooks may continue, and its
-  // session_id belongs to the child. No parent mutation is inferred here.
+  // SubagentStop is a stop attempt that other hooks may continue.
+  // Its routing fields do not prove terminal execution.
 
   return event;
 }

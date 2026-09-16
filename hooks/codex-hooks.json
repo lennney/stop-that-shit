@@ -14,7 +14,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "*",
+        "matcher": "^(?:spawn_agent|Agent|wait_agent|multi_agent_v1wait_agent|collaborationspawn_agent|collaborationwait_agent)$",
         "hooks": [
           {
             "type": "command",
@@ -33,30 +33,6 @@
             "command": "node -e \"const p=require('node:path');require(p.join(process.env.PLUGIN_ROOT??process.env.CLAUDE_PLUGIN_ROOT,'hooks','stop-that-shit.cjs'))\"",
             "timeout": 5,
             "statusMessage": "Checking the Stop Ladder..."
-          }
-        ]
-      }
-    ],
-    "SubagentStart": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node -e \"const p=require('node:path');require(p.join(process.env.PLUGIN_ROOT??process.env.CLAUDE_PLUGIN_ROOT,'hooks','stop-that-shit.cjs'))\"",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node -e \"const p=require('node:path');require(p.join(process.env.PLUGIN_ROOT??process.env.CLAUDE_PLUGIN_ROOT,'hooks','stop-that-shit.cjs'))\"",
-            "timeout": 5
           }
         ]
       }
