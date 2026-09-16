@@ -1,7 +1,7 @@
 'use strict';
 
 const { DEFAULT_AGENT_LIMIT, parseContractPrompt } = require('./contracts.cjs');
-const { assertControlEvent, supportsLifecycleFacts } = require('./control-protocol.cjs');
+const { SHELL_ANALYSIS_REASONS, isShellAnalysisReason, assertControlEvent, supportsLifecycleFacts } = require('./control-protocol.cjs');
 const { inspectDelegation, applyDelegationFact } = require('./delegation-state.cjs');
 const { decide } = require('./decision.cjs');
 const { readRuntime, recordDecision } = require('./runtime-audit.cjs');
@@ -57,7 +57,7 @@ function activeControlState(contract) {
   return contract.level === 'watch' ? 'OBSERVING' : 'ARMED';
 }
 
-function decisionMessage(result, contract, event, responseOutcome) {
+function decisionMessage(result, contract, event, responseOutcome, analysisReason) {
   const observing = responseOutcome === 'context_returned';
   const executionDenial = responseOutcome === 'execution_denial_returned';
   const lines = [
@@ -66,6 +66,8 @@ function decisionMessage(result, contract, event, responseOutcome) {
       ? 'Guard returned context; it did not deny the action.'
       : executionDenial ? 'Guard returned a pre-execution denial.' : 'Guard returned permission deny.',
     `Reason: ${result.reasonCode}`,
+    ...(isShellAnalysisReason(analysisReason) && ['MODE_FORBIDS_MUTATION', 'MUTABILITY_UNPROVEN'].includes(result.reasonCode)
+      ? [`Detail: ${result.explanation}`] : []),
     `Code: ${result.family}/${result.reasonCode}`,
     `State: ${activeControlState(contract)} / ${contract.mode}`
   ];
@@ -126,6 +128,8 @@ function handleRuntimeCommand(command, event, state, options) {
     `Stop That Shit event ${found.eventId}`,
     `State: ${found.controlState.toUpperCase()} / ${found.contract.mode}`,
     `Action: ${found.action.toolName} (${found.action.mutability}); paths=${found.action.pathCount}`,
+    ...(isShellAnalysisReason(found.action.analysisReason)
+      ? [`Analysis: ${SHELL_ANALYSIS_REASONS[found.action.analysisReason]}`] : []),
     `Decision: ${found.decision.policyOutcome} / ${found.decision.reasonCode}`,
     `Response: ${found.decision.responseOutcome}`,
     `Host effect: ${found.decision.hostEffect}`,
@@ -163,6 +167,7 @@ function handleBeforeAction(event, options) {
   const evaluate = (state) => {
     const action = {
       mutability: event.action.mutability,
+      analysisReason: event.action.analysisReason,
       legacyDelegationProtocol,
       delegationCount,
       hashIntent: Boolean(event.action.hashIntent),
@@ -211,10 +216,10 @@ function handleBeforeAction(event, options) {
   }, options);
 
   if (denied) {
-    return { kind: 'deny', decision: result, eventId: auditEvent && auditEvent.eventId, message: decisionMessage(result, state.contract, auditEvent, responseOutcome) };
+    return { kind: 'deny', decision: result, eventId: auditEvent && auditEvent.eventId, message: decisionMessage(result, state.contract, auditEvent, responseOutcome, event.action.analysisReason) };
   }
   if (responseOutcome === 'context_returned') {
-    return context(decisionMessage(result, state.contract, auditEvent, responseOutcome));
+    return context(decisionMessage(result, state.contract, auditEvent, responseOutcome, event.action.analysisReason));
   }
   return none();
 }

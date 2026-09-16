@@ -3,10 +3,7 @@
 const { PROTOCOL_VERSION } = require('../control-protocol.cjs');
 const { handleControlEvent } = require('../controller.cjs');
 const {
-  classifyClaudeTool,
-  detectDependencyIntent,
-  detectHashIntent,
-  extractAffectedPaths,
+  analyzeClaudeTool,
   isUnboundedDelegation
 } = require('./claude-tool-classifier.cjs');
 const { optionalIdentifier } = require('./lifecycle-fields.cjs');
@@ -93,17 +90,14 @@ function toControlEvent(input) {
   }
 
   if (kind === 'action.before') {
-    const mutability = classifyClaudeTool(input.tool_name, input.tool_input);
+    const analysis = analyzeClaudeTool(input.tool_name, input.tool_input, input.cwd);
     const actionId = optionalIdentifier(input.tool_use_id, input.tool_call_id);
-    if (mutability === 'delegate' && !actionId) return null;
+    if (analysis.mutability === 'delegate' && !actionId) return null;
     event.action = {
       id: actionId,
       name: String(input.tool_name || 'unknown'),
       input: input.tool_input,
-      mutability,
-      hashIntent: detectHashIntent(input.tool_name, input.tool_input),
-      dependencyIntent: detectDependencyIntent(input.tool_name, input.tool_input, input.cwd),
-      affectedPaths: extractAffectedPaths(input.tool_name, input.tool_input, input.cwd),
+      ...analysis,
       cwd: input.cwd,
       unboundedDelegation: isUnboundedDelegation(input.tool_name)
     };

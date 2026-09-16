@@ -229,49 +229,58 @@ function classifyRipgrepArguments(args) {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--') break;
-    if (/^--(?:pre|hostname-bin)(?:=|$)/.test(arg)) return 'unknown';
+    if (/^--(?:pre|hostname-bin)(?:=|$)/.test(arg)) return shellClassification('unknown', 'shell_execution_option');
     let consumesValue = RIPGREP_VALUE_OPTIONS.has(arg);
     if (/^-[^-]/.test(arg)) {
       // A value can be attached to a short option, including in a flag cluster.
       const valueFlag = /[efEmjgdtTABCMr]/.exec(arg.slice(1));
       consumesValue = Boolean(valueFlag && valueFlag.index === arg.length - 2);
     }
-    if (consumesValue && ++i === args.length) return 'unknown';
+    if (consumesValue && ++i === args.length) return shellClassification('unknown', 'option_value_missing');
   }
-  return 'read';
+  return shellClassification('read');
 }
 
-function combineMutabilities(kinds) {
-  if (kinds.includes('write')) return 'write';
-  return kinds.every(kind => kind === 'read') ? 'read' : 'unknown';
+function shellClassification(mutability, analysisReason) {
+  return { mutability, ...(analysisReason ? { analysisReason } : {}) };
+}
+
+function combineClassifications(classifications) {
+  const kinds = classifications.map(result => result.mutability);
+  const mutability = kinds.includes('write') ? 'write'
+    : kinds.every(kind => kind === 'read') ? 'read' : 'unknown';
+  const decisive = classifications.find(result => result.mutability === mutability);
+  return shellClassification(mutability, decisive?.analysisReason);
 }
 
 function classifyStaticCommand({ args: [program, ...args], nativeQuotes }) {
   const name = String(program || '').toLowerCase();
-  if (WRITE_SHELL_COMMANDS.has(name)) return 'write';
+  if (WRITE_SHELL_COMMANDS.has(name)) return shellClassification('write');
   const cmdlet = READ_POWERSHELL_COMMANDS.has(name);
-  if (nativeQuotes && !cmdlet) return 'unknown';
-  const kinds = [classifyCommandArguments(name, [...args])];
+  if (nativeQuotes && !cmdlet) return shellClassification('unknown', 'native_quotes_unproven');
+  const classifications = [classifyCommandArguments(name, [...args])];
   // Legacy PowerShell drops empty native argv entries. A read must remain a
   // read in both interpretations; cmdlets receive their arguments directly.
-  if (!cmdlet && args.includes('')) kinds.push(classifyCommandArguments(name, args.filter(arg => arg !== '')));
-  return combineMutabilities(kinds);
+  if (!cmdlet && args.includes('')) classifications.push(classifyCommandArguments(name, args.filter(arg => arg !== '')));
+  const result = combineClassifications(classifications);
+  if (classifications.some(entry => entry.mutability !== result.mutability)) result.analysisReason = 'native_empty_arguments';
+  return result;
 }
 
 function analyzeShell(command) {
   const text = String(command || '').replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
   const analysis = staticShellCommands(text);
   if (!analysis || analysis.redirected) return {
-    mutability: analysis?.redirected ? 'write' : 'unknown',
+    ...shellClassification(analysis?.redirected ? 'write' : 'unknown', analysis?.redirected ? 'shell_redirection' : 'shell_syntax_unproven'),
     hashIntent: HASH_COMMAND.test(text), dependencyIntent: DEPENDENCY_COMMAND.test(text)
   };
   const commands = analysis.commands.map(command => ({
-    mutability: classifyStaticCommand(command), text: command.args.join(' ')
+    ...classifyStaticCommand(command), text: command.args.join(' ')
   }));
   // Proven reads treat their arguments as data. Keep the existing intent checks
   // for writes and unproven programs, independently for each command in a chain.
   return {
-    mutability: combineMutabilities(commands.map(command => command.mutability)),
+    ...combineClassifications(commands),
     hashIntent: commands.some(command => command.mutability !== 'read' && HASH_COMMAND.test(command.text)),
     dependencyIntent: commands.some(command => command.mutability !== 'read' && DEPENDENCY_COMMAND.test(command.text))
   };
@@ -314,24 +323,24 @@ function classifyGitQueryArguments(args) {
     const arg = args[i];
     if (arg === '--') break;
     if (!arg.startsWith('-')) continue;
-    if (/^--output(?:=|$)/.test(arg)) return 'write';
+    if (/^--output(?:=|$)/.test(arg)) return shellClassification('write', 'git_output_file');
     const name = arg.split('=', 1)[0];
     if (GIT_QUERY_VALUE_OPTIONS.has(name)) {
-      if (arg === name && ++i === args.length) return 'unknown';
+      if (arg === name && ++i === args.length) return shellClassification('unknown', 'option_value_missing');
       continue;
     }
     if (GIT_QUERY_FLAGS.has(arg) || GIT_QUERY_OPTIONAL_VALUES.has(name)
         || arg.includes('=') && GIT_QUERY_ATTACHED_ONLY.has(name)) continue;
     if (/^-[SGOIn]$/.test(arg)) {
-      if (++i === args.length) return 'unknown';
+      if (++i === args.length) return shellClassification('unknown', 'option_value_missing');
       continue;
     }
     if (/^-[SGOI].+/.test(arg) || /^-n\d+$/.test(arg) || /^-\d+$/.test(arg)
         || /^-[pwsbz]+$/.test(arg) || /^-[UMCB](?:\d+%?)?$/.test(arg)
         || /^-u(?:no|normal|all)?$/.test(arg)) continue;
-    return 'unknown';
+    return shellClassification('unknown', 'git_arguments_unproven');
   }
-  return 'read';
+  return shellClassification('read');
 }
 
 function classifyCommandArguments(name, args) {
@@ -343,18 +352,21 @@ function classifyCommandArguments(name, args) {
       else break;
     }
     const subcommand = args.shift();
-    if (['add', 'commit', 'push', 'merge', 'rebase', 'checkout', 'switch', 'reset', 'restore', 'clean', 'tag'].includes(subcommand)) return 'write';
-    if (subcommand === 'branch') return classifyGitBranchArguments(args);
+    if (['add', 'commit', 'push', 'merge', 'rebase', 'checkout', 'switch', 'reset', 'restore', 'clean', 'tag'].includes(subcommand)) return shellClassification('write');
+    if (subcommand === 'branch') {
+      const mutability = classifyGitBranchArguments(args);
+      return shellClassification(mutability, mutability === 'unknown' ? 'git_arguments_unproven' : undefined);
+    }
     if (['status', 'diff', 'log', 'show', 'rev-parse'].includes(subcommand)) return classifyGitQueryArguments(args);
-    return 'unknown';
+    return shellClassification('unknown', 'git_arguments_unproven');
   }
-  if (['npm', 'pnpm', 'yarn'].includes(name) && ['add', 'install', 'remove', 'uninstall', 'publish'].includes(args[0])) return 'write';
-  if (['pip', 'pip3'].includes(name) && args[0] === 'install') return 'write';
-  if (name === 'gh' && /^(?:pr (?:create|merge|close)|issue (?:create|close)|release create)$/.test(args.slice(0, 2).join(' '))) return 'write';
+  if (['npm', 'pnpm', 'yarn'].includes(name) && ['add', 'install', 'remove', 'uninstall', 'publish'].includes(args[0])) return shellClassification('write');
+  if (['pip', 'pip3'].includes(name) && args[0] === 'install') return shellClassification('write');
+  if (name === 'gh' && /^(?:pr (?:create|merge|close)|issue (?:create|close)|release create)$/.test(args.slice(0, 2).join(' '))) return shellClassification('write');
   if (name === 'rg') return classifyRipgrepArguments(args);
-  if (READ_SHELL_COMMANDS.has(name)) return 'read';
-  if (['node', 'python', 'python3', 'py'].includes(name) && args.length === 1 && args[0] === '--version') return 'read';
-  return 'unknown';
+  if (READ_SHELL_COMMANDS.has(name)) return shellClassification('read');
+  if (['node', 'python', 'python3', 'py'].includes(name) && args.length === 1 && args[0] === '--version') return shellClassification('read');
+  return shellClassification('unknown', 'shell_command_unproven');
 }
 
 function classifyShell(command) {
@@ -379,4 +391,28 @@ function classifyCodexTool(toolName, toolInput) {
   return 'unknown';
 }
 
-module.exports = { canonicalCodexToolName, classifyCodexTool, classifyShell, detectDependencyIntent, detectHashIntent, extractAffectedPaths };
+function analyzeCodexTool(toolName, toolInput, cwd) {
+  const name = canonicalCodexToolName(toolName);
+  let analysis;
+  if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
+    const command = toolInput && toolInput.command;
+    analysis = analyzeShell(command);
+    // Preserve the legacy intent fallback for inputs without a command field.
+    // Normal shell inputs share the same analysis for all three decisions.
+    const text = inputText(toolInput);
+    if (text !== String(command || '')) {
+      const intents = analyzeShell(text);
+      analysis.hashIntent = intents.hashIntent;
+      analysis.dependencyIntent = intents.dependencyIntent;
+    }
+  } else {
+    analysis = {
+      mutability: classifyCodexTool(name, toolInput),
+      hashIntent: detectHashIntent(name, toolInput),
+      dependencyIntent: detectDependencyIntent(name, toolInput)
+    };
+  }
+  return { ...analysis, affectedPaths: extractAffectedPaths(name, toolInput, cwd) };
+}
+
+module.exports = { analyzeCodexTool, analyzeShell, canonicalCodexToolName, classifyCodexTool, classifyShell, detectDependencyIntent, detectHashIntent, extractAffectedPaths };

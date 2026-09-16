@@ -3,6 +3,12 @@
 const nodePath = require('node:path');
 const { DEFAULT_AGENT_LIMIT } = require('./contracts.cjs');
 const { inspectDelegation } = require('./delegation-state.cjs');
+const { SHELL_ANALYSIS_REASONS, isShellAnalysisReason } = require('./control-protocol.cjs');
+
+function analysisExplanation(action) {
+  return isShellAnalysisReason(action.analysisReason)
+    ? ` ${SHELL_ANALYSIS_REASONS[action.analysisReason]}` : '';
+}
 
 function decision(outcome, family, reasonCode, explanation, nextStep) {
   return { outcome, family, reasonCode, explanation, nextStep };
@@ -83,7 +89,7 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
       controlledOutcome(level),
       'I',
       'MODE_FORBIDS_MUTATION',
-      `Task mode ${mode} does not authorize repository mutation.`,
+      `Task mode ${mode} does not authorize repository mutation.${analysisExplanation(action)}`,
       'Report the finding, use a read-only action, or obtain an explicit change contract.'
     );
   }
@@ -93,7 +99,7 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
       controlledOutcome(level, 'require_user_approval'),
       'I',
       'MUTABILITY_UNPROVEN',
-      `The proposed action is not proven read-only under ${mode} mode.`,
+      `The proposed action is not proven read-only under ${mode} mode.${analysisExplanation(action)}`,
       'Use a clearly read-only command or obtain an explicit change contract.'
     );
   }

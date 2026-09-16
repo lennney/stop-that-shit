@@ -74,6 +74,17 @@ test('runtime audit appends metadata-only decisions with stable outcome dimensio
   }
 });
 
+test('runtime audit stores only a fixed analysis code and drops free-form metadata', (t) => {
+  const directory = dataDir(t);
+  const values = ['shell_execution_option', 'PRIVATE_COMMAND', 'toString', ['shell_execution_option'], { toString: () => 'shell_execution_option', untrustedInput: 'PRIVATE_CODE' }];
+  for (const analysisReason of values) {
+    recordDecision(facts({ action: { ...facts().action, analysisReason } }), { dataDir: directory });
+  }
+  const runtime = readRuntime({ sessionId: 'private-session-id' }, { dataDir: directory });
+  assert.deepEqual(runtime.events.map(event => event.action.analysisReason), ['shell_execution_option', undefined, undefined, undefined, undefined]);
+  assert.doesNotMatch(JSON.stringify(runtime), /PRIVATE_COMMAND|PRIVATE_CODE/);
+});
+
 test('runtime audit records delegation count without task input', (t) => {
   const directory = dataDir(t);
   recordDecision(facts({

@@ -11,6 +11,21 @@ const EVENT_KINDS = new Set([
   'session.end'
 ]);
 const MUTABILITIES = new Set(['read', 'write', 'delegate', 'control', 'unknown']);
+const SHELL_ANALYSIS_REASONS = Object.freeze({
+  shell_syntax_unproven: 'This shell syntax cannot be confirmed as a static read.',
+  shell_command_unproven: 'This program is not a supported read-only command.',
+  shell_execution_option: 'This ripgrep option can execute another program.',
+  option_value_missing: 'A required command option value is missing.',
+  git_arguments_unproven: 'This Git subcommand or argument form is not supported as a read.',
+  native_quotes_unproven: 'Native argument passing can reinterpret these embedded quotes.',
+  native_empty_arguments: 'Dropping empty native arguments exposes a different operation.',
+  shell_redirection: 'This command redirects output and may write a file.',
+  git_output_file: 'This Git command requests an output file.'
+});
+
+function isShellAnalysisReason(value) {
+  return typeof value === 'string' && Object.hasOwn(SHELL_ANALYSIS_REASONS, value);
+}
 
 function supportsLifecycleFacts(event) {
   // The adapter must declare its own lifecycle semantics. Older adapters import
@@ -46,6 +61,9 @@ function assertControlEvent(event) {
     nonEmptyString(event.action.name, 'action.name');
     if (!MUTABILITIES.has(event.action.mutability)) {
       throw new TypeError(`Unsupported action mutability: ${event.action.mutability}.`);
+    }
+    if (event.action.analysisReason !== undefined && !isShellAnalysisReason(event.action.analysisReason)) {
+      throw new TypeError('Unsupported action analysis reason.');
     }
     if (event.action.mutability === 'delegate' || event.action.delegationLifecycleUnproven) nonEmptyString(event.action.id, 'action.id');
     if (
@@ -97,6 +115,8 @@ function assertControlEvent(event) {
 }
 
 module.exports = {
+  SHELL_ANALYSIS_REASONS,
+  isShellAnalysisReason,
   EVENT_KINDS,
   MUTABILITIES,
   PROTOCOL_VERSION,
