@@ -23,4 +23,12 @@ jobs:
           min_score: 80
           fail_on_severity: high
           format: sarif
+          output: ai-plugin-scanner.sarif
           upload_sarif: true
+      - name: Preserve scanner report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: plugin-scanner-report
+          path: ai-plugin-scanner.sarif
+          if-no-files-found: ignore

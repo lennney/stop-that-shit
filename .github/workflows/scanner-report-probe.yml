@@ -1,0 +1,56 @@
+name: Scanner report failure-path probe
+on:
+  push:
+    branches: [verify/scanner-report-20260916]
+permissions:
+  contents: read
+jobs:
+  report:
+    name: Report behavior - ${{ matrix.scenario }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [success, findings, startup-error]
+    steps:
+      - name: Produce the scanner outcome
+        id: scan
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          scenario = os.environ["SCENARIO"]
+          if scenario != "startup-error":
+              results = [] if scenario == "success" else [{"ruleId": "TEST_FINDING", "level": "error", "message": {"text": "Synthetic report-upload test finding."}}]
+              report = {"version": "2.1.0", "runs": [{"tool": {"driver": {"name": "report-upload-fixture"}}, "results": results}]}
+              Path("ai-plugin-scanner.sarif").write_text(json.dumps(report))
+          raise SystemExit(0 if scenario == "success" else 1)
+          PY
+      - name: Preserve scanner report
+        id: report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: plugin-scanner-report-${{ matrix.scenario }}
+          path: ai-plugin-scanner.sarif
+          if-no-files-found: ignore
+      - name: Verify report retention and original failure
+        if: ${{ !cancelled() }}
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+          SCAN_OUTCOME: ${{ steps.scan.outcome }}
+          UPLOAD_OUTCOME: ${{ steps.report.outcome }}
+          ARTIFACT_ID: ${{ steps.report.outputs.artifact-id }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          scenario = os.environ["SCENARIO"]
+          assert os.environ["SCAN_OUTCOME"] == ("success" if scenario == "success" else "failure")
+          assert os.environ["UPLOAD_OUTCOME"] == "success"
+          assert bool(os.environ["ARTIFACT_ID"]) == (scenario != "startup-error")
+          print(json.dumps({"scenario": scenario, "scanOutcome": os.environ["SCAN_OUTCOME"], "artifactId": os.environ["ARTIFACT_ID"], "assertions": "passed"}))
+          PY
