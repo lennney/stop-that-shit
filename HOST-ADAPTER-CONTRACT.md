@@ -173,6 +173,13 @@ Audit records use the same requested delegation count as admission decisions.
 A rejected single-agent request records one requested unit and zero newly
 reserved units; it does not report that an agent ran.
 
+### Session end
+
+Ordinary session end reads existing state without taking
+a writer lock or releasing reservations. Session exit alone does not prove that
+delegated work completed. An explicit `allDelegationsStopped` fact still follows
+the existing locked update path.
+
 ## Claude Code mapping
 
 `src/adapters/claude-hooks.cjs` maps:
