@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const packageJson = require('../package.json');
-const { PROTOCOL_VERSION } = require('./control-protocol.cjs');
+const { PROTOCOL_VERSION, isShellAnalysisReason } = require('./control-protocol.cjs');
 const { inspectDelegation } = require('./delegation-state.cjs');
 const { readAnnotations } = require('./runtime-annotations.cjs');
 const { appendJsonl, readJsonl, runtimeRoot } = require('./runtime-storage.cjs');
@@ -40,6 +40,7 @@ function recordDecision(facts, options = {}) {
     action: {
       toolName: String(action.name || 'unknown'),
       mutability: String(action.mutability || 'unknown'),
+      ...(isShellAnalysisReason(action.analysisReason) ? { analysisReason: action.analysisReason } : {}),
       delegationCount: Number.isInteger(action.delegationCount) ? action.delegationCount : 0,
       pathCount: Array.isArray(action.affectedPaths) ? action.affectedPaths.length : 0,
       hashIntent: Boolean(action.hashIntent),

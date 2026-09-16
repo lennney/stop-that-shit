@@ -408,7 +408,7 @@ omitted so the Agent can recover with an in-scope action.
 Codex Rules evaluate argument prefixes and the host execution path can parse
 supported shell chains. That does not make `codex execpolicy check` a complete
 shell parser for the plugin. Reuse requires a verified callable interface;
-otherwise use bounded analysis and retain unknown results. See [Rules](https://learn.chatgpt.com/docs/rules).
+otherwise use bounded analysis and retain unknown results. See [Rules](https://learn.chatgpt.com/docs/agent-configuration/rules).
 The shared classifier analyzes a bounded static grammar. It does not expose
 or duplicate the host's complete shell parser.
 
@@ -454,6 +454,15 @@ proven reads are data, so searching for `npm install` or `Get-FileHash` does not
 request those operations. Each command in a chain is checked separately; an
 actual installation or hash operation keeps its existing authorization check.
 Unproven shell syntax retains the conservative text checks.
+
+Each adapter obtains mutability, hash/dependency intent, and affected paths from
+one analysis entry point. Ordinary shell inputs are parsed once per action;
+legacy individual classifier exports remain available. Host-specific input and
+path normalization are preserved.
+The optional `analysisReason` identifies a fixed classification cause, such as
+an executable option or ambiguous native arguments. It adds detail to existing
+denial messages and `explain` without changing authorization. Runtime records
+store the reason code, not command text or argument values.
 
 ## Support matrix and evidence boundary
 

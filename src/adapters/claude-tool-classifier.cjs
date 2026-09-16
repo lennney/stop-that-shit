@@ -2,6 +2,7 @@
 
 const nodePath = require('node:path');
 const {
+  analyzeCodexTool,
   classifyCodexTool,
   classifyShell,
   detectDependencyIntent: detectCodexDependencyIntent,
@@ -105,7 +106,7 @@ function classifyClaudeTool(toolName, toolInput) {
   return classifyCodexTool(name, toolInput);
 }
 
-function extractAffectedPaths(toolName, toolInput, cwd) {
+function extractAffectedPaths(toolName, toolInput, cwd, mutability) {
   const name = String(toolName || '');
   let value = '';
 
@@ -113,7 +114,7 @@ function extractAffectedPaths(toolName, toolInput, cwd) {
     value = toolInput && (toolInput.file_path || toolInput.path);
   } else if (name === 'NotebookEdit') {
     value = toolInput && toolInput.notebook_path;
-  } else if (toolInput && typeof toolInput === 'object' && classifyCodexTool(name, toolInput) === 'write') {
+  } else if (toolInput && typeof toolInput === 'object' && (mutability ?? classifyCodexTool(name, toolInput)) === 'write') {
     // For third-party/MCP mutating tools, only trust an explicit single path
     // field. Read-only tools do not participate in the write boundary. If a
     // mutating tool has no provable path, the controller's file lock fails closed.
@@ -154,7 +155,30 @@ function detectDependencyIntent(toolName, toolInput, cwd) {
   return DEPENDENCY_DECLARATION.test(String(toolInput && toolInput.new_string || ''));
 }
 
+function analyzeClaudeTool(toolName, toolInput, cwd) {
+  const name = String(toolName || '');
+  let analysis;
+  if (name === 'Bash' || name === 'PowerShell' || name === 'Monitor') {
+    analysis = analyzeCodexTool('Bash', toolInput, cwd);
+    if (name === 'Monitor' && toolInput && toolInput.ws && !toolInput.command) {
+      analysis.mutability = 'read';
+      delete analysis.analysisReason;
+    }
+  } else {
+    analysis = {
+      mutability: classifyClaudeTool(name, toolInput),
+      hashIntent: detectHashIntent(name, toolInput),
+      dependencyIntent: detectDependencyIntent(name, toolInput, cwd)
+    };
+  }
+  // Claude's legacy path fallback uses the Codex tool-name classification.
+  // Reuse it only for names with the same classification on both surfaces.
+  const pathMutability = name === 'Bash' ? analysis.mutability : undefined;
+  return { ...analysis, affectedPaths: extractAffectedPaths(name, toolInput, cwd, pathMutability) };
+}
+
 module.exports = {
+  analyzeClaudeTool,
   classifyClaudeTool,
   detectDependencyIntent,
   detectHashIntent,

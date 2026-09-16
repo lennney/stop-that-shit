@@ -35,6 +35,25 @@ function pre(session, toolName, toolInput, turnId = 'turn-1') {
   };
 }
 
+test('shell denial and explain show a specific reason without recording command input', (t) => {
+  const options = workspace(t);
+  const session = 'shell-analysis-reason';
+  const command = 'rg --hostname-bin=PRIVATE_HELPER PRIVATE_PATTERN PRIVATE_FILE';
+  handleHook(prompt(session, '$stop-that-shit review -- inspect only'), options);
+  const denied = handleHook(pre(session, 'exec_command', { command }), options);
+  assert.match(denied.hookSpecificOutput.permissionDecisionReason, /I\/MUTABILITY_UNPROVEN/);
+  assert.match(denied.hookSpecificOutput.permissionDecisionReason, /This ripgrep option can execute another program/);
+  const runtime = readRuntime({ sessionId: session }, options);
+  const event = runtime.events[0];
+  assert.equal(event.action.analysisReason, 'shell_execution_option');
+  assert.doesNotMatch(JSON.stringify(runtime), /PRIVATE_HELPER|PRIVATE_PATTERN|PRIVATE_FILE/);
+  const explain = handleHook(prompt(session, `$stop-that-shit explain ${event.eventId}`), options);
+  assert.match(explain.hookSpecificOutput.additionalContext, /Analysis: This ripgrep option can execute another program/);
+  assert.equal(handleHook(pre(session, 'exec_command', { command: "rg -e '--hostname-bin=PRIVATE_HELPER' README.md" }), options), null);
+  handleHook(prompt(session, '$stop-that-shit change -- run the helper'), options);
+  assert.equal(handleHook(pre(session, 'exec_command', { command }), options), null);
+});
+
 test('review contract blocks apply_patch', (t) => {
   const options = workspace(t);
   handleHook(prompt('review-session', '$stop-that-shit review -- inspect only'), options);

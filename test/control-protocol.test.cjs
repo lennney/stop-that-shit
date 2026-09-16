@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { fromControlResult, handleCodexHook, toControlEvent } = require('../src/adapters/codex-hooks.cjs');
-const { assertControlEvent, PROTOCOL_VERSION } = require('../src/control-protocol.cjs');
+const { assertControlEvent, PROTOCOL_VERSION, SHELL_ANALYSIS_REASONS } = require('../src/control-protocol.cjs');
 const { handleControlEvent } = require('../src/controller.cjs');
 const { detectDependencyIntent } = require('../src/adapters/codex-tool-classifier.cjs');
 const { readRuntime } = require('../src/runtime-audit.cjs');
@@ -17,6 +17,66 @@ function dataDir(t) {
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   return directory;
 }
+
+test('shell analysis reasons accept only optional fixed string codes', () => {
+  const event = {
+    protocolVersion: PROTOCOL_VERSION, kind: 'action.before', sessionId: 'reason-session',
+    action: { name: 'Bash', mutability: 'unknown' }
+  };
+  assert.doesNotThrow(() => assertControlEvent(event));
+  for (const analysisReason of Object.keys(SHELL_ANALYSIS_REASONS)) {
+    assert.doesNotThrow(() => assertControlEvent({ ...event, action: { ...event.action, analysisReason } }));
+  }
+  for (const analysisReason of ['PRIVATE_COMMAND', 'toString', null, 1, ['shell_execution_option'], { toString: () => 'shell_execution_option' }]) {
+    assert.throws(() => assertControlEvent({ ...event, action: { ...event.action, analysisReason } }), /Unsupported action analysis reason/);
+  }
+});
+
+test('all shell adapters preserve paired argument facts and diagnostic reasons', () => {
+  const claude = require('../src/adapters/claude-hooks.cjs');
+  const hermes = require('../src/adapters/hermes-hooks.cjs');
+  const opencode = require('../src/adapters/opencode-hooks.cjs');
+  const pi = require('../src/adapters/pi-hooks.cjs');
+  const hook = (name, command) => ({
+    session_id: 'analysis-session', hook_event_name: 'PreToolUse', tool_name: name, tool_input: { command }
+  });
+  const adapters = [
+    ...['Bash', 'exec_command', 'shell_command'].map(name => [name, command => toControlEvent(hook(name, command))]),
+    ...['Bash', 'PowerShell', 'Monitor'].map(name => [`Claude ${name}`, command => claude.toControlEvent(hook(name, command))]),
+    ['Hermes terminal', command => hermes.toControlEvent({ ...hook('terminal', command), hook_event_name: 'pre_tool_call' })],
+    ['OpenCode bash', command => opencode.toActionEvent({ tool: 'bash', sessionID: 'analysis-session' }, { args: { command } })],
+    ...['bash', 'powershell'].map(name => [`Pi ${name}`, command => pi.toActionEvent({ toolName: name, input: { command } }, { sessionId: 'analysis-session' })])
+  ];
+  const cases = [
+    ['git status', 'read'],
+    ["rg -n 'npm install' README.md", 'read'],
+    ["rg 'Get-FileHash' README.md; rg 'sha256sum' README.md", 'read'],
+    ['git diff --word-diff-regex -- -- README.md', 'read'],
+    ['git diff -- --output=tracked.txt', 'read'],
+    ["rg -e '--hostname-bin=helper' README.md", 'read'],
+    ["rg '' README.md", 'read'],
+    ['Get-FileHash README.md', 'unknown', 'shell_command_unproven', true],
+    ['git status; npm install example-package', 'write', undefined, false, true],
+    ['git diff --output=marker.txt', 'write', 'git_output_file'],
+    ['git diff --word-diff-regex -- --output=marker.txt', 'write', 'git_output_file'],
+    ['rg --hostname-bin=helper fixture input.txt', 'unknown', 'shell_execution_option'],
+    ["rg -e '' -- --hostname-bin=helper input.txt", 'unknown', 'native_empty_arguments'],
+    ['git show --future-option', 'unknown', 'git_arguments_unproven'],
+    ['rg -e', 'unknown', 'option_value_missing'],
+    ['git diff --src-prefix', 'unknown', 'option_value_missing'],
+    ["rg 'unfinished", 'unknown', 'shell_syntax_unproven'],
+    ["rg 'a\"b' README.md", 'unknown', 'native_quotes_unproven'],
+    ['git status > marker.txt', 'write', 'shell_redirection']
+  ];
+  for (const [command, mutability, analysisReason, hashIntent = false, dependencyIntent = false] of cases) {
+    for (const [adapter, translate] of adapters) {
+      const event = translate(command);
+      assertControlEvent(event);
+      const actual = Object.fromEntries(['mutability', 'analysisReason', 'hashIntent', 'dependencyIntent'].map(key => [key, event.action[key]]));
+      assert.deepEqual(actual, { mutability, analysisReason, hashIntent, dependencyIntent }, `${adapter}: ${command}`);
+    }
+  }
+});
 
 test('Codex Adapter maps Hook JSON to ControlEvent v2', () => {
   const event = toControlEvent({

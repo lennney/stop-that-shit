@@ -2,6 +2,7 @@
 
 const nodePath = require('node:path');
 const {
+  analyzeCodexTool,
   classifyShell,
   detectDependencyIntent: detectCodexDependencyIntent,
   detectHashIntent: detectCodexHashIntent
@@ -190,7 +191,19 @@ function detectHashIntent(toolName, toolInput) {
   return detectCodexHashIntent(codexToolName(toolName, toolInput), codexIntentInput(toolName, toolInput));
 }
 
+function analyzeHermesTool(toolName, toolInput, cwd) {
+  const analysis = toolName === 'terminal'
+    ? analyzeCodexTool('exec_command', codexIntentInput(toolName, toolInput), cwd)
+    : {
+      mutability: classifyHermesTool(toolName, toolInput),
+      hashIntent: detectHashIntent(toolName, toolInput),
+      dependencyIntent: detectDependencyIntent(toolName, toolInput)
+    };
+  return { ...analysis, affectedPaths: extractAffectedPaths(toolName, toolInput, cwd) };
+}
+
 module.exports = {
+  analyzeHermesTool,
   classifyHermesTool,
   countHermesDelegation,
   extractAffectedPaths,

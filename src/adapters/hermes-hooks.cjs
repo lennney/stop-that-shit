@@ -4,11 +4,8 @@ const { PROTOCOL_VERSION } = require('../control-protocol.cjs');
 const { handleControlEvent } = require('../controller.cjs');
 const { readState } = require('../state.cjs');
 const {
-  classifyHermesTool,
-  countHermesDelegation,
-  detectDependencyIntent,
-  detectHashIntent,
-  extractAffectedPaths
+  analyzeHermesTool,
+  countHermesDelegation
 } = require('./hermes-tool-classifier.cjs');
 const { optionalIdentifier } = require('./lifecycle-fields.cjs');
 
@@ -47,18 +44,15 @@ function toControlEvent(input) {
   }
 
   if (kind === 'action.before') {
-    const mutability = classifyHermesTool(input.tool_name, input.tool_input);
+    const analysis = analyzeHermesTool(input.tool_name, input.tool_input, input.cwd);
     const actionId = optionalIdentifier(input.tool_call_id, extra.tool_call_id);
-    if (mutability === 'delegate' && !actionId) return null;
+    if (analysis.mutability === 'delegate' && !actionId) return null;
     const action = {
       id: actionId,
       name: String(input.tool_name || 'unknown'),
       input: input.tool_input,
-      mutability,
+      ...analysis,
       delegationCount: countHermesDelegation(input.tool_name, input.tool_input),
-      hashIntent: detectHashIntent(input.tool_name, input.tool_input),
-      dependencyIntent: detectDependencyIntent(input.tool_name, input.tool_input),
-      affectedPaths: extractAffectedPaths(input.tool_name, input.tool_input, input.cwd),
       cwd: input.cwd,
       unboundedDelegation: false
     };

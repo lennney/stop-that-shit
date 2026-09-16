@@ -5,10 +5,7 @@ const { parseContractPrompt } = require('../contracts.cjs');
 const { handleControlEvent } = require('../controller.cjs');
 const { readState } = require('../state.cjs');
 const {
-  classifyPiTool,
-  detectDependencyIntent,
-  detectHashIntent,
-  extractAffectedPaths,
+  analyzePiTool,
   piDelegationShape
 } = require('./pi-tool-classifier.cjs');
 const { optionalIdentifier, readAsyncLaunched } = require('./lifecycle-fields.cjs');
@@ -42,18 +39,15 @@ function toActionEvent(input, context = {}) {
   const toolName = String(input && input.toolName || 'unknown');
   const toolInput = input && input.input;
   const delegation = piDelegationShape(toolName, toolInput);
-  const mutability = classifyPiTool(toolName, toolInput);
+  const analysis = analyzePiTool(toolName, toolInput, context.cwd);
   const actionId = optionalIdentifier(input && input.toolCallId, input && input.tool_call_id);
-  if (mutability === 'delegate' && !actionId) return null;
+  if (analysis.mutability === 'delegate' && !actionId) return null;
   const action = {
     id: actionId,
     name: toolName,
     input: toolInput,
-    mutability,
-    affectedPaths: extractAffectedPaths(toolName, toolInput, context.cwd),
+    ...analysis,
     cwd: context.cwd,
-    dependencyIntent: detectDependencyIntent(toolName, toolInput),
-    hashIntent: detectHashIntent(toolName, toolInput),
     delegationCount: delegation.count,
     completionScope: 'call',
     unboundedDelegation: delegation.unbounded

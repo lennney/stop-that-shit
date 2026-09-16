@@ -3,10 +3,7 @@
 const { PROTOCOL_VERSION } = require('../control-protocol.cjs');
 const { handleControlEvent } = require('../controller.cjs');
 const {
-  classifyOpenCodeTool,
-  detectDependencyIntent,
-  detectHashIntent,
-  extractAffectedPaths
+  analyzeOpenCodeTool
 } = require('./opencode-tool-classifier.cjs');
 const { optionalIdentifier } = require('./lifecycle-fields.cjs');
 
@@ -43,18 +40,15 @@ function toPromptEvent(input, output, context = {}) {
 function toActionEvent(input, output, context = {}) {
   const toolName = String(input && input.tool || 'unknown');
   const args = output && output.args;
-  const mutability = classifyOpenCodeTool(toolName, args);
+  const analysis = analyzeOpenCodeTool(toolName, args, context.directory);
   const actionId = optionalIdentifier(input && input.callID, input && input.callId);
-  if (mutability === 'delegate' && !actionId) return null;
+  if (analysis.mutability === 'delegate' && !actionId) return null;
   const action = {
     id: actionId,
     name: toolName,
     input: args,
-    mutability,
-    affectedPaths: extractAffectedPaths(toolName, args, context.directory),
-    cwd: context.directory,
-    dependencyIntent: detectDependencyIntent(toolName, args),
-    hashIntent: detectHashIntent(toolName, args)
+    ...analysis,
+    cwd: context.directory
   };
   if (toolName === 'task' && args && args.task_id) action.delegationLifecycleUnproven = true;
   return {
