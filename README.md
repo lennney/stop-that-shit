@@ -20,7 +20,7 @@
   <a href="#shit-是哪四种">SHIT 哲学</a> ·
   <a href="#前后对比">看个例子</a> ·
   <a href="#快速安装">安装</a> ·
-  <a href="cases/README.md">案例库</a> ·
+  <a href="cases/README_CN.md">案例库</a> ·
   <a href="README_EN.md">English</a> ·
   <a href="README_KO.md">한국어</a>
 </p>
@@ -65,7 +65,7 @@ await writeFile("report.csv.sha256", createHash("sha256").update(csv).digest("he
 await writeFile("report.csv", csv);
 ```
 
-这个简化示例省掉了无用校验和，文件照常交付。更多场景见[案例库](cases/README.md)。
+这个简化示例省掉了无用校验和，文件照常交付。更多场景见[案例库](cases/README_CN.md)。
 
 如果发布流程会读取 checksum，并在不一致时拒绝使用文件，就保留，用 `hash=allow` 放行。
 
@@ -288,7 +288,7 @@ Agent 又造史了？[提交 Bad Case](https://github.com/lennney/stop-that-shit
 
 STS 拦住了真正必要的工作？[提交 Good Case](https://github.com/lennney/stop-that-shit/issues/new?template=good-case.yml)。这个同样重要。
 
-说清你的请求、它多做或少做了什么，以及哪个事实会改变判断。参考[案例库](cases/README.md)，脱敏和复现方法见[贡献指南](CONTRIBUTING.md)。
+说清你的请求、它多做或少做了什么，以及哪个事实会改变判断。参考[案例库](cases/README_CN.md)，脱敏和复现方法见[贡献指南](CONTRIBUTING.md)。
 
 我不想再往 `AGENTS.md` 里补一百条“不要”，只希望新案例能让下一次判断更准。
 
