@@ -2,7 +2,8 @@
 
 [Case catalogue](../README.md) · [中文](#中文) · [Issue #5](https://github.com/lennney/stop-that-shit/issues/5)
 
-**Evidence: public report only. Not reproduced. No STS effectiveness result.**
+**Status: archived public report. Original materials unavailable. Not reproduced.
+No STS effectiveness result.**
 
 Source checked on 2026-09-21: [the specific public comment](https://www.reddit.com/r/codex/comments/1vk7p9q/comment/p2rimpw/).
 This note paraphrases the report without names, private code, or transcript content.
@@ -46,20 +47,21 @@ byte-identical serialization, or equality across compilers. Define and test the
 consumer's actual requirement before selecting an implementation. Existing
 compatibility commitments must also be checked before removing support.
 
-## Material needed for reproduction
+## Reproduction status
 
-1. A sanitized exact request and the starting revision or minimal source.
-2. The actual added code or diff, with private details removed.
-3. The supported inputs, error tolerance, and required compatibility behavior.
-4. The nearest Good requirement and an executable check for each arm.
+On 2026-09-21, the maintainer confirmed that the original materials could not be
+recovered and chose to close the issue. This remains a historical report, with
+no pending request to complete its reproduction.
 
-Keep missing facts explicit. A newly constructed example must be labeled
-synthetic; it cannot establish that the reported event was reproduced. No
-Guard rule, executable case ID, or success count is added by this note.
+A future observed case needs its own sanitized request, starting code, actual
+diff, acceptance contract, and nearest counterexample. A newly constructed
+example must be labeled synthetic; it cannot establish that this event was
+reproduced. Closing the issue adds no Guard rule, executable case ID, or success
+count.
 
 ## 中文
 
-**状态：公开报告，尚未复现，没有 STS 效果结论。** [原始评论](https://www.reddit.com/r/codex/comments/1vk7p9q/comment/p2rimpw/)于 2026-09-21 核对。
+**状态：已归档的公开报告，原始材料无法找回，尚未复现，没有 STS 效果结论。** [原始评论](https://www.reddit.com/r/codex/comments/1vk7p9q/comment/p2rimpw/)于 2026-09-21 核对。
 
 报告者说，替换一个功能时，agent 增加了兼容工作，并对浮点加法的输入排序以固定结果；报告者认为应用不需要这层精度。评论另提到其他任务中的跨编译器一致性，不能把两者当成同一次任务。
 
@@ -72,4 +74,4 @@ Guard rule, executable case ID, or success count is added by this note.
 
 排序不等于数值更准确，也不能单独证明序列化字节一致或跨编译器一致。先定义消费者真正需要的结果，再选择实现；已有兼容承诺也必须查清后才能移除。
 
-**需要补齐：** 去敏后的原任务和最小起点、实际新增代码、输入与误差约定、必要兼容范围，以及最近 Good 反例的可执行验收。材料不足时继续标记未知；新构造的教学场景必须注明为 synthetic，不能冒充原事件复现。本说明不增加 Guard 规则、可执行用例编号或成功计数。
+**处理结论：** 2026-09-21，维护者确认原始材料已无法找回，决定关闭 Issue，保留为历史报告，不再等待补齐。将来的真实案例应带有自己的原任务、起点、实际 diff、验收约定和最近反例；新构造的教学场景注明为 synthetic，不能冒充本事件复现。关闭 Issue 不增加 Guard 规则、可执行用例编号或成功计数。

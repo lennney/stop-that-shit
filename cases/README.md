@@ -181,7 +181,7 @@ non-regression, not an improvement claim.
 
 | Report | Decisive question | Current evidence |
 | --- | --- | --- |
-| [Issue #5: exact floating-point output](reports/issue-5-floating-point.md) | Does a current consumer require the added determinism? | Public report; original task and code unavailable; proposed Good counterexample; not reproduced |
+| [Issue #5: exact floating-point output](reports/issue-5-floating-point.md) | Does a current consumer require the added determinism? | Archived report; original materials unavailable; proposed Good counterexample; not reproduced |
 
 A report can identify a useful question before it has a runnable fixture.
 Keep reported behavior, a proposed counterexample, and verified results separate.
