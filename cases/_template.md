@@ -50,3 +50,12 @@ What minimal change to the facts would reverse the expected decision?
 List what was paraphrased. Add a public pinned repository or minimal fixture
 only when safe and available.
 
+State whether this is an observed event, a public report, or a synthetic
+example. Set `source` accordingly and link the source when it is public.
+
+## Related checks and results
+
+Link any related policy pair or model task. State what its acceptance checks
+actually verify. Keep expected decisions separate from observed outcomes;
+mark checks that have not run as not run. A decision response alone does not
+prove host enforcement or improvement over baseline.

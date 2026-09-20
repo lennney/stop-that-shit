@@ -22,7 +22,8 @@ unnecessary or necessary action, and the reason it should be stopped or kept.
 | Hook discovery and lifecycle events | `hooks/` |
 | Task contracts and decisions | `src/` |
 | Codex event translation | `src/adapters/` |
-| A Bad Case or Good Case | `cases/0.0.1/` |
+| A reader-facing case explanation | `cases/README.md` and `cases/README_CN.md` |
+| An executable Bad/Good policy pair | `cases/0.0.1/` |
 | Reproducible model evaluation | `evals/codex-paired/cases/<family>/` |
 | Regression coverage | `test/` |
 
@@ -73,7 +74,12 @@ Reports are welcome. They do not need to arrive as perfect evals.
 Use [`cases/_template.md`](cases/_template.md) for a catalogue PR. A GitHub issue
 is enough for an initial report.
 
-For a publishable executable pair, create a `CaseBundle v1` and validate it:
+For a decision-function regression, add paired JSON inputs and expected
+decisions in `cases/0.0.1/`, then run `npm run eval`. Explain any semantic labels
+supplied by the fixture; they are not proof that a host infers those facts.
+
+For a complete model task with fixtures and acceptance, create a `CaseBundle v1`
+and validate it:
 
 ```powershell
 npm run sts -- case new --id <slug>
