@@ -2,88 +2,83 @@
 
 ## 0.2.3 — 2026-09-24 (Read-only boundaries and Codex delegation / 只读边界与 Codex 委派)
 
-一次“先查看、再写入”的命令链，不能因为开头是读取动作就通过只读审查；
-一次带命名空间的 Codex 委派，也不能绕开 `agents=0`。0.2.3 修复这两处
-Guard 边界，并整理会话结束、拒绝原因、扫描报告与案例说明。
+`review` 中的复合命令现在会检查每一步：先读取、后写入，仍按写入拒绝。
+Codex 带命名空间的委派也受 `agents=0` 约束。其余改动涉及会话结束、
+拒绝原因、扫描报告和案例文档。
 
-A command chain that reads and then writes must not pass a read-only review
-because its first command is a read. A namespaced Codex delegation must also
-obey `agents=0`. This patch fixes those boundaries and improves session-end
-handling, decision reasons, scan reports, and case documentation.
+In `review`, Guard checks every command in a supported shell chain; a read
+cannot hide a later write. Namespaced Codex delegation also obeys `agents=0`.
+The patch also updates session-end handling, decision reasons, scan reports,
+and case documentation.
 
 ### 主要修复 / Main fixes
 
-- **整条命令链接受只读检查（[#52](https://github.com/lennney/stop-that-shit/pull/52)）。**
-  对支持静态解析的 shell 命令逐条判断：`git status --short; git config --local ...`
-  在 `review` 中会被拒绝；纯读取命令链与明确授权的 `change` 仍可继续。
-  会执行程序的 `rg` 选项和会写文件的 Git 输出选项也纳入判断，搜索文本及选项值
-  仍按字面处理。
-  / Classify every command in a supported static shell chain. A read followed
-  by a write is denied in `review`; read-only chains and authorized `change`
-  work remain allowed. Executable `rg` options and writing Git output options
-  are checked without treating search text or option values as commands.
-- **`agents=0` 约束命名空间委派（[#53](https://github.com/lennney/stop-that-shit/pull/53)）。**
-  Codex 统一识别受支持的命名空间工具名。启动调用受并发上限约束；状态读取、
-  等待与相关完成证据仍按各自的动作处理。打包 Hook 清单只注册适配器处理的
-  `UserPromptSubmit`、`PreToolUse`、`PostToolUse` 和 `SessionEnd`。
-  / Normalize supported namespaced Codex tool names so spawn calls obey
-  `agents=0`. Status, wait, and correlated completion keep their own handling.
-  The packaged manifest lists only events the adapter handles.
+- **复合命令（[#52](https://github.com/lennney/stop-that-shit/pull/52)）：**
+  `git status --short; git config --local ...` 这类混合读写命令链在 `review`
+  中会被拒绝；纯读取链和已授权的 `change` 不受这项只读限制。
+  会执行程序的 `rg` 选项与会写文件的 Git 输出选项也会被识别，搜索文本和
+  选项值仍按字面处理。
+  / Mixed read/write chains are denied in `review`; read-only chains and
+  authorized `change` work remain allowed. The check covers executable `rg`
+  options and writing Git output options without misreading literal values.
+- **命名空间委派（[#53](https://github.com/lennney/stop-that-shit/pull/53)）：**
+  Codex 的受支持启动调用受 `agents=0` 约束；状态读取、等待和相关完成证据
+  仍分别处理。打包清单只注册适配器处理的 `UserPromptSubmit`、`PreToolUse`、
+  `PostToolUse` 和 `SessionEnd`。
+  / Supported namespaced spawn calls obey `agents=0`; status, wait, and
+  correlated completion retain their own handling. The manifest lists only
+  events the adapter handles.
 - **Codex 会话结束（[#51](https://github.com/lennney/stop-that-shit/pull/51)、
-  [#54](https://github.com/lennney/stop-that-shit/pull/54)）。**
-  `SessionEnd` 使用宿主支持的 3 秒超时。普通结束通知只读取状态，避免争用写锁；
-  明确的完成事实仍按串行路径更新。
-  / Use the supported three-second `SessionEnd` timeout. Ordinary end events
-  read state without taking the writer lock; explicit completion facts remain
-  serialized.
-- **拒绝原因可追查（[#55](https://github.com/lennney/stop-that-shit/pull/55)）。**
-  五套宿主适配器复用动作分析。拒绝和解释查询给出固定分类原因；Runtime 审计
+  [#54](https://github.com/lennney/stop-that-shit/pull/54)）：** `SessionEnd`
+  使用 3 秒超时。普通结束通知只读状态，不再争用写锁；明确的完成事实仍串行更新。
+  / `SessionEnd` uses the supported three-second timeout. Ordinary end events
+  read state without a writer lock; explicit completion facts remain serialized.
+- **拒绝原因（[#55](https://github.com/lennney/stop-that-shit/pull/55)）：**
+  五套宿主适配器共用动作分析。拒绝和解释查询给出固定分类原因；Runtime
   仍只记录元数据，不保存原始命令。
   / Five host adapters share action analysis. Denial and explain output include
-  fixed classification reasons; Runtime audit remains metadata-only.
+  fixed reasons; Runtime stores metadata, not raw commands.
 
 ### 发布证据与案例 / Release evidence and cases
 
-- **失败扫描保留报告（[#56](https://github.com/lennney/stop-that-shit/pull/56)）。**
-  未取消的 CI 扫描只要产出了 SARIF，就将其保存为 artifact，扫描失败和严重级别
-  门槛仍然生效。/ Preserve generated SARIF from non-cancelled scans, including
-  failed scans, without relaxing the failure or severity gate.
-- **案例说明补齐边界（[#59](https://github.com/lennney/stop-that-shit/pull/59)）。**
-  案例目录说明已有 Bad/Good fixture 的决定性事实与下一步。
+- **扫描报告（[#56](https://github.com/lennney/stop-that-shit/pull/56)）：**
+  未取消的扫描若已生成 SARIF，即使失败也保留报告；失败结果和严重级别门槛
+  继续生效。/ CI keeps generated SARIF from non-cancelled failed scans; failure
+  and severity gates still apply.
+- **案例（[#59](https://github.com/lennney/stop-that-shit/pull/59)）：**
+  案例目录补充已有 Bad/Good fixture 的关键事实与下一步。
   [Issue #5](https://github.com/lennney/stop-that-shit/issues/5) 因原始材料不可得
-  以未复现报告归档，未据此增加规则或效果计数。
-  / The case catalogue explains the decisive facts and next actions for existing
-  Bad/Good fixtures. Issue #5 is archived as an unreproduced report with
-  unavailable source material; it adds no rule or effectiveness count.
-- **版本与安装文档。** 包及宿主插件清单升至 `0.2.3`。中英文 README 保留产品
-  故事与成对案例，韩文 README 保留原有说明；完整安装与 Hook 审查由
-  [INSTALL.md](INSTALL.md) 负责。`release:check` 对照 `package.json` 检查
-  当前固定 tag 的安装命令和链接。
-  / Bump package and host-plugin manifests to `0.2.3`, keep the README story
-  and cases, and check current pinned install commands and links against the
-  package version.
+  归档为未复现报告，未新增规则或效果计数。
+  / The catalogue explains existing Bad/Good fixtures. Issue #5 is archived
+  as unreproduced because its source material is unavailable; it adds no rule
+  or effectiveness count.
+- **版本与安装：** 包和宿主插件清单升至 `0.2.3`。中英文 README 保留产品故事
+  与成对案例，韩文 README 保留原有说明；完整安装与 Hook 审查见
+  [INSTALL.md](INSTALL.md)。
+  `release:check` 对照 `package.json` 检查当前固定 tag 的命令和链接。
+  / Package and host-plugin manifests are `0.2.3`. The Chinese and English
+  READMEs keep their story and cases; the Korean guide stays in place.
+  `release:check` verifies current pinned commands and links.
 
 ### 升级与验证 / Updating and verification
 
 更新后重启宿主。在新的 Codex CLI TUI 中打开 `/hooks`，对照**所安装 tag** 的
-[`hooks/codex-hooks.json`](hooks/codex-hooks.json) 审查并信任命令；Hook 定义
-变化可能需要重新确认。步骤见 [INSTALL.md](INSTALL.md#review-the-packaged-hooks)。
+[`hooks/codex-hooks.json`](hooks/codex-hooks.json) 审查并信任命令。Hook 定义
+变化时可能需要重新确认。步骤见 [INSTALL.md](INSTALL.md#review-the-packaged-hooks)。
 
 Restart the host after updating. In a fresh Codex CLI TUI, compare `/hooks`
-with the manifest in the **installed tag** and trust the reviewed commands.
+with the **installed tag's** manifest and trust the reviewed commands.
 Changed Hook definitions may need another review. See
 [INSTALL.md](INSTALL.md#review-the-packaged-hooks).
 
-候选验证为 417 项测试通过、1 项跳过，18/18 成对案例通过，Hermes 与发布
-检查通过，并完成 199 个发布文件的白名单核对。打包 Hook 的隔离调用覆盖
-只读拒绝、授权放行及 #52/#53 的关键回归。范围和宿主效果边界见
-[EVIDENCE.md](EVIDENCE.md)。
+候选版有 417 项测试通过、1 项跳过，18/18 成对案例通过；Hermes、发布检查
+和 199 个文件的包白名单核对通过。隔离调用打包 Hook 覆盖只读拒绝、授权放行
+及 #52/#53 的关键回归。验证范围见 [EVIDENCE.md](EVIDENCE.md)。
 
-Candidate verification includes 417 passing tests and one skip, 18/18
-paired-case arms, passing Hermes and release checks, and a 199-file release
-allowlist. Isolated packaged-Hook calls covered read-only denial, authorized
-work, and the key #52/#53 regressions. See [EVIDENCE.md](EVIDENCE.md) for scope
-and host-effect limits.
+Candidate checks: 417 tests passed, one skipped; 18/18 paired-case arms,
+Hermes and release checks, and the 199-file package allowlist passed.
+Isolated packaged-Hook calls covered read-only denial, authorized work,
+and the key #52/#53 regressions. See [EVIDENCE.md](EVIDENCE.md) for scope.
 
 **Full Changelog**: [0.2.2...0.2.3](https://github.com/lennney/stop-that-shit/compare/0.2.2...0.2.3)
 
