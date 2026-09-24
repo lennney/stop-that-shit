@@ -1,15 +1,98 @@
 # Changelog
 
-## 0.2.3 — 2026-09-24 (Guard and Codex lifecycle fixes / Guard 与 Codex 生命周期修复)
+## 0.2.3 — 2026-09-24 (Guard boundaries and Codex lifecycle / Guard 边界与 Codex 生命周期)
 
-- 检查复合 shell 命令中的每一条命令，修复只读检查因其中一条读命令而误放行写操作；保留合法读取和已授权操作。/ Check every command in a supported shell chain before classifying the whole action as read-only, while preserving valid reads and authorized work (#52).
-- 统一处理 Codex 带命名空间的委派调用，修复 `agents=0` 可被绕过的问题；Codex 仅注册实际消费的四种 Hook 事件。/ Normalize namespaced Codex delegation calls and register only the four consumed Hook events (#53).
-- 将 Codex `SessionEnd` 超时设为宿主支持的 3 秒，并避免普通结束事件取得不必要的写锁。/ Set Codex `SessionEnd` to the supported three-second timeout and avoid redundant writer locks on ordinary session end (#51, #54).
-- 复用 shell 动作分析并在拒绝与解释输出中给出固定原因码；Runtime 仍只记录元数据。/ Reuse action analysis and expose fixed classification reasons without recording raw commands (#55).
-- CI 在扫描失败时保留报告；案例目录说明并归档无法复现的 Issue #5 报告。/ Retain scanner reports on failure and clarify the case catalogue and unreproduced Issue #5 report (#56, #59).
-- 保留 README 的产品故事与成对案例，统一当前安装入口，并按包版本检查安装命令和版本化链接。/ Preserve the README story and paired cases, align current install entry points, and validate pinned references against the package version.
+本补丁修正两条具体边界：只读任务中的复合 shell 命令必须整体保持只读；
+`agents=0` 也必须约束 Codex 带命名空间的委派调用。其余改动集中在 Codex
+生命周期、可解释的拒绝原因，以及发布证据和案例文档。
 
-This patch does not establish a general model-behavior improvement. A Guard denial is a returned response; final host effect remains unobserved unless separately measured.
+This patch closes two specific Guard gaps: a compound shell command must stay
+read-only during review, and `agents=0` must apply to namespaced Codex
+delegation calls. It also updates Codex lifecycle handling, decision reasons,
+scanner reports, and case documentation.
+
+### 边界修复 / Boundary fixes
+
+- **复合命令的只读判断 — #52：** 对支持静态解析的 shell 命令链逐条判断。
+  `git status --short; git config --local ...` 在 `review` 中会被拒绝；
+  只有读取动作的命令链仍可执行，明确授权的 `change` 不受只读限制。
+  解析还覆盖了会执行程序的 `rg` 选项、会写文件的 Git 输出选项，
+  并保留参数值与搜索文本的字面含义。
+  / Classify every command in a supported static shell chain. A read followed
+  by a write is denied in `review`; read-only chains and authorized `change`
+  work remain allowed. The classifier also checks executable `rg` options and
+  Git output options without treating option values or search text as commands.
+- **命名空间委派与 `agents=0` — #53：** Codex 现在统一识别受支持的命名空间
+  工具名。`agents=0` 会拒绝这类启动调用；读取状态和等待仍按各自的动作处理，
+  关联的完成证据继续用于并发名额计算。打包清单只注册适配器实际消费的
+  `UserPromptSubmit`、`PreToolUse`、`PostToolUse` 和 `SessionEnd`。
+  / Normalize supported namespaced Codex tool names so `agents=0` denies their
+  spawn calls. Status and wait calls retain their own decisions, and correlated
+  completion evidence still updates reservations. The packaged manifest lists
+  only the events the adapter handles.
+
+### 生命周期与可解释性 / Lifecycle and explanations
+
+- **Codex 会话结束 — #51、#54：** `SessionEnd` 使用宿主支持的 3 秒超时。
+  普通结束通知只读取状态，不再争用写锁；明确的完成事实仍走串行更新路径。
+  / Use Codex's supported three-second `SessionEnd` timeout. Ordinary session
+  end reads state without taking the writer lock. Explicit completion facts
+  remain on the serialized update path.
+- **动作原因 — #55：** 五套宿主适配器复用同一次动作分析。拒绝、解释查询和
+  Runtime 记录使用固定的分类原因；Runtime 仍只存元数据，不保存原始命令。
+  / Reuse action analysis across the five host adapters. Denial and explain
+  output include fixed classification reasons; Runtime audit remains
+  metadata-only and does not store raw commands.
+
+### 发布证据与文档 / Release evidence and documentation
+
+- **扫描报告 — #56：** 未取消的 CI 扫描只要产出了 SARIF，就将报告保留为
+  artifact，即使扫描步骤失败；原有失败结果和严重级别门槛保持生效。
+  / Preserve a generated SARIF report after a non-cancelled scan, including
+  failed scans. The scanner's failure result and severity gate remain in force.
+- **成对案例 — #59：** 案例目录解释已有 Bad/Good fixture 的决定性事实、
+  下一步和证据边界。Issue #5 的浮点报告以“原始材料不可得、未复现”归档；
+  关闭该 Issue 不新增规则、可执行案例或效果计数。
+  / The case catalogue explains the decisive facts, next actions, and evidence
+  limits of existing Bad/Good fixtures. Issue #5 is archived as an
+  unreproduced report with unavailable source material; its closure adds no
+  rule, executable case, or effectiveness count.
+- **版本与安装入口：** 包和宿主插件清单升至 `0.2.3`。中英文 README 的
+  产品故事与成对案例保留，韩文 README 保留原有说明。完整安装和 Hook 审查
+  集中在 `INSTALL.md`，Agent 步骤在 `INSTALL_FOR_AGENTS.md`。
+  `release:check` 用 `package.json` 的版本检查当前
+  安装命令与固定 tag 链接，不把 CHANGELOG 和 EVIDENCE 的历史记录当作错误。
+  / Bump package and host-plugin manifests to `0.2.3`. Keep the Chinese and
+  English README story and paired cases, and preserve the Korean guide.
+  Put full setup in `INSTALL.md` and agent steps in `INSTALL_FOR_AGENTS.md`.
+  `release:check` compares current pinned commands
+  and links with the package version while preserving historical records.
+
+### 升级与验证边界 / Upgrade and verification
+
+安装或更新后重启宿主。在新的 Codex CLI TUI 中打开 `/hooks`，对照**所安装 tag**
+内的 [`hooks/codex-hooks.json`](hooks/codex-hooks.json) 审查并信任命令；
+Hook 定义变化可能需要重新确认。升级不会把缺少终结证据的旧子任务视为已完成。
+详细步骤见 [INSTALL.md](INSTALL.md#review-the-packaged-hooks)。
+
+After installation or update, restart the host. In a fresh Codex CLI TUI,
+compare `/hooks` with the manifest in the **installed tag** and trust the
+commands you reviewed. Changed Hook definitions may require another review.
+An upgrade does not prove that unresolved prior subagent work has completed.
+See [INSTALL.md](INSTALL.md#review-the-packaged-hooks).
+
+候选验证包括 417 项通过、1 项跳过的自动化测试，18/18 成对案例，通过的
+Hermes 与发布检查，以及 199 文件的发布包白名单核对。打包 Hook 的隔离调用
+验证了只读拒绝、授权放行及 #52/#53 的关键回归。完整记录见 [EVIDENCE.md](EVIDENCE.md)。
+这些结果不证明模型整体效果提升；Guard 返回拒绝也不等于已观察到宿主最终
+是否执行，Runtime 的 `hostEffect` 仍为 `unobserved`。
+
+Candidate checks include 417 passing tests and one skip, 18/18 paired-case
+arms, Hermes and release checks, and a 199-file release allowlist. Isolated
+invocation of the packaged Hook covered read-only denial, authorized work,
+and the key #52/#53 regressions. See [EVIDENCE.md](EVIDENCE.md). These checks
+do not establish a general model improvement or the final effect in every
+host; Runtime records `hostEffect: unobserved`.
 
 ## 0.2.2 — 2026-09-14 (Authorization, lifecycle, and Skill updates / 授权、生命周期与 Skill 更新)
 
