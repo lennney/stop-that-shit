@@ -11,10 +11,37 @@ actions, context responses, and permission denies. It records host effect as
 `unobserved`; a returned permission deny is not evidence that the host skipped
 the action.
 
-Version: 0.2.2 Authorization, lifecycle, and Skill updates
-Release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.2
-Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.1
-Last updated: 2026-09-14
+Version: 0.2.3 Guard and Codex lifecycle fixes
+Release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.3
+Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.2
+Last updated: 2026-09-24
+
+## 0.2.3 release candidate
+
+The candidate includes merged fixes #51–#55, scanner-report retention #56,
+and case documentation #59. At the candidate revision:
+
+- `npm test`: 417 passed, 1 skipped, 0 failed;
+- `npm run eval`: 18/18 paired-case arms passed;
+- `npm run hermes:check` and `npm run release:check`: passed; the latter checked
+  199 allowlisted files;
+- stale `--ref 0.2.2` and a stale `0.2.2` tagged archive link were each
+  deliberately inserted in a current README and rejected by `release:check`;
+- `npm run release:build` produced 199 allowlisted files, with no private
+  `AGENTS.md`, environment files, dependencies, or temporary paths;
+- direct invocation of the packaged Codex Hook with isolated state matched the
+  packaged manifest, denied a mixed read/write shell command in review,
+  allowed it under explicit change authority, and denied a namespaced spawn
+  under `agents=0`.
+
+Final installed-host acceptance, release tag, attachment, CI, and scan results
+must be recorded against the exact release revision. The candidate tests and
+packaged Hook smoke do not establish general model improvement or final host
+effect. Runtime `hostEffect` remains `unobserved`.
+
+The defensible 0.2.3 claim is: the current source and packaged adapters apply
+the stated decisions on the tested paths; host execution and broad model-task
+outcomes need separate observation.
 
 ## 0.2.2 validation
 

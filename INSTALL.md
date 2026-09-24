@@ -1,6 +1,6 @@
-# Install Stop That Shit 0.2.2
+# Install Stop That Shit
 
-These instructions target [`0.2.2`](https://github.com/lennney/stop-that-shit/releases/tag/0.2.2).
+These instructions target [`0.2.3`](https://github.com/lennney/stop-that-shit/releases/tag/0.2.3).
 
 For local checkout validation, use the flow under
 [Local Guard development](#local-guard-development).
@@ -45,7 +45,7 @@ The Guard requires Node.js 18 or newer. Add the repository as a Codex
 marketplace, then install the plugin:
 
 ```powershell
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.2
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.3
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
@@ -75,7 +75,7 @@ Codex records trust for the Hook definition hash, so inspect each Stop That Shit
 command before trusting it. Start a fresh Codex CLI TUI and enter `/hooks`.
 
 Compare the plugin's entries with [`hooks/codex-hooks.json`](hooks/codex-hooks.json).
-This source candidate registers four handlers:
+Review the handlers in the installed tag's manifest. The current entries cover:
 
 - `UserPromptSubmit` reads the task mode and explicit boundaries;
 - `PreToolUse` checks a supported action before it runs;
@@ -84,14 +84,10 @@ This source candidate registers four handlers:
 
 After review, confirm that the handlers listed by the installed definition are
 active. Other plugins can add entries, so compare sources rather than total row
-counts. This candidate does not register `Stop`, `SubagentStart`, or
-`SubagentStop` for Codex, and does not automatically continue a finished turn.
-Subagent events from older Codex
-configurations remain ignored; they do not prove completion or release capacity.
-
-The four-handler list describes this source candidate. Published `0.2.2` still
-registers the two ignored Subagent handlers. When checking that release, compare
-against its installed `hooks/codex-hooks.json` rather than the candidate count.
+counts. This tag does not register `Stop`, `SubagentStart`, or `SubagentStop`
+for Codex, and does not automatically continue a finished turn. Subagent events
+from older Codex configurations remain ignored; they do not prove completion or
+release capacity.
 
 Some Codex Desktop builds send `/hooks` as an ordinary message. In that case,
 complete the review in the CLI TUI and restart Desktop. An update may require
@@ -118,7 +114,7 @@ error context and pause tool calls until a corrected instruction clears the
 error. A valid watch/off directive also clears that pause. This input rejection
 does not change the previous contract or the shared watch/off policy.
 
-## Upgrade to 0.2.2
+## Upgrade
 
 Update the plugin or standalone Skill through its host installation flow, then
 restart or reload. Checking a version is not an update. Codex users must inspect
@@ -129,6 +125,20 @@ sessions default to unlimited; migration preserves valid existing limits,
 including `0`. Schema 4 retains unresolved legacy activity. A finite Guard
 needs matching terminal evidence or a new host session; an upgrade or session
 end does not clear that activity.
+
+### Delegation capacity and uncertain completion
+
+`agents=N` reserves concurrent capacity; `0` denies new delegation. A parallel
+batch is checked as a whole, while a serial Pi `chain` reserves one slot.
+Confirmed completion releases the associated reservation; a stop request,
+session end, or unknown result does not prove completion. Under a finite limit,
+Claude `SendMessage` and OpenCode `task_id` resume calls are denied because the
+hosts do not supply a run generation that would make later completion safe to
+attribute. Calls allowed under watch/off or an unlimited budget may leave
+unresolved capacity when switching back to a finite Guard. Start a new host
+session if that activity cannot be resolved. Valid legacy budgets, including
+`0`, survive schema migration. See the [adapter contract](HOST-ADAPTER-CONTRACT.md)
+for the host-specific evidence and lifecycle rules.
 
 ## Run a smoke test
 
@@ -251,11 +261,11 @@ From a checkout that contains the Pi adapter, install it globally:
 pi install /absolute/path/to/stop-that-shit
 ```
 
-Add `-l` for a project-scoped installation. The `0.2.2` tagged release contains
+Add `-l` for a project-scoped installation. The tagged release contains
 the Pi adapter; use this pinned Git ref instead of an unpinned branch:
 
 ```bash
-pi install git:github.com/lennney/stop-that-shit@0.2.2
+pi install git:github.com/lennney/stop-that-shit@0.2.3
 ```
 
 Start a new Pi process, or run `/reload` in the TUI after changing package
@@ -285,10 +295,10 @@ cp skills/stop-that-shit/SKILL.md ~/.claude/skills/stop-that-shit/SKILL.md
 For Codex, ask the built-in Skill Installer to install the shared Skill folder:
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.2/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.3/skills/stop-that-shit
 ```
 
-To install only Stop That Shit Slop from a `0.2.2` checkout:
+To install only Stop That Shit Slop from the tagged checkout:
 
 ```bash
 npx skills add ./skills/stss --global

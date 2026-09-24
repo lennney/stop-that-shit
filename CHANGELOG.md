@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.3 — 2026-09-24 (Guard and Codex lifecycle fixes / Guard 与 Codex 生命周期修复)
+
+- 检查复合 shell 命令中的每一条命令，修复只读检查因其中一条读命令而误放行写操作；保留合法读取和已授权操作。/ Check every command in a supported shell chain before classifying the whole action as read-only, while preserving valid reads and authorized work (#52).
+- 统一处理 Codex 带命名空间的委派调用，修复 `agents=0` 可被绕过的问题；Codex 仅注册实际消费的四种 Hook 事件。/ Normalize namespaced Codex delegation calls and register only the four consumed Hook events (#53).
+- 将 Codex `SessionEnd` 超时设为宿主支持的 3 秒，并避免普通结束事件取得不必要的写锁。/ Set Codex `SessionEnd` to the supported three-second timeout and avoid redundant writer locks on ordinary session end (#51, #54).
+- 复用 shell 动作分析并在拒绝与解释输出中给出固定原因码；Runtime 仍只记录元数据。/ Reuse action analysis and expose fixed classification reasons without recording raw commands (#55).
+- CI 在扫描失败时保留报告；案例目录说明并归档无法复现的 Issue #5 报告。/ Retain scanner reports on failure and clarify the case catalogue and unreproduced Issue #5 report (#56, #59).
+- 保留 README 的产品故事与成对案例，统一当前安装入口，并按包版本检查安装命令和版本化链接。/ Preserve the README story and paired cases, align current install entry points, and validate pinned references against the package version.
+
+This patch does not establish a general model-behavior improvement. A Guard denial is a returned response; final host effect remains unobserved unless separately measured.
+
 ## 0.2.2 — 2026-09-14 (Authorization, lifecycle, and Skill updates / 授权、生命周期与 Skill 更新)
 
 ### 修复 / Fixed

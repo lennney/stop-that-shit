@@ -163,17 +163,18 @@ if (fs.existsSync(path.join(root, hermesPluginRoot, 'hooks'))) {
 
 const selectedFiles = releaseManifest.include.flatMap((entry) => walk(path.join(root, entry)));
 const textExtensions = new Set(['', '.cjs', '.js', '.json', '.md', '.ts', '.txt', '.yaml', '.yml']);
-// Keep historical plain-version entries in CHANGELOG.md and EVIDENCE.md while
-// rejecting stale refs and previous-version markers on current install surfaces.
+// Historical versions in CHANGELOG.md and EVIDENCE.md are intentional.
 const staleVersion = /(?:v0\.1(?:\.\d+)?|0\.1\.2)/i;
-const previousVersion = /0\.1\.1/;
 const currentVersionSurfaces = new Set([
   'INSTALL.md',
   'INSTALL_FOR_AGENTS.md',
   'README.md',
   'README_EN.md',
+  'README_KO.md',
+  'README_CN.md',
   'SECURITY.md'
 ]);
+const releaseReference = /(?:--ref\s+|--branch\s+|stop-that-shit@|\/(?:releases\/tag|releases\/download|blob|tree|archive\/refs\/tags)\/)(\d+\.\d+\.\d+)(?=[\s/.)?#]|$)/g;
 const privatePath = /(?:[A-Za-z]:\\Users\\|[A-Za-z]:\\object\\|\/Users\/|\/home\/)/;
 const mojibake = /(?:\uFFFD|\u9225|\u6E1F|\u951F)/;
 
@@ -182,8 +183,12 @@ for (const file of selectedFiles) {
   const relative = path.relative(root, file);
   const content = fs.readFileSync(file, 'utf8');
   if (staleVersion.test(content)) fail(`stale public version marker in ${relative}`);
-  if (currentVersionSurfaces.has(relative) && previousVersion.test(content)) {
-    fail(`previous release marker remains on current version surface: ${relative}`);
+  if (currentVersionSurfaces.has(relative)) {
+    for (const match of content.matchAll(releaseReference)) {
+      if (match[1] !== expectedVersion) {
+        fail(`versioned install reference in ${relative} uses ${match[1]}, expected ${expectedVersion}`);
+      }
+    }
   }
   if (privatePath.test(content)) fail(`machine-specific path in ${relative}`);
   if (mojibake.test(content)) fail(`possible mojibake in ${relative}`);
