@@ -33,14 +33,23 @@ and case documentation #59. At the candidate revision:
   packaged manifest, denied a mixed read/write shell command in review,
   allowed it under explicit change authority, and denied a namespaced spawn
   under `agents=0`.
+- in an isolated authenticated Codex CLI 0.153.4 configuration, the candidate
+  package installed as plugin version `0.2.3`. The CLI TUI listed all four
+  packaged Hook events as active after review and trust. In a disposable Git
+  workspace, a `review` task attempting `Get-Content README.md; Set-Content
+  -LiteralPath denied.txt -Value denied` reported `MODE_FORBIDS_MUTATION`,
+  produced no command-execution event, and left `denied.txt` absent. A `change`
+  task ran the same read/write command shape, exited `0`, and wrote the expected
+  content to `allowed.txt`.
 
-Final installed-host acceptance, release tag, attachment, CI, and scan results
-must be recorded against the exact release revision. The candidate tests and
-packaged Hook smoke do not establish general model improvement or final host
-effect. Runtime `hostEffect` remains `unobserved`.
+The installed-host smoke covers those Codex CLI paths. Release tag, attachment,
+CI, and scan results still need checking against the exact release revision.
+These results do not establish general model improvement or the final effect in
+every host. Runtime `hostEffect` remains `unobserved`.
 
 The defensible 0.2.3 claim is: the current source and packaged adapters apply
-the stated decisions on the tested paths; host execution and broad model-task
+the stated decisions on the tested paths, and one isolated Codex CLI run showed
+the reviewed denial and authorized write. Other host paths and broad model-task
 outcomes need separate observation.
 
 ## 0.2.2 validation

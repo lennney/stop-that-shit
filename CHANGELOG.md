@@ -73,12 +73,16 @@ Changed Hook definitions may need another review. See
 
 候选版有 417 项测试通过、1 项跳过，18/18 成对案例通过；Hermes、发布检查
 和 199 个文件的包白名单核对通过。隔离调用打包 Hook 覆盖只读拒绝、授权放行
-及 #52/#53 的关键回归。验证范围见 [EVIDENCE.md](EVIDENCE.md)。
+及 #52/#53 的关键回归。Codex CLI 0.153.4 的隔离安装与 Hook 信任通过，
+一次性仓库中的 `review` 拒绝和 `change` 放行也已核对。验证范围见
+[EVIDENCE.md](EVIDENCE.md)。
 
 Candidate checks: 417 tests passed, one skipped; 18/18 paired-case arms,
 Hermes and release checks, and the 199-file package allowlist passed.
 Isolated packaged-Hook calls covered read-only denial, authorized work,
-and the key #52/#53 regressions. See [EVIDENCE.md](EVIDENCE.md) for scope.
+and the key #52/#53 regressions. An isolated Codex CLI 0.153.4 install listed
+the packaged Hooks as active; a disposable workspace confirmed a `review`
+deny and an authorized `change` write. See [EVIDENCE.md](EVIDENCE.md) for scope.
 
 **Full Changelog**: [0.2.2...0.2.3](https://github.com/lennney/stop-that-shit/compare/0.2.2...0.2.3)
 
