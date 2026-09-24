@@ -43,7 +43,7 @@ general improvement in model behavior.
 2. Run these commands one at a time:
 
    ```powershell
-   codex plugin marketplace add lennney/stop-that-shit --ref 0.2.2
+   codex plugin marketplace add lennney/stop-that-shit --ref 0.2.3
    codex plugin add stop-that-shit@stop-that-shit
    ```
 
@@ -51,26 +51,13 @@ general improvement in model behavior.
 4. Ask the user to open a fresh Codex CLI TUI and enter `/hooks`.
 5. Stop and let the user inspect and trust the Hook commands.
 
-A current candidate registers these four events:
-
-```text
-UserPromptSubmit
-PreToolUse
-PostToolUse
-SessionEnd
-```
-
-Compare the plugin sources with `hooks/codex-hooks.json` and confirm its
-handlers are active after review. Other plugins can add entries. This candidate
-does not register `Stop`, `SubagentStart`, or `SubagentStop` for Codex. Subagent
-events from older configurations remain ignored and do not prove delegation
-completion or release capacity.
-The `0.2.2` commands above install the published release, which still registers
-the two ignored Subagent handlers. Verify that version against its installed
-`hooks/codex-hooks.json`; the four-event list describes this source candidate.
+Compare the installed tag's `hooks/codex-hooks.json` with the entries shown by
+`/hooks`, then let the user review and trust those commands. Other plugins can
+add entries. Subagent events from older configurations remain ignored and do
+not prove delegation completion or release capacity.
 An update can require another review because Codex records trust for the Hook
 definition. Do not disable or work around this review. See
-[upgrade notes](INSTALL.md#upgrade-to-022) for version and state migration.
+[upgrade notes](INSTALL.md#upgrade) for version and state migration.
 
 ## Hermes Agent CLI
 
@@ -137,10 +124,10 @@ general improvement in model behavior.
 If the user does not want Hooks, install the advisory Skill instead:
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.2/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.3/skills/stop-that-shit
 ```
 
-If the user asks for only Stop That Shit Slop, run this from a `0.2.2` checkout:
+If the user asks for only Stop That Shit Slop, run this from the tagged checkout:
 
 ```bash
 npx skills add ./skills/stss --global

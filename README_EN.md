@@ -137,7 +137,7 @@ Expand your host. For guidance without runtime enforcement, [install only the Sk
 <details>
 <summary>Claude Code</summary>
 
-Download and extract the [0.2.2 source](https://github.com/lennney/stop-that-shit/archive/refs/tags/0.2.2.zip), then run from the checkout root:
+Download and extract the [0.2.3 source](https://github.com/lennney/stop-that-shit/archive/refs/tags/0.2.3.zip), then run from the checkout root:
 
 ```bash
 claude plugin validate .
@@ -157,11 +157,11 @@ Restart Claude Code or run `/reload-plugins`, then invoke:
 <summary>Codex</summary>
 
 ```bash
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.2
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.3
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
-`--ref 0.2.2` pins the install to a version tag instead of mutable
+`--ref` pins the install to a version tag instead of mutable
 `main`. Restart Codex. In a fresh CLI TUI, enter `/hooks`, compare the
 [packaged Hook list](INSTALL.md#review-the-packaged-hooks), and trust the
 commands after inspection. You can
@@ -228,7 +228,7 @@ invoke:
 /skill:stop-that-shit review -- Review this diff. Report findings; do not edit.
 ```
 
-The `0.2.2` tag includes the Pi adapter and both Skills. See [INSTALL.md](INSTALL.md#pi-coding-agent).
+The pinned tag includes the Pi adapter and both Skills. See [INSTALL.md](INSTALL.md#pi-coding-agent).
 
 </details>
 

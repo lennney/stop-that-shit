@@ -63,7 +63,7 @@ Event: evt_...
 
 ## 설치
 
-아래 예시는 `0.2.2` 기준입니다. 대부분의 호스트에는 Node.js 18 이상이 필요하며,
+아래 명령은 고정된 버전 tag를 기준으로 합니다. 대부분의 호스트에는 Node.js 18 이상이 필요하며,
 Pi 0.84.4에는 Node.js 22.19 이상이 필요합니다.
 호스트별 설정과 업데이트 절차는 [설치 문서](INSTALL.md)를 확인하세요.
 
@@ -77,7 +77,7 @@ Skill은 에이전트가 참고하는 작업 지침입니다.
 **1. 저장소 받기.** 터미널에서 실행합니다.
 
 ```bash
-git clone --branch 0.2.2 https://github.com/lennney/stop-that-shit.git
+git clone --branch 0.2.3 https://github.com/lennney/stop-that-shit.git
 cd stop-that-shit
 ```
 
@@ -106,13 +106,13 @@ claude plugin install stop-that-shit@stop-that-shit
 ### Codex
 
 ```bash
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.2
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.3
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
 Codex를 다시 시작하고 새 CLI TUI에서 `/hooks`를 엽니다.
 [패키지의 Hook 목록](INSTALL.md#review-the-packaged-hooks)과 명령을 확인한 뒤 신뢰하도록 설정합니다.
-`--ref 0.2.2`은 설치 대상을 해당 버전으로 고정합니다.
+`--ref`는 설치 대상을 해당 버전으로 고정합니다.
 
 ### 다른 호스트
 

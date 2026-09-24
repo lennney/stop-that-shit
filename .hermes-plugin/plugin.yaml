@@ -1,5 +1,5 @@
 name: stop-that-shit
-version: "0.2.2"
+version: "0.2.3"
 description: "Stop That Shit task-boundary Guard for Hermes Agent CLI."
 author: "Stop That Shit contributors"
 license: MIT
