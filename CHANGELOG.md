@@ -2,23 +2,65 @@
 
 ## 0.2.4 — 2026-09-28 (OpenCode V1/V2 compatibility / 双版本兼容)
 
-- 一个包提供 V1 server 和 V2 Effect 适配器，复用现有 Guard 核心。
-  实测版本为 OpenCode 1.18.18 和 2.0.18；V1 最低版本保持不变。
-  / One package provides native V1 and V2 adapters over the existing Guard core.
-- V2 使用原生工具错误拒绝动作，保留后续允许动作；仅以已投递的根用户
-  消息更新合同，处理子代理预算、压缩后的消息去重和会话权限覆盖。
-  / V2 returns typed tool errors, synchronizes delivered root messages, and
-  maps child budgets, message identity after compaction, and session overrides.
-- 修正本地目录入口、等待期间的旧权限和被其他 Hook 消耗的运行时查询回复。
-  / Fix local directory discovery, stale permissions after waiting, and lost
-  runtime-query replies when another hook synchronizes the message first.
-- 按根会话串行，避免无关会话互相等待；V1 延迟加载 V2 实现。
-  / Serialize per root and defer V2 implementation loading for V1.
+本版为同一个插件包增加 OpenCode V2 支持，并保留 V1 入口。
+已验证的宿主版本为 **OpenCode 1.18.18 和 2.0.18**。
 
-安装步骤和验证范围见 [INSTALL.md](INSTALL.md) 与 [EVIDENCE.md](EVIDENCE.md)。
-Code Mode 的直接 JavaScript/network 副作用不承诺完整拦截。
-See the same documents for installation and evidence. Direct Code Mode
-JavaScript/network effects are not fully covered by tool hooks.
+This release adds OpenCode V2 support to the existing plugin package and keeps
+the V1 entrypoint. Tested host versions: **OpenCode 1.18.18 and 2.0.18**.
+
+### 新增与修复 / Added and fixed
+
+- **双版本适配：** V1 server 与 V2 Effect 适配器共用 Guard 核心。V2 使用
+  原生工具错误拒绝受限动作，并允许后续合法操作继续。
+  / Native V1 and V2 adapters share the Guard core. V2 returns typed tool
+  errors for denied actions and allows subsequent permitted actions.
+- **合同与会话状态：** V2 根据已投递的根用户消息更新合同，处理子代理预算、
+  压缩后的消息去重和会话权限覆盖。
+  / V2 handles delivered root-user directives, child budgets, message
+  identity after compaction, and session permission overrides.
+- **加载与反馈：** 修复本地目录入口、排队后使用旧权限，以及工具或子上下文
+  先同步消息时丢失 status/runtime 回复的问题。
+  / Fix local directory loading, stale permissions after waiting, and lost
+  status/runtime replies when tool or child hooks process a message first.
+- **会话并发：** 按根会话串行，避免无关会话互相等待；V1 延迟加载 V2 实现。
+  / Serialize work per root session so unrelated roots can proceed. V1 defers
+  loading the V2 implementation.
+
+### 升级 / Updating
+
+按所用宿主的流程更新至 `0.2.4`，然后重启或重新加载宿主。
+OpenCode V2 本地安装应指向包含 `package.json` 的目录。
+Codex 用户应重新审查并信任发生变化的 Hook 定义。
+具体步骤见本版本的 [安装说明](https://github.com/lennney/stop-that-shit/blob/0.2.4/INSTALL.md)。
+
+Update to `0.2.4` through your host's installation flow, then restart or reload
+the host. For a local OpenCode V2 install, select the directory containing
+`package.json`. Codex users must review and trust changed Hook definitions.
+See the versioned installation guide above.
+
+### 验证范围 / Verification scope
+
+发布时验证：428 项测试通过、3 项可选宿主测试跳过，18/18 成对案例通过。
+另行启用的真实 OpenCode 打包安装测试在 V1/V2 均通过，覆盖 review 拒写且文件
+未创建、拒绝后继续读取、重启后显式 change 写入。
+
+Release checks: 428 tests passed, three optional host checks skipped, and
+18/18 paired-case arms passed. Separate packed-plugin tests passed in both
+OpenCode versions: review denied a write without creating the file, reading
+continued, and explicit change allowed a write after restart.
+
+宿主测试使用确定性本地模型替身，未验证真实模型效果；未覆盖后台子代理，
+也未验证 GitHub 来源安装。Code Mode 的直接 JavaScript/network 副作用不在
+完整工具拦截覆盖内。详见本版本的
+[验证记录](https://github.com/lennney/stop-that-shit/blob/0.2.4/EVIDENCE.md)。
+
+Host tests used a deterministic local model stand-in. They do not establish
+model effectiveness, background-child behavior, or GitHub-source installation.
+Tool hooks do not fully cover direct Code Mode JavaScript/network effects.
+See the versioned evidence above.
+
+**Full Changelog**: [0.2.3...0.2.4](https://github.com/lennney/stop-that-shit/compare/0.2.3...0.2.4)
+ · [PR #64](https://github.com/lennney/stop-that-shit/pull/64)
 
 ## 0.2.3 — 2026-09-24 (Read-only boundaries and Codex delegation / 只读边界与 Codex 委派)
 
