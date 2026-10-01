@@ -20,6 +20,31 @@ function tool(toolCallId, toolName, input) {
   return { type: 'tool_call', toolCallId, toolName, input };
 }
 
+test('OMP manifest moves enforce dependency policy across all native edit transports', t => {
+  const { context, options } = setup(t, '$stop-that-shit change deps=deny -- edit manifests');
+  const transports = {
+    apply_patch: (source, target, body) => ({ input: `*** Begin Patch\n*** Update File: ${source}\n*** Move to: ${target}\n@@\n${body}\n*** End Patch` }),
+    patch: (source, target, body) => ({ path: source, edits: [{ op: 'update', rename: target, diff: body }] }),
+    hashline: (source, target, body) => ({ input: `*** Begin Patch\n[${source}#abcd]\nPUT 1.=1:\n${body}\nMV ${target}\n*** End Patch` })
+  };
+  const addition = '+{"dependencies":{"demo":"1"}}';
+  for (const [name, edit] of Object.entries(transports)) {
+    const run = (id, input) => handleOmpTool(tool(`${name}-${id}`, 'edit', input), context, options);
+    assert.equal(run('add', edit('package.json', 'config/package.json', addition)).decision?.reasonCode, 'DEPENDENCY_NOT_AUTHORIZED', name);
+    assert.equal(run('promote', edit('manifest.txt', 'package.json', addition)).decision?.reasonCode, 'DEPENDENCY_NOT_AUTHORIZED', name);
+    assert.equal(run('demote', edit('package.json', 'manifest.txt', addition)).kind, 'none');
+    assert.equal(run('metadata', edit('package.json', 'config/package.json', '+{"name":"demo"}')).kind, 'none');
+    if (name !== 'hashline') {
+      assert.equal(run('unchanged', edit('package.json', 'config/package.json', ' {"dependencies":{"demo":"1"}}')).kind, 'none');
+      assert.equal(run('remove', edit('package.json', 'config/package.json', '-{"dependencies":{"demo":"1"}}')).kind, 'none');
+    }
+  }
+  handleOmpPrompt({ text: '$stop-that-shit change deps=allow -- authorize dependencies' }, context, options);
+  for (const [name, edit] of Object.entries(transports)) {
+    assert.equal(handleOmpTool(tool(`${name}-allow`, 'edit', edit('manifest.txt', 'package.json', addition)), context, options).kind, 'none');
+  }
+});
+
 test('OMP manifest edits distinguish dependency additions from removals', t => {
   const { context, options } = setup(t, '$stop-that-shit change deps=deny -- remove a dependency');
   const call = (id, input) => handleOmpTool(tool(id, 'edit', input), context, options);

@@ -20,11 +20,12 @@ Last updated: 2026-10-01
 
 The isolated candidate is based on public main `749c921`. Its version field
 remains 0.2.4; it is not the published 0.2.4 release. The candidate passed
-503 source tests, with zero failures and three optional OpenCode checks skipped;
+520 source tests, with zero failures and three optional OpenCode checks skipped;
 22/22 paired-case arms; the 218-file release allowlist; the generated Hermes
 bundle check; and the whitespace check.
 
-The final 57-file npm package was installed with lifecycle scripts disabled
+Before the subsequent table-identity and rename fixes, a 57-file npm package
+was installed with lifecycle scripts disabled
 in an isolated Windows workspace. Oh My Pi 18.4.4 loaded the installed
 Extension and both Skills. Native CLI/RPC checks verified control commands,
 review denial with the file absent, continued reading, explicit change writes,
@@ -38,7 +39,9 @@ tasks with inherited authority, and rejection of a reused task ID. A direct
 first-line directive changed the contract; an invalid `/sts` command retained
 it without starting a model turn. This TUI run used the preceding packed
 snapshot; the reviewed follow-up changed manifest classification and docs.
-The final installed package passed the CLI/RPC checks above.
+The later installed snapshot passed the CLI/RPC checks above. The table-identity
+and rename fixes passed source regressions; installed-host checks were not rerun
+for those fixes.
 
 All host checks used deterministic local responses with zero external model
 API calls. They do not establish general model effectiveness. Git-source

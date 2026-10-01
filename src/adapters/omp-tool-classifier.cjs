@@ -8,7 +8,9 @@ const HUB_READ = new Set(['wait', 'inbox', 'list', 'jobs', 'ps', 'logs', 'descri
 
 function editDependencyIntent(input) {
   if (typeof input.input === 'string') {
-    return patchDependencyIntent(input.input.replace(/^\[(.+)#[0-9a-fA-F]{4}\]$/gm, '*** Update File: $1'));
+    return patchDependencyIntent(input.input
+      .replace(/^\[(.+)#[0-9a-fA-F]{4}\]\r?$/gm, '*** Update File: $1')
+      .replace(/^MV (.+?)\r?$/gm, '*** Move to: $1'));
   }
   if (!Array.isArray(input.edits)) {
     return manifestEditDependencyIntent(input.path, input.old_string, input.new_string);
@@ -17,7 +19,7 @@ function editDependencyIntent(input) {
     ? manifestDependencyIntent(input.path, edit.diff)
     : typeof edit.new_string === 'string'
       ? manifestEditDependencyIntent(input.path, edit.old_string, edit.new_string)
-      : patchDependencyIntent(`*** Update File: ${input.path}\n${edit.diff || ''}`)));
+      : patchDependencyIntent(`*** Update File: ${input.path}\n${edit.rename ? `*** Move to: ${edit.rename}\n` : ''}${edit.diff || ''}`)));
 }
 
 function classifyOmpAction(name, input, cwd) {
