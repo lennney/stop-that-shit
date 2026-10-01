@@ -10,6 +10,7 @@ const adapters = {
   pi: (path, content) => require('../src/adapters/pi-tool-classifier.cjs').analyzePiTool('write', { path, content })
 };
 const edits = {
+  omp: (path, oldText, newText) => require('../src/adapters/omp-tool-classifier.cjs').classifyOmpAction('edit', { path, old_string: oldText, new_string: newText }).dependencyIntent,
   claude: (path, oldText, newText) => require('../src/adapters/claude-tool-classifier.cjs').detectDependencyIntent('Edit', { file_path: path, old_string: oldText, new_string: newText }),
   opencode: (path, oldText, newText) => require('../src/adapters/opencode-tool-classifier.cjs').detectDependencyIntent('edit', { filePath: path, oldString: oldText, newString: newText }),
   hermes: (path, oldText, newText) => require('../src/adapters/hermes-tool-classifier.cjs').detectDependencyIntent('patch', { path, old_string: oldText, new_string: newText }),

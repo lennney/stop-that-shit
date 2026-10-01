@@ -98,6 +98,26 @@ Extension and `stop-that-shit` Skill are listed, then invoke
 `/skill:stop-that-shit review -- ...` or the host-neutral directive. Do not
 claim that the optional `subagent` child processes inherit the root contract.
 
+## Oh My Pi (unreleased candidate)
+
+Use OMP `18.4.4` for the checked baseline. STS `0.2.4` does not include this
+adapter. From a checkout or extracted candidate package, start OMP with its
+explicit Extension and Skills paths:
+
+```bash
+omp -e /absolute/path/to/stop-that-shit/omp/stop-that-shit.ts --skills /absolute/path/to/stop-that-shit/skills --sts-contract "review agents=0 -- inspect"
+```
+
+Review the source with the user before accepting extension trust. Do not use
+the Pi package entrypoint for OMP. Verify native review denial and permitted
+change in a disposable workspace. Use `/sts review -- ...`, `/sts change -- ...`,
+and `/sts status` for root control, including RPC. RPC/SDK model prompts do not
+emit OMP's `input` event; do not parse their body as authorization. Native CLI/RPC
+and child-executor effects were checked with a deterministic local provider.
+Interactive TUI checks also passed the tested control and task paths with a
+deterministic local provider. Git-source installation remains unverified.
+See [INSTALL.md](INSTALL.md#oh-my-pi-unreleased-candidate).
+
 ## Smoke test
 
 Use a disposable repository. Do not run the write test in the user's active

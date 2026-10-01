@@ -1,7 +1,7 @@
 # Host Adapter Contract
 
-Stop That Shit has five implemented host adapters: Codex, Claude Code,
-OpenCode, the Hermes Agent CLI native Plugin adapter, and Pi. Each adapter translates
+Stop That Shit has six implemented host adapters in this candidate: Codex,
+Claude Code, OpenCode, Hermes Agent CLI, Pi, and Oh My Pi. Each adapter translates
 host input into the same `ControlEvent v2` and reuses the same contract parser,
 controller, decisions, state, and runtime evidence.
 
@@ -460,6 +460,60 @@ surface.
 Pi operational adapter errors are caught so they retain the shared fail-open
 behavior. Only a shared policy denial returns Pi's `block`; `terminate` is
 omitted so the Agent can recover with an in-scope action.
+
+## Oh My Pi (unreleased candidate)
+
+The explicit entrypoint is `omp/stop-that-shit.ts`, checked against
+`@oh-my-pi/pi-coding-agent` `18.4.4`. It reuses the shared `ControlEvent v2`,
+controller, state, and decisions. The Pi package entrypoint remains separate.
+
+```text
+session_start          -> optional --sts-contract root directive
+input                  -> idle interactive root prompt.submit
+/sts native command    -> idle root prompt.submit without a model turn
+before_agent_start     -> contract or query context message
+tool_call              -> action.before -> { block: true, reason } on denial
+tool_result            -> action.after and watch context
+task:subagent:lifecycle -> call-qualified child identity and root linkage
+tool_approval_resolved -> not_started for a rejected, tracked task
+```
+
+OMP uses its session manager's ID and `toolCallId`. Invalid root directives
+return `handled: true` and a custom error message. Only idle root input from
+`interactive` or `rpc` can change authority when the host emits that event.
+OMP 18.4.4 emits `input` from its TUI controller, not its RPC/SDK prompt path.
+RPC uses the native `/sts` command; print/SDK startup uses `--sts-contract`.
+The adapter does not parse `before_agent_start.prompt` to infer authority.
+Extension input, child prompts,
+and launch flags on known children cannot grant a new root contract.
+
+The native `task` tool reserves one slot for a single task or `tasks.length`
+for a batch. A synchronous joined result or `completed`/`failed` lifecycle
+event releases confirmed capacity. Aborted or unknown work keeps its capacity.
+Child session files map to the root contract; call-qualified child IDs prevent
+late completions from releasing a later reservation. Native child-executor
+checks with a deterministic local provider observed inherited review denial,
+child prompts unable to grant authority, completed-slot reuse, and change writes.
+Malformed or unreadable saved links enter read-only recovery without replacing
+the file; the adapter passes recovery facts through the shared controller.
+Recovery checks and returned denials retain audit events and event IDs. The
+controller does not persist a replacement contract for the damaged link.
+
+Tool classification reuses Pi and shared shell/manifest analysis. It also
+handles OMP edit transports, rename destinations, `glob`, `web_search`,
+`ask`, `todo`, `yield`, and documented hub operations. Dependency checks use
+both source and destination manifest types for apply-patch moves, structured
+renames, and hashline `MV` edits. Structured entries share their final rename
+destination. Anchored (`sloppy`) edits retain the file target and compare Find
+text with Replace or Insert content for dependency checks; hash checks inspect
+the replacement or inserted body. These checks use supplied content; a rename
+with no content does not establish the destination's dependencies. Untracked `eval`,
+custom `subagent`, ambiguous hub revival, and native `write agent://…` messaging
+retain unproven lifecycle status. Agent mail can wake one or many parked agents;
+finite limits deny it. Process reads and `write proc://<id>/kill` are read/control
+operations. Other protocol writes remain unknown and expose no filesystem paths.
+The native loader, runner, and write tool were exercised without model calls.
+User shell escapes and arbitrary custom tool effects are outside this evidence.
 
 ## Shared shell classification
 

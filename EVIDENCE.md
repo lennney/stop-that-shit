@@ -16,6 +16,48 @@ Release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.4
 Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.3
 Last updated: 2026-10-01
 
+## Unreleased Oh My Pi candidate
+
+The isolated candidate is based on public main `749c921`. Its version field
+remains 0.2.4; it is not the published 0.2.4 release. The candidate passed
+522 source tests, with zero failures and three optional OpenCode checks skipped;
+22/22 paired-case arms; the 218-file release allowlist; the generated Hermes
+bundle check; and the whitespace check.
+
+Before the subsequent table-identity and edit-format fixes, a 57-file npm package
+was installed with lifecycle scripts disabled
+in an isolated Windows workspace. Oh My Pi 18.4.4 loaded the installed
+Extension and both Skills. Native CLI/RPC checks verified control commands,
+review denial with the file absent, continued reading, explicit change writes,
+child inheritance, rejection of child authority, task completion, capacity reuse
+with a new execution ID, and denial of reused IDs and untracked agent mail.
+Native Runner/ToolWrapper checks also rejected excess concurrent tasks.
+
+A real interactive TUI, with terminal stdin and stdout, passed status and mode
+commands, review denial, subsequent reading, explicit change writes, two native
+tasks with inherited authority, and rejection of a reused task ID. A direct
+first-line directive changed the contract; an invalid `/sts` command retained
+it without starting a model turn. This TUI run used the preceding packed
+snapshot; the reviewed follow-up changed manifest classification and docs.
+The later installed snapshot passed the CLI/RPC checks above.
+
+On 2026-10-01, the 57-file npm package from `ce548bc` was installed in a clean
+Windows workspace with lifecycle scripts disabled. The native OMP 18.4.4 loader,
+ExtensionToolWrapper, and EditTool passed 19 scenarios across replace, structured
+patch, apply-patch, hashline, and anchored (`sloppy`) edits. All 13 denied calls
+preserved file bytes and paths; all 19 allowed calls made the expected filesystem
+changes. Cases covered Cargo table names and quoted spelling, dependency removal,
+manifest promotion, moves, batch rename destinations, anchored insertion and
+replacement, quoted paths, continuation headers, file boundaries, and hash policy.
+The native runner reported no adapter errors. These checks exercised the installed
+package through native host components; they did not repeat the interactive TUI.
+
+The earlier CLI/RPC/TUI checks used deterministic local responses. The latest edit
+checks called native tools directly. No external model API calls were made.
+These results do not establish general model effectiveness. Git-source
+installation, arbitrary models, nested batch tasks, and completed-agent wakeup
+remain unverified. Codex Desktop evidence is recorded separately below.
+
 ## Unreleased shared control corrections
 
 Shared regression tests cover repeated execution IDs, ambiguous completion,
@@ -25,6 +67,15 @@ Manifest regressions also cover commented TOML headers, compact JSON, removal
 of the last dependency, and dependency-map fragments. Paired synthetic cases
 cover damaged-state recovery and repeated execution IDs. No installed-host
 claim follows from these component tests.
+
+A temporary integration of the `ce548bc` implementation and the independent
+`33c8374` dependency fix passed a clean install, validator regeneration, 522 source
+tests (zero failed, three optional OpenCode checks skipped), 22/22 paired-case
+arms, release and Hermes checks, and whitespace checks. Ajv resolved fast-uri
+3.1.8, npm audit reported zero vulnerabilities, and the generated validator had
+no content changes. The integration changed only package-lock.json relative to
+the OMP candidate. It was a local compatibility check, not a merged or released
+version.
 
 ## Unreleased Issue #66 scope correction
 

@@ -187,6 +187,22 @@ pi install /absolute/path/to/stop-that-shit
 
 </details>
 
+<details>
+<summary>Oh My Pi（未发布候选）</summary>
+
+已在 `@oh-my-pi/pi-coding-agent` `18.4.4` 验证独立 Extension。
+当前公开版 `0.2.4` 尚未包含 OMP；从包含该候选的本地 checkout 启动：
+
+```bash
+omp -e /absolute/path/to/stop-that-shit/omp/stop-that-shit.ts --skills /absolute/path/to/stop-that-shit/skills --sts-contract "review agents=0 -- inspect"
+```
+
+确认扩展加载后，发送 `/sts change -- ...` 切换模式，`/sts status` 查看合同。
+该原生命令也用于 RPC。TUI 还支持首行 `$stop-that-shit` 指令。
+详见 [INSTALL.md](INSTALL.md#oh-my-pi-unreleased-candidate)。
+
+</details>
+
 ## 使用
 
 在 Codex 或支持宿主无关指令的 prompt 中，把一条指令放在消息首个非空行，不要包在引用或代码块里。用 `--` 分隔任务正文：

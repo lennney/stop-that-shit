@@ -232,6 +232,24 @@ The pinned tag includes the Pi adapter and both Skills. See [INSTALL.md](INSTALL
 
 </details>
 
+<details>
+<summary>Oh My Pi (unreleased candidate)</summary>
+
+The separate Extension was checked with `@oh-my-pi/pi-coding-agent` `18.4.4`.
+Published version `0.2.4` does not include OMP. Start from a local checkout
+that contains this candidate:
+
+```bash
+omp -e /absolute/path/to/stop-that-shit/omp/stop-that-shit.ts --skills /absolute/path/to/stop-that-shit/skills --sts-contract "review agents=0 -- inspect"
+```
+
+Confirm that OMP loaded the Extension. Use `/sts change -- ...` to change mode
+or `/sts status` to inspect the contract. These native commands also work in
+RPC. The TUI also accepts first-line `$stop-that-shit` directives.
+See [INSTALL.md](INSTALL.md#oh-my-pi-unreleased-candidate).
+
+</details>
+
 ## Use it
 
 In Codex or a host-neutral prompt, start the first non-empty line with one
