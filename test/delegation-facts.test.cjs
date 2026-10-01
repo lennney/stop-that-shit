@@ -39,6 +39,22 @@ function session(t) {
     before: (id, extra = {}) => send('action.before', { action: { id, name: 'Agent', mutability: 'delegate', ...extra } }),
     after: (id, lifecycle, extra = {}) => send('action.after', { action: { id, lifecycle, ...extra } }) };
 }
+
+for (const level of ['watch', 'off']) {
+  test(`reused execution ids permitted under ${level} retain uncertainty after ambiguous completion`, t => {
+    const s = session(t);
+    s.prompt(`${level} agents=1`);
+    s.before('reused');
+    s.after('reused', 'joined');
+    assert.notEqual(s.before('reused').kind, 'deny');
+    s.after('reused', 'joined');
+    s.prompt('guard agents=1');
+    assert.equal(s.before('fresh').decision.reasonCode, 'DELEGATION_STATE_UNPROVEN');
+    assert.equal(s.send('action.before', { action: { name: 'Read', mutability: 'read' } }).kind, 'none');
+    s.send('session.end', { allDelegationsStopped: true });
+    assert.equal(s.before('fresh').kind, 'none');
+  });
+}
 test('unbounded calls keep separate uncertainty until each whole call joins', t => {
   const s = session(t);
   s.prompt('watch agents=2');
@@ -71,6 +87,21 @@ test('Claude auto denial restores capacity while a failed running tool keeps it 
   assert.equal(hook('PreToolUse', 'C').hookSpecificOutput.permissionDecision, 'deny');
   hook('PostToolUse', 'B', { tool_response: { status: 'completed', agentId: 'child-B' } });
   assert.equal(hook('PreToolUse', 'D'), null);
+});
+
+test('a denial for a repeated id cannot release the original pending execution', t => {
+  const s = session(t);
+  s.prompt('guard agents=1');
+  assert.equal(s.before('A').kind, 'none');
+  assert.equal(s.before('A').decision.reasonCode, 'DUPLICATE_ACTION_ID');
+  s.after('A', 'not_started');
+  assert.equal(s.before('B').decision.reasonCode, 'AGENT_BUDGET_EXHAUSTED');
+  // The original whole-call completion still provides usable evidence.
+  s.after('A', 'joined');
+  assert.equal(s.before('B').kind, 'none');
+  // A denial without a repeated execution id still releases an unstarted call.
+  s.after('B', 'not_started');
+  assert.equal(s.before('C').kind, 'none');
 });
 test('Hermes dispatch aliases correlate late start and only confirmed stop releases capacity', t => {
   const { handleHermesHook } = require('../src/adapters/hermes-hooks.cjs');

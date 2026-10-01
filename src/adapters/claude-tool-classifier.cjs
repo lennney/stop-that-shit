@@ -1,5 +1,7 @@
 'use strict';
 
+const { manifestEditDependencyIntent, manifestDependencyIntent } = require('../manifest-dependencies.cjs');
+
 const nodePath = require('node:path');
 const {
   analyzeCodexTool,
@@ -46,8 +48,6 @@ const CLAUDE_CONTROL_TOOLS = new Set([
   'WaitForMcpServers'
 ]);
 
-const MANIFEST_PATH = /(?:^|\/)(?:package\.json|pyproject\.toml|requirements[^/]*\.txt|Cargo\.toml|go\.mod|composer\.json|Gemfile)$/i;
-const DEPENDENCY_DECLARATION = /["']?(?:dependencies|devDependencies|optionalDependencies|peerDependencies)["']?\s*[:=]|(?:^|\n)\s*[^#\s][^\r\n]*(?:==|>=|~=|\^\d)/i;
 const HASH_API = /\b(?:createHash|createHmac)\s*\(|\bcrypto\.subtle\.digest\s*\(|\bhashlib\.(?:md5|sha1|sha224|sha256|sha384|sha512|blake2[bs])\s*\(|\bMessageDigest\.getInstance\s*\(|\bDigestUtils\.[A-Za-z0-9_]+\s*\(|\bsha(?:1|256|512)\.(?:New|Sum\w*)\s*\(|\b(?:bcrypt|argon2)\.hash\s*\(|\bpassword_hash\s*\(|\bPasswordHasher\s*\(/i;
 
 function isWindowsAbsolute(value) {
@@ -147,12 +147,9 @@ function detectDependencyIntent(toolName, toolInput, cwd) {
   if (name !== 'Write' && name !== 'Edit') return false;
 
   const filePath = normalizePath(toolInput && (toolInput.file_path || toolInput.path), cwd);
-  if (!MANIFEST_PATH.test(filePath)) return false;
-
-  if (name === 'Write') {
-    return DEPENDENCY_DECLARATION.test(String(toolInput && toolInput.content || ''));
-  }
-  return DEPENDENCY_DECLARATION.test(String(toolInput && toolInput.new_string || ''));
+  return name === 'Write'
+    ? manifestDependencyIntent(filePath, toolInput && toolInput.content)
+    : manifestEditDependencyIntent(filePath, toolInput && toolInput.old_string, toolInput && toolInput.new_string);
 }
 
 function analyzeClaudeTool(toolName, toolInput, cwd) {

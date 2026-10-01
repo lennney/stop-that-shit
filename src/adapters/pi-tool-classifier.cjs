@@ -1,5 +1,7 @@
 'use strict';
 
+const { manifestDependencyIntent, manifestEditDependencyIntent } = require('../manifest-dependencies.cjs');
+
 const {
   analyzeShell,
   detectDependencyIntent: detectCodexDependencyIntent,
@@ -7,7 +9,6 @@ const {
   classifyShell
 } = require('./codex-tool-classifier.cjs');
 const {
-  detectDependencyIntent: detectOpenCodeDependencyIntent,
   detectHashIntent: detectOpenCodeHashIntent,
   normalizePath
 } = require('./opencode-tool-classifier.cjs');
@@ -65,17 +66,10 @@ function detectDependencyIntent(toolName, toolInput) {
   if (name === 'bash' || name === 'powershell') {
     return detectCodexDependencyIntent('Bash', { command: input.command });
   }
-  if (name === 'write') {
-    return detectOpenCodeDependencyIntent('write', {
-      filePath: input.path,
-      content: input.content
-    });
-  }
+  if (name === 'write') return manifestDependencyIntent(input.path, input.content);
   if (name === 'edit') {
-    return detectOpenCodeDependencyIntent('edit', {
-      filePath: input.path,
-      newString: editAddedText(input)
-    });
+    const edits = Array.isArray(input.edits) ? input.edits : [input];
+    return edits.some(edit => edit && manifestEditDependencyIntent(input.path, edit.oldText, edit.newText));
   }
   return false;
 }

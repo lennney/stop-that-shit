@@ -18,6 +18,52 @@ function dataDir(t) {
   return directory;
 }
 
+test('status exposes effective constraints and denials explain the conflicting facts without leaking them to audit', t => {
+  const directory = dataDir(t);
+  const call = (kind, fields) => handleControlEvent({ protocolVersion: PROTOCOL_VERSION, sessionId: 'diagnosis', kind, ...fields }, { dataDir: directory });
+  call('prompt.submit', { prompt: '$stop-that-shit change agents=1 files=src/** deps=deny hash=deny' });
+  const status = call('prompt.submit', { prompt: '$stop-that-shit status' });
+  for (const value of ['files=src/**', 'agents=0/1', 'deps=deny', 'hash=deny']) assert.ok(status.text.includes(value), value);
+  const denied = call('action.before', { action: { id: 'outside', name: 'write', mutability: 'write', affectedPaths: ['other/secret.txt'] } });
+  assert.match(denied.message, /other\/secret.txt/);
+  assert.doesNotMatch(JSON.stringify(readRuntime({}, { dataDir: directory })), /other\/secret.txt/);
+  const allowed = call('action.before', { action: { id: 'inside', name: 'write', mutability: 'write', affectedPaths: ['src/a.txt'] } });
+  assert.equal(allowed.kind, 'none');
+});
+
+test('damaged control state retains its evidence and offers read-only recovery instead of fresh authority', t => {
+  const directory = dataDir(t);
+  const { statePath } = require('../src/state.cjs');
+  const call = (kind, fields) => handleControlEvent({ protocolVersion: PROTOCOL_VERSION, sessionId: 'damaged', kind, ...fields }, { dataDir: directory });
+  call('prompt.submit', { prompt: '$stop-that-shit change agents=1' });
+  const file = statePath('damaged', directory);
+  fs.writeFileSync(file, '{partial');
+  assert.match(call('prompt.submit', { prompt: '$stop-that-shit status' }).text, /STATE_DAMAGED/);
+  assert.equal(call('action.before', { action: { id: 'read', name: 'read', mutability: 'read' } }).kind, 'none');
+  const blocked = call('action.before', { action: { id: 'write', name: 'write', mutability: 'write' } });
+  assert.match(blocked.message, /STATE_DAMAGED/);
+  call('prompt.submit', { prompt: '$stop-that-shit change' });
+  assert.equal(fs.readFileSync(file, 'utf8'), '{partial');
+  const fresh = handleControlEvent({ protocolVersion: PROTOCOL_VERSION, kind: 'prompt.submit', sessionId: 'new-session', prompt: '$stop-that-shit change' }, { dataDir: directory });
+  assert.match(fresh.text, /mode=change/);
+});
+
+test('invalid saved contract fields enter recovery without replacing the original file', t => {
+  const directory = dataDir(t);
+  const { freshState, statePath } = require('../src/state.cjs');
+  for (const [field, value] of [['mode', 42], ['level', 'invalid'], ['agentBudget', -1], ['hashPolicy', []], ['dependencyPolicy', 'maybe'], ['allowedPaths', 'src/**']]) {
+    const state = freshState();
+    state.contract[field] = value;
+    const file = statePath(field, directory);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const raw = JSON.stringify(state);
+    fs.writeFileSync(file, raw);
+    const result = handleControlEvent({ protocolVersion: PROTOCOL_VERSION, kind: 'action.before', sessionId: field, action: { id: 'write', name: 'write', mutability: 'write' } }, { dataDir: directory });
+    assert.match(result.message, /STATE_DAMAGED/, field);
+    assert.equal(fs.readFileSync(file, 'utf8'), raw);
+  }
+});
+
 test('shell analysis reasons accept only optional fixed string codes', () => {
   const event = {
     protocolVersion: PROTOCOL_VERSION, kind: 'action.before', sessionId: 'reason-session',
@@ -508,7 +554,7 @@ test('subagent start requires an explicit reservation and does not use FIFO pair
   assert.deepEqual(unchanged.delegation.reservations['reservation:call-b'].agentIds, ['agent-b']);
 });
 
-test('replayed action ids do not reserve twice and conflicting counts are denied', (t) => {
+test('each delegation execution needs a fresh id while duplicate completion remains harmless', (t) => {
   const directory = dataDir(t);
   const base = { protocolVersion: PROTOCOL_VERSION, lifecycleVersion: 2, sessionId: 'replay-session' };
   handleControlEvent({ ...base, kind: 'prompt.submit', prompt: '$stop-that-shit change agents=2 -- delegate' }, { dataDir: directory });
@@ -518,15 +564,20 @@ test('replayed action ids do not reserve twice and conflicting counts are denied
     action: { id: 'replayed-call', name: 'delegate_task', mutability: 'delegate', delegationCount: 1, asyncLaunched: false }
   }, { dataDir: directory });
   assert.equal(first.kind, 'none');
-  handleControlEvent({ ...base, kind: 'action.after', action: { id: 'replayed-call', completed: true } }, { dataDir: directory });
-
-  const replay = handleControlEvent({
+  const replay = () => handleControlEvent({
     ...base,
     kind: 'action.before',
     action: { id: 'replayed-call', name: 'delegate_task', mutability: 'delegate', delegationCount: 1, asyncLaunched: false }
   }, { dataDir: directory });
-  assert.equal(replay.kind, 'none');
+  assert.equal(replay().decision.reasonCode, 'DUPLICATE_ACTION_ID');
+  handleControlEvent({ ...base, kind: 'action.after', action: { id: 'replayed-call', completed: true } }, { dataDir: directory });
+  assert.equal(replay().decision.reasonCode, 'DUPLICATE_ACTION_ID');
   assert.equal(readState('replay-session', directory).delegation.acceptedActions['replayed-call'], 1);
+  const launch = id => handleControlEvent({ ...base, kind: 'action.before',
+    action: { id, name: 'delegate_task', mutability: 'delegate', delegationCount: 2 } }, { dataDir: directory });
+  assert.equal(launch('fresh-call').kind, 'none');
+  handleControlEvent({ ...base, kind: 'action.after', action: { id: 'replayed-call', completed: true } }, { dataDir: directory });
+  assert.equal(launch('over-budget').decision.reasonCode, 'AGENT_BUDGET_EXHAUSTED');
 
   const conflict = handleControlEvent({
     ...base,
@@ -534,6 +585,40 @@ test('replayed action ids do not reserve twice and conflicting counts are denied
     action: { id: 'replayed-call', name: 'delegate_task', mutability: 'delegate', delegationCount: 2, asyncLaunched: false }
   }, { dataDir: directory });
   assert.equal(conflict.decision.reasonCode, 'DUPLICATE_ACTION_ID');
+});
+
+test('invalid current delegation state preserves the file and permits recovery reads only', t => {
+  const directory = dataDir(t);
+  const { statePath } = require('../src/state.cjs');
+  const base = { protocolVersion: PROTOCOL_VERSION, lifecycleVersion: 2, sessionId: 'ledger-damage' };
+  const call = (kind, fields) => handleControlEvent({ ...base, kind, ...fields }, { dataDir: directory });
+  call('prompt.submit', { prompt: '$stop-that-shit change agents=1' });
+  call('action.before', { action: { id: 'active', name: 'task', mutability: 'delegate' } });
+  const file = statePath(base.sessionId, directory);
+  const valid = fs.readFileSync(file, 'utf8');
+  const corruptions = [
+    state => { state.schemaVersion = '4'; },
+    state => { state.schemaVersion = 5; },
+    state => { delete state.delegation; },
+    state => { state.delegation.reservations = []; },
+    state => { state.delegation.reservations['reservation:active'].pendingCount = '1'; },
+    state => { delete state.delegation.reservations['reservation:active'].agentIds; },
+    state => { state.delegation.acceptedActions.active = null; },
+    state => { state.delegation.unresolved = { active: 42 }; }
+  ];
+  for (const corrupt of corruptions) {
+    const state = JSON.parse(valid); corrupt(state);
+    const raw = JSON.stringify(state); fs.writeFileSync(file, raw);
+    assert.equal(call('action.before', { action: { name: 'read', mutability: 'read' } }).kind, 'none');
+    const blocked = call('action.before', { action: { id: 'next', name: 'task', mutability: 'delegate' } });
+    assert.equal(blocked.decision.reasonCode, 'STATE_DAMAGED');
+    call('prompt.submit', { prompt: '$stop-that-shit change agents=2' });
+    assert.equal(fs.readFileSync(file, 'utf8'), raw);
+  }
+  fs.writeFileSync(file, valid);
+  assert.equal(call('action.before', { action: { id: 'next', name: 'task', mutability: 'delegate' } }).decision.reasonCode, 'AGENT_BUDGET_EXHAUSTED');
+  call('action.after', { action: { id: 'active', lifecycle: 'joined' } });
+  assert.equal(call('action.before', { action: { id: 'next', name: 'task', mutability: 'delegate' } }).kind, 'none');
 });
 
 test('formal agents directive clears an earlier split-directive error', (t) => {

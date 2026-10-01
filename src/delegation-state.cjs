@@ -159,13 +159,11 @@ function reservationForAction(state, actionId) {
 // Callers consume this summary; reservation layout and deduplication stay here.
 function inspectDelegation(state, intent = {}) {
   const acceptedCount = acceptedActionCount(state, intent.id);
-  const count = intent.delegationCount ?? 0;
   return {
     reservedUpperBound: activeDelegationCount(state),
     unresolvedReasons: [...new Set(Object.values(state && state.unresolved || {}))],
     unknownResults: Object.values(reservationsOf(state)).filter(value => value.resultUnknown).length,
-    alreadyReserved: acceptedCount !== null && acceptedCount === count,
-    duplicateActionConflict: acceptedCount !== null && acceptedCount !== count
+    duplicateActionId: acceptedCount !== null
   };
 }
 
@@ -185,7 +183,11 @@ function applyDelegationFact(state, fact) {
   const actionId = fact.id;
   const reservationId = reservationForAction(state, actionId);
   if (fact.kind === 'accepted') {
-    if (acceptedActionCount(state, actionId) !== null) return state;
+    // Watch/off may permit another execution with the same host identity.
+    // Its terminal events cannot distinguish the executions from each other.
+    if (acceptedActionCount(state, actionId) !== null) return {
+      ...state, unresolved: { ...state.unresolved, [actionId]: 'reused_action_id' }
+    };
     const id = `reservation:${actionId}`;
     let next = reserveDelegation(state, id, actionId, fact.count);
     next = { ...next, reservations: { ...next.reservations,
@@ -193,11 +195,18 @@ function applyDelegationFact(state, fact) {
     if (fact.uncertainty) next = { ...next, unresolved: { ...next.unresolved, [actionId]: fact.uncertainty } };
     return next;
   }
+  if (fact.kind === 'duplicate_rejected') {
+    if (!reservationId) return state;
+    return { ...state, reservations: { ...state.reservations,
+      [reservationId]: { ...state.reservations[reservationId], notStartedAmbiguous: true } } };
+  }
   if (fact.kind === 'joined' || fact.kind === 'not_started') {
+    if (state.unresolved?.[actionId] === 'reused_action_id') return state;
     if (!reservationId && !Object.prototype.hasOwnProperty.call(state.unresolved || {}, actionId)) return state;
     // A late denial cannot contradict an already observed execution.
     const reservation = reservationsOf(state)[reservationId];
-    if (fact.kind === 'not_started' && reservation && (reservation.observedRunning || reservation.agentIds.length)) return state;
+    if (fact.kind === 'not_started' && reservation
+        && (reservation.notStartedAmbiguous || reservation.observedRunning || reservation.agentIds.length)) return state;
     const unresolved = { ...state.unresolved };
     delete unresolved[actionId];
     return { ...releaseReservation(state, reservationId), unresolved };

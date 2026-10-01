@@ -116,8 +116,17 @@ function readRuntime(query = {}, options = {}) {
   let damagedRecords = 0;
   for (const file of eventFiles(query, options)) {
     const parsed = readJsonl(file);
-    events.push(...parsed.records);
-    damagedRecords += parsed.damaged;
+    const valid = parsed.records.filter(event => event && event.schemaVersion === 1
+      && typeof event.eventId === 'string' && /^evt_[0-9a-f-]+$/i.test(event.eventId)
+      && typeof event.occurredAt === 'string' && Number.isFinite(Date.parse(event.occurredAt))
+      && ['off', 'observing', 'armed'].includes(event.controlState)
+      && event.action && typeof event.action.toolName === 'string' && typeof event.action.mutability === 'string'
+      && event.contract && typeof event.contract.mode === 'string'
+      && event.decision && typeof event.decision.policyOutcome === 'string'
+      && typeof event.decision.reasonCode === 'string' && /^[A-Z][A-Z_0-9]*$/.test(event.decision.reasonCode)
+      && typeof event.decision.responseOutcome === 'string');
+    events.push(...valid);
+    damagedRecords += parsed.damaged + parsed.records.length - valid.length;
   }
   // V8's stable sort preserves append order for equal timestamps within a log.
   events.sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));

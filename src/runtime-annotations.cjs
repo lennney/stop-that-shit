@@ -33,7 +33,12 @@ function recordAnnotation(eventId, label, options = {}) {
 }
 
 function readAnnotations(options = {}) {
-  return readJsonl(annotationsPath(options));
+  const parsed = readJsonl(annotationsPath(options));
+  const records = parsed.records.filter(record => record && record.schemaVersion === 1
+    && typeof record.eventId === 'string' && /^evt_[0-9a-f-]+$/i.test(record.eventId)
+    && typeof record.occurredAt === 'string' && Number.isFinite(Date.parse(record.occurredAt))
+    && LABELS.has(record.label));
+  return { records, damaged: parsed.damaged + parsed.records.length - records.length };
 }
 
 module.exports = { LABELS, readAnnotations, recordAnnotation };
