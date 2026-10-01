@@ -6,7 +6,41 @@ const codex = require('./codex-tool-classifier.cjs');
 const { manifestDependencyIntent, manifestEditDependencyIntent, patchDependencyIntent } = require('../manifest-dependencies.cjs');
 const HUB_READ = new Set(['wait', 'inbox', 'list', 'jobs', 'ps', 'logs', 'describe']);
 
-function editDependencyIntent(input) {
+function anchoredEdits(text) {
+  if (!/^\*\*\* Edit File:/m.test(text)) return null;
+  const edits = [];
+  let path = '', phase = '', action = '', before = [], body = [];
+  const flush = () => {
+    if (!path || !action) return;
+    const oldText = before.join('\n');
+    const addedText = body.join('\n');
+    const newText = action === 'Replace' ? addedText
+      : action === 'Insert Before' ? `${addedText}\n${oldText}` : `${oldText}\n${addedText}`;
+    edits.push({ path, oldText, newText, addedText });
+  };
+  for (const line of text.split(/\r?\n/)) {
+    const file = /^\*\*\* Edit File:\s*(.*?)\s*$/.exec(line);
+    if (file || line === '*** Find') {
+      flush();
+      before = []; body = []; action = ''; phase = file ? '' : 'find';
+      if (file) {
+        const target = file[1].replace(/(?:^|\s+)all$/, '').trim();
+        if (target) {
+          try { path = target.startsWith('"') ? JSON.parse(target) : target; }
+          catch { path = target; }
+        }
+      }
+    } else if (/^\*\*\* (?:Replace|Insert Before|Insert After)$/.test(line)) {
+      action = line.slice(4); phase = 'body';
+    } else if (phase === 'find') before.push(line);
+    else if (phase === 'body') body.push(line);
+  }
+  flush();
+  return edits;
+}
+
+function editDependencyIntent(input, anchored) {
+  if (anchored) return anchored.some(edit => manifestEditDependencyIntent(edit.path, edit.oldText, edit.newText));
   if (typeof input.input === 'string') {
     return patchDependencyIntent(input.input
       .replace(/^\[(.+)#[0-9a-fA-F]{4}\]\r?$/gm, '*** Update File: $1')
@@ -15,11 +49,13 @@ function editDependencyIntent(input) {
   if (!Array.isArray(input.edits)) {
     return manifestEditDependencyIntent(input.path, input.old_string, input.new_string);
   }
+  // OMP stages all entries for one file, then writes its final destination.
+  const target = input.edits.reduce((file, edit) => edit?.rename || file, input.path);
   return input.edits.some(edit => edit && (edit.op === 'create'
-    ? manifestDependencyIntent(input.path, edit.diff)
+    ? manifestDependencyIntent(target, edit.diff)
     : typeof edit.new_string === 'string'
-      ? manifestEditDependencyIntent(input.path, edit.old_string, edit.new_string)
-      : patchDependencyIntent(`*** Update File: ${input.path}\n${edit.rename ? `*** Move to: ${edit.rename}\n` : ''}${edit.diff || ''}`)));
+      ? manifestEditDependencyIntent(target, edit.old_string, edit.new_string, input.path)
+      : patchDependencyIntent(`*** Update File: ${input.path}\n${target !== input.path ? `*** Move to: ${target}\n` : ''}${edit.diff || ''}`)));
 }
 
 function classifyOmpAction(name, input, cwd) {
@@ -50,6 +86,7 @@ function classifyOmpAction(name, input, cwd) {
   const delegationLifecycleUnproven = ['eval', 'subagent'].includes(name)
     || (name === 'hub' && input.op === 'send' && !input.name?.trim());
   let params = input;
+  const anchored = name === 'edit' && typeof input.input === 'string' ? anchoredEdits(input.input) : null;
   let affectedPaths = pi.extractAffectedPaths(name, input, cwd);
   if (name === 'edit') {
     const edits = Array.isArray(input.edits) ? input.edits : [];
@@ -66,6 +103,7 @@ function classifyOmpAction(name, input, cwd) {
       }
       params = { newText: input.input.split(/\r?\n/).filter(line => line.startsWith('+')).join('\n') };
     }
+    if (anchored) affectedPaths = anchored.map(edit => normalizePath(edit.path, cwd));
   }
   return {
     mutability, affectedPaths: [...new Set(affectedPaths)],
@@ -73,9 +111,11 @@ function classifyOmpAction(name, input, cwd) {
     unboundedDelegation: task && !validTask,
     delegationLifecycleUnproven,
     dependencyIntent: name === 'edit'
-      ? editDependencyIntent(input)
+      ? editDependencyIntent(input, anchored)
       : pi.detectDependencyIntent(name, params),
-    hashIntent: name === 'edit'
+    hashIntent: anchored
+      ? anchored.some(edit => pi.detectHashIntent('edit', { path: edit.path, newText: edit.addedText }))
+      : name === 'edit'
       ? affectedPaths.some(target => pi.detectHashIntent('edit', { ...params, path: target }))
       : pi.detectHashIntent(name, params)
   };

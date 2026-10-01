@@ -503,7 +503,10 @@ Tool classification reuses Pi and shared shell/manifest analysis. It also
 handles OMP edit transports, rename destinations, `glob`, `web_search`,
 `ask`, `todo`, `yield`, and documented hub operations. Dependency checks use
 both source and destination manifest types for apply-patch moves, structured
-renames, and hashline `MV` edits. These checks use supplied content; a rename
+renames, and hashline `MV` edits. Structured entries share their final rename
+destination. Anchored (`sloppy`) edits retain the file target and compare Find
+text with Replace or Insert content for dependency checks; hash checks inspect
+the replacement or inserted body. These checks use supplied content; a rename
 with no content does not establish the destination's dependencies. Untracked `eval`,
 custom `subagent`, ambiguous hub revival, and native `write agent://…` messaging
 retain unproven lifecycle status. Agent mail can wake one or many parked agents;

@@ -55,6 +55,43 @@ test('OMP manifest edits distinguish dependency additions from removals', t => {
   assert.equal(call('patch', { input: '*** Begin Patch\n[requirements.txt#abcd]\nPUT >$:\n+requests==2.32.0\n*** End Patch' }).kind, 'deny');
 });
 
+test('OMP structured edits share the final rename destination across entries', t => {
+  const { context, options } = setup(t, '$stop-that-shit change deps=deny -- edit manifests');
+  const call = (id, source, target, renameFirst) => {
+    const rename = { op: 'update', rename: target, diff: '@@\n {}' };
+    const addition = { op: 'update', diff: '@@\n-{}\n+{"dependencies":{"demo":"1"}}' };
+    return handleOmpTool(tool(id, 'edit', { path: source, edits: renameFirst ? [rename, addition] : [addition, rename] }), context, options);
+  };
+  assert.equal(call('before', 'manifest.txt', 'package.json', true).decision?.reasonCode, 'DEPENDENCY_NOT_AUTHORIZED');
+  assert.equal(call('after', 'manifest.txt', 'package.json', false).decision?.reasonCode, 'DEPENDENCY_NOT_AUTHORIZED');
+  assert.equal(call('out', 'package.json', 'manifest.txt', true).kind, 'none');
+});
+
+test('OMP anchored edits enforce file, dependency, and hash authority', t => {
+  const { context, options } = setup(t, '$stop-that-shit change deps=deny hash=deny -- edit source');
+  const edit = (id, input) => handleOmpTool(tool(id, 'edit', { input }), context, options);
+  const replace = (file, oldText, newText) => `*** Edit File: ${file}\n*** Find\n${oldText}\n*** Replace\n${newText}`;
+  assert.equal(edit('unbounded-dependency', replace('requirements.txt', 'requests', 'urllib3')).decision?.reasonCode, 'DEPENDENCY_NOT_AUTHORIZED');
+  assert.equal(edit('unbounded-hash', replace('a.js', 'return value;', 'return crypto.createHash("sha256");')).decision?.reasonCode, 'HASH_NOT_AUTHORIZED');
+  handleOmpPrompt({ text: '$stop-that-shit change files=src/** deps=deny hash=deny -- edit source' }, context, options);
+  assert.equal(edit('outside', replace('outside.js', 'old', 'next')).decision?.reasonCode, 'PATH_OUTSIDE_CONTRACT');
+  assert.equal(edit('inside', replace('"src/file with spaces.js" all', 'old', 'next')).kind, 'none');
+  assert.equal(edit('hash', replace('src/a.js', 'return value;', 'return crypto.createHash("sha256");')).decision?.reasonCode, 'HASH_NOT_AUTHORIZED');
+  assert.equal(edit('remove-hash', replace('src/a.js', 'return crypto.createHash("sha256");', 'return value;')).kind, 'none');
+  for (const action of ['Insert Before', 'Insert After']) {
+    assert.equal(edit(action, `*** Edit File: src/requirements.txt\n*** Find\nrequests\n*** ${action}\nurllib3`).decision?.reasonCode, 'DEPENDENCY_NOT_AUTHORIZED');
+    assert.equal(edit(`${action}-comment`, `*** Edit File: src/requirements.txt\n*** Find\nrequests\n*** ${action}\n# note`).kind, 'none');
+  }
+  assert.equal(edit('remove-dependency', replace('src/requirements.txt', 'requests', '')).kind, 'none');
+  const continuation = `${replace('src/requirements.txt', 'requests', '')}\n*** Edit File:\n*** Find\n# note\n*** Replace\nurllib3`;
+  assert.equal(edit('continued', continuation.replace(/\n/g, '\r\n')).decision?.reasonCode, 'DEPENDENCY_NOT_AUTHORIZED');
+  const multi = `${replace('src/a.js', 'old', 'next')}\n${replace('outside.js', 'old', 'next')}`;
+  assert.equal(edit('multi', multi).decision?.reasonCode, 'PATH_OUTSIDE_CONTRACT');
+  handleOmpPrompt({ text: '$stop-that-shit change files=src/** deps=allow hash=allow -- authorize changes' }, context, options);
+  assert.equal(edit('authorized', replace('src/requirements.txt', 'requests', 'urllib3')).kind, 'none');
+  assert.equal(edit('authorized-hash', replace('src/a.js', 'return value;', 'return crypto.createHash("sha256");')).kind, 'none');
+});
+
 test('OMP review allows reading and glob searches but blocks writes before execution', t => {
   const { context, options } = setup(t);
   for (const name of ['read', 'glob']) {
