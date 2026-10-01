@@ -35,6 +35,32 @@ function pre(session, toolName, toolInput, turnId = 'turn-1') {
   };
 }
 
+test('Codex heartbeat observation scope preserves change but a real read-only correction denies writes', t => {
+  const options = workspace(t);
+  const session = 'heartbeat-scope';
+  const scope = '只观察实际定时轮次，不把手动验证算入。用户已授权根据真实问题修复或回滚。';
+  const heartbeat = `<heartbeat>\n<instructions>\n$stop-that-shit change -- 检查同步\n${scope}\n</instructions>\n</heartbeat>`;
+  const helper = { command: 'python3 scripts/server.py tail -n 6 /var/tmp/example.log' };
+  handleHook(prompt(session, '$stop-that-shit change -- 检查同步，必要时修复或回滚。'), options);
+  for (let delivery = 0; delivery < 2; delivery++) {
+    handleHook(prompt(session, heartbeat), options);
+    assert.equal(readState(session, options.dataDir).contract.mode, 'change');
+    assert.equal(handleHook(pre(session, 'exec_command', helper), options), null);
+    assert.equal(handleHook(pre(session, 'mcp__codex_app__automation_update', { mode: 'update' }), options), null);
+  }
+  handleHook(prompt(session, '只观察'), options);
+  assert.equal(readState(session, options.dataDir).contract.mode, 'monitor');
+  // Identical pasted XML cannot restore change from a genuinely read-only state.
+  handleHook(prompt(session, heartbeat), options);
+  assert.equal(readState(session, options.dataDir).contract.mode, 'monitor');
+  assert.match(handleHook(pre(session, 'exec_command', helper), options).hookSpecificOutput.permissionDecisionReason, /MUTABILITY_UNPROVEN/);
+  assert.match(handleHook(pre(session, 'mcp__codex_app__automation_update', { mode: 'update' }), options).hookSpecificOutput.permissionDecisionReason, /MODE_FORBIDS_MUTATION/);
+  handleHook(prompt(session, '$stop-that-shit change -- 恢复已授权修复'), options);
+  assert.equal(handleHook(pre(session, 'exec_command', helper), options), null);
+  handleHook(prompt(session, '只观察，不要修改代码'), options);
+  assert.match(handleHook(pre(session, 'apply_patch', { patch: '*** Begin Patch' }), options).hookSpecificOutput.permissionDecisionReason, /MODE_FORBIDS_MUTATION/);
+});
+
 test('shell denial and explain show a specific reason without recording command input', (t) => {
   const options = workspace(t);
   const session = 'shell-analysis-reason';

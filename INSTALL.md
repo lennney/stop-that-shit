@@ -108,6 +108,13 @@ Natural-language mode corrections also skip code examples, explicit Markdown
 quote lines, and quoted text. For example, adding a `review only` example to
 README does not switch an active edit task to review.
 
+Chinese observation objects such as `只观察实际定时轮次` preserve the existing
+contract. Standalone `只观察` still selects monitor; `只观察，不要修改代码`
+selects review. Heartbeat XML does not establish a trusted directive source.
+To restore an authorized change, send `$stop-that-shit change -- ...` as a
+direct message with the directive on the first non-empty line. Use the host
+plugin manager directly to disable or uninstall the plugin when needed.
+
 Codex and Claude return a prompt-block response for an invalid directive.
 Pi handles the input without starting a model turn. OpenCode and Hermes add
 error context and pause tool calls until a corrected instruction clears the

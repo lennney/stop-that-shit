@@ -16,6 +16,28 @@ Release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.4
 Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.3
 Last updated: 2026-09-28
 
+## Unreleased Issue #66 scope correction
+
+Parser and Hook regression tests cover Chinese observation objects, standalone
+read-only instructions, repeated heartbeat text, embedded directives, and direct
+user recovery. This is a scope-parsing correction.
+
+On 2026-10-01, native project Hooks in Windows Codex Desktop invoked the
+candidate implementation through the Desktop-bundled 0.159.2 engine. Two actual
+scheduled heartbeats preserved change/guard and created their expected synthetic
+files. A user instruction submitted through the native input field changed the
+contract to review/guard. A subsequent apply_patch was denied with
+MODE_FORBIDS_MUTATION, and the target file remained absent. A new first-line
+change directive restored the contract, and the recovery write succeeded.
+
+This verifies the tested Windows path through native project Hooks, rather than
+a new published plugin version. The original macOS environment remains untested.
+The observed Hook payload had no independent trusted automation identity; these
+checks do not establish source authentication or authorize embedded directives.
+Cross-chat tool messages did not emit UserPromptSubmit in this test, so the
+mode changes used the native input field. These results cover scope parsing
+and the tested Windows recovery path.
+
 ## 0.2.4 OpenCode V1/V2 adapter — 2026-09-28
 
 This candidate builds on 0.2.3; the published 0.2.3 release does

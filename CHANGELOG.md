@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased / 未发布
+
+- 修复 #66：中文“只观察实际定时轮次”等对象范围描述保留既有 change 权限；
+  独立只读指令仍生效，嵌入 heartbeat 的指令不授予权限。
+  / Preserve existing change authority for Chinese observation objects.
+  Standalone read-only instructions still apply; embedded heartbeat directives
+  do not grant authority.
+
 ## 0.2.4 — 2026-09-28 (OpenCode V1/V2 compatibility / 双版本兼容)
 
 本版为同一个插件包增加 OpenCode V2 支持，并保留 V1 入口。

@@ -727,7 +727,10 @@ function naturalCorrection(prompt, previous) {
   if (/\banswer only\b|只回答/i.test(text)) {
     return { mode: 'answer', source: 'natural-explicit' };
   }
-  if (/\bmonitor only\b|只监控|只观察/i.test(text)) {
+  // A standalone observation instruction changes authority. An object such as
+  // "只观察实际定时轮次" limits what to inspect, not what the task may change.
+  if (/\bmonitor only\b/i.test(text)
+      || /(?:^|[\n，,。.!！；;：:])[ \t]*(?:(?:请|继续|这次|本次|现在|接下来|先)[ \t]*)*只(?:监控|观察)(?:[ \t]*(?:即可|就好|就行|一下))?[ \t]*(?=$|[\n，,。.!！；;])/u.test(text)) {
     return { mode: 'monitor', source: 'natural-explicit' };
   }
 
