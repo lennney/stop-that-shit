@@ -17,6 +17,28 @@ const edits = {
 };
 
 for (const [host, edit] of Object.entries(edits)) {
+  test(`${host}: equivalent Cargo table spelling does not introduce dependencies`, () => {
+    for (const suffix of ['', '\nversion = "1"']) {
+      const old = '[dependencies.serde]' + suffix;
+      for (const header of ['[ dependencies . serde ]', '["dependencies"."serde"]', "['dependencies'.'serde']"]) {
+        assert.equal(edit('Cargo.toml', old, header + suffix), false, header);
+      }
+      assert.equal(edit('Cargo.toml', old, '["dependencies"."regex"]' + suffix), true);
+    }
+  });
+  test(`${host}: Cargo dependency table identities survive fragment comparison`, () => {
+    const oldHeader = '[dependencies.serde]';
+    const newHeader = '[dependencies.regex]';
+    for (const suffix of ['', '\nversion = "1"']) {
+      const dependencyIntent = edit('Cargo.toml', oldHeader + suffix, newHeader + suffix);
+      assert.equal(dependencyIntent, true, 'changing the dependency name introduces a package');
+      const action = { mutability: 'write', dependencyIntent };
+      assert.equal(decide({ contract: { mode: 'change', level: 'guard', dependencyPolicy: 'deny' }, action }).reasonCode, 'DEPENDENCY_NOT_AUTHORIZED');
+      assert.equal(decide({ contract: { mode: 'change', level: 'guard', dependencyPolicy: 'allow' }, action }).outcome, 'allow');
+      assert.equal(edit('Cargo.toml', oldHeader + suffix, oldHeader + suffix), false);
+      assert.equal(edit('Cargo.toml', oldHeader + suffix, ''), false);
+    }
+  });
   test(`${host}: dependency section promotion is detected while metadata edits and removals continue`, () => {
     for (const [file, metadata, dependencies, entry] of [
       ['pyproject.toml', '[tool.private-metadata]', '[tool.poetry.dependencies]', 'requests = "2.32.0"'],
@@ -84,6 +106,30 @@ for (const [host, analyze] of Object.entries(adapters)) {
 }
 
 for (const host of ['codex', 'opencode', 'hermes']) {
+  test(`${host}: a patch rename compares declarations at both file paths`, () => {
+    const classifier = require(`../src/adapters/${host}-tool-classifier.cjs`);
+    const detect = (source, target) => {
+      const patch = `*** Begin Patch\n*** Update File: ${source}\n*** Move to: ${target}\n@@\n {"dependencies":{"demo":"1"}}\n*** End Patch`;
+      return classifier.detectDependencyIntent(host === 'hermes' ? 'patch' : 'apply_patch', host === 'hermes' ? { mode: 'patch', patch } : host === 'opencode' ? { patchText: patch } : { patch });
+    };
+    assert.equal(detect('manifest.txt', 'package.json'), true);
+    assert.equal(detect('package.json', 'manifest.txt'), false);
+    assert.equal(detect('package.json', 'config/package.json'), false);
+  });
+  test(`${host}: moving a manifest keeps dependency additions visible`, () => {
+    const classifier = require(`../src/adapters/${host}-tool-classifier.cjs`);
+    const detect = (body) => {
+      const patch = `*** Begin Patch\n*** Update File: package.json\n*** Move to: config/package.json\n@@\n {\n${body}\n }\n*** End Patch`;
+      return classifier.detectDependencyIntent(host === 'hermes' ? 'patch' : 'apply_patch', host === 'hermes' ? { mode: 'patch', patch } : host === 'opencode' ? { patchText: patch } : { patch });
+    };
+    const dependencyIntent = detect('+"dependencies": {"demo":"1"}');
+    assert.equal(dependencyIntent, true);
+    const contract = { mode: 'change', level: 'guard', dependencyPolicy: 'deny' };
+    assert.equal(decide({ contract, action: { mutability: 'write', dependencyIntent } }).reasonCode, 'DEPENDENCY_NOT_AUTHORIZED');
+    assert.equal(decide({ contract: { ...contract, dependencyPolicy: 'allow' }, action: { mutability: 'write', dependencyIntent } }).outcome, 'allow');
+    assert.equal(detect(' "dependencies": {"demo":"1"}'), false, 'a move with unchanged dependencies can continue');
+    assert.equal(detect('-"dependencies": {"demo":"1"}'), false, 'removing dependencies during a move can continue');
+  });
   test(`${host}: patch context identifies declarations without treating unchanged dependencies as additions`, () => {
     const classifier = require(`../src/adapters/${host}-tool-classifier.cjs`);
     const detect = (body) => {

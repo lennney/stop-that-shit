@@ -4,6 +4,12 @@ const MANIFEST = /(?:^|\/)(package\.json|pyproject\.toml|requirements[^/]*\.txt|
 const FIELD = /["']?(?:dependencies|devDependencies|optionalDependencies|peerDependencies|require|require-dev)["']?\s*[:=]/i;
 const REQUIREMENT = /^\s*[A-Za-z0-9][A-Za-z0-9_.-]*(?:\[[^\]\r\n]+\])?\s*(?:(?:===|==|~=|!=|<=|>=|<|>|@)\s*\S+)?(?:\s*;.*)?\s*$/;
 
+function sectionKey(section) {
+  // Bare TOML keys may also be quoted or padded around their separators.
+  return section.trim().replace(/(^|\.)\s*(?:([\w-]+)|"([\w-]+)"|'([\w-]+)')\s*(?=\.|$)/g,
+    (_, dot, bare, double, single) => dot + (bare ?? double ?? single));
+}
+
 function dependencySection(filePath, section) {
   const file = String(filePath || '').replace(/\\/g, '/').split('/').pop().toLowerCase();
   return file === 'cargo.toml'
@@ -36,7 +42,8 @@ function jsonDeclarations(filePath, content, fragment) {
 function fragmentHeader(content) {
   const lines = String(content || '').split(/\r?\n/).map(line => line.trim())
     .filter(line => line && !line.startsWith('#'));
-  return lines.length === 1 ? /^\[([^\]]+)\](?:\s*#.*)?$/.exec(lines[0]) : null;
+  const header = lines.length === 1 ? /^\[([^\]]+)\](?:\s*#.*)?$/.exec(lines[0]) : null;
+  return header ? sectionKey(header[1]) : null;
 }
 
 // Resolve declaration roles before comparing old and new fragments. A line
@@ -55,7 +62,7 @@ function dependencyLines(filePath, content, fragment = false) {
     const line = text.trim();
     if (!line || line.startsWith('#') || line.startsWith('//')) continue;
     const header = /^\[([^\]]+)\]/.exec(line);
-    if (header) section = header[1];
+    if (header) section = sectionKey(header[1]);
     let declaration = false;
     if (file.startsWith('requirements')) {
       declaration = REQUIREMENT.test(line.replace(/\s+#.*$/, ''));
@@ -78,7 +85,7 @@ function dependencyLines(filePath, content, fragment = false) {
     }
     // Preserve version hints for native fragments that omit their section.
     if (fragment && !section && /(?:==|>=|~=|\^\d)/.test(line)) declaration = true;
-    if (declaration) declarations.push(line.replace(/,\s*$/, ''));
+    if (declaration) declarations.push(JSON.stringify([section, line.replace(/,\s*$/, '')]));
   }
   return declarations;
 }
@@ -87,16 +94,16 @@ function manifestDependencyIntent(filePath, content) {
   return dependencyLines(filePath, content).length > 0;
 }
 
-function manifestEditDependencyIntent(filePath, oldText, newText) {
+function manifestEditDependencyIntent(filePath, oldText, newText, oldPath = filePath) {
   // A header-only edit can reclassify entries outside the supplied fragment.
   // Merely appending an empty table, or moving dependencies back to metadata,
   // does not introduce a dependency declaration.
   const oldHeader = fragmentHeader(oldText);
   const newHeader = fragmentHeader(newText);
-  if (oldHeader && newHeader && !dependencySection(filePath, oldHeader[1])
-      && dependencySection(filePath, newHeader[1])) return true;
+  if (oldHeader && newHeader && (oldHeader !== newHeader || !dependencySection(oldPath, oldHeader))
+      && dependencySection(filePath, newHeader)) return true;
   const remaining = new Map();
-  for (const key of dependencyLines(filePath, oldText, true)) {
+  for (const key of dependencyLines(oldPath, oldText, true)) {
     remaining.set(key, (remaining.get(key) || 0) + 1);
   }
   for (const key of dependencyLines(filePath, newText, true)) {
@@ -109,14 +116,21 @@ function manifestEditDependencyIntent(filePath, oldText, newText) {
 
 function patchDependencyIntent(patch) {
   let filePath = '';
+  let oldPath = '';
   let before = [];
   let after = [];
-  const addedDependency = () => manifestEditDependencyIntent(filePath, before.join('\n'), after.join('\n'));
+  const addedDependency = () => manifestEditDependencyIntent(filePath, before.join('\n'), after.join('\n'), oldPath);
   for (const line of String(patch || '').split(/\r?\n/)) {
+    const move = /^\*\*\*\s*Move to:\s*(.+?)\s*$/.exec(line);
+    if (move) {
+      filePath = move[1];
+      continue;
+    }
     const header = /^\*\*\*\s*(?:Add|Update)\s+File:\s*(.+?)\s*$/.exec(line);
     if (header || /^\*\*\*/.test(line)) {
       if (addedDependency()) return true;
       filePath = header ? header[1] : '';
+      oldPath = filePath;
       before = []; after = [];
     } else if (line.startsWith('@@')) {
       // Separate hunks have no guaranteed intervening section context.
