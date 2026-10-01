@@ -9,15 +9,16 @@ These semantic decisions belong in `skills/stop-that-shit/SKILL.md`. The Guard
 checks explicit authority on supported action paths; it does not infer business
 necessity from mechanism names. Updating the Skill does not change Guard policy.
 
-Stop That Shit has a host-independent control core, five thin host adapters,
-and a metadata-only runtime evidence sidecar.
+Stop That Shit has a host-independent control core, six thin host adapters
+in this candidate (including Oh My Pi), and a metadata-only runtime evidence sidecar.
 
 ```text
 Codex Hook JSON       ----> Codex Adapter --------\
 Claude Hook JSON      ----> Claude Adapter --------+--> ControlEvent v2
 OpenCode hooks        ----> OpenCode Adapter -----+          |
 Hermes native Plugin ----> Hermes CLI Adapter ----+          v
-Pi Extension          ----> Pi Adapter -----------/  decision(contract, action)
+Pi Extension          ----> Pi Adapter -----------+  decision(contract, action)
+OMP Extension         ----> OMP Adapter ----------/
                                                                |
                                   +----------------------------+------------------+
                                   v                                               v
@@ -39,6 +40,8 @@ Pi Extension          ----> Pi Adapter -----------/  decision(contract, action)
 - `.hermes-plugin/__init__.py` is the only Hermes host entrypoint and bridges
   native Plugin callbacks to the bundled runtime.
 - `pi/stop-that-shit.ts` is the Pi package entrypoint.
+- `omp/stop-that-shit.ts` is the separate, unreleased Oh My Pi entrypoint.
+  `src/adapters/omp-*.cjs` translate native events into the shared controller.
 - `src/state.cjs` stores schema-4 per-session contract state and serializes the
   delegation ledger so concurrent Hook processes cannot oversubscribe the active
   agent limit. Contract updates share the reservation lock and cannot overwrite
@@ -216,3 +219,7 @@ session. Runtime queries skip malformed records and count them as damaged.
 Neither path clears unresolved delegation. Status includes effective constraints
 and authority source. Denial details stay in the host response; audit records
 retain metadata only.
+
+OMP parent-link recovery uses the same controller decision, response formatting,
+and audit path. Recovery state exists only in memory; neither the damaged link
+nor a replacement session contract is written.

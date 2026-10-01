@@ -143,6 +143,10 @@ if (!hostContractText.includes(`@earendil-works/pi-coding-agent\` \`${testedPiVe
 }
 
 const hermesPluginRoot = './.hermes-plugin';
+if (!packageJson.files?.includes('omp/')) fail('package files omit the OMP Extension');
+if (!releaseManifest.include.includes('omp')) fail('release manifest omits the OMP Extension');
+if (!fs.existsSync(path.join(root, 'omp', 'stop-that-shit.ts'))) fail('OMP Extension entrypoint is missing');
+
 const hermesManifest = './.hermes-plugin/plugin.yaml';
 const hermesEntrypoint = './.hermes-plugin/__init__.py';
 const hermesRuntime = './.hermes-plugin/runtime/stop-that-shit.cjs';

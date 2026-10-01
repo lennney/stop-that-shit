@@ -446,3 +446,46 @@ runtime events, and manual labels in the host-provided data directory
 (`PLUGIN_DATA` for Codex, `CLAUDE_PLUGIN_DATA` for Claude Code).
 Review that directory separately if you uninstall. See [PRIVACY.md](PRIVACY.md)
 for the distinction between session state and runtime events.
+
+## Oh My Pi (unreleased candidate)
+
+The OMP Extension is checked with `@oh-my-pi/pi-coding-agent` `18.4.4`.
+Published STS `0.2.4` does not contain it. Use a local checkout or an extracted
+candidate package that contains `omp/stop-that-shit.ts`:
+
+```bash
+omp -e /absolute/path/to/stop-that-shit/omp/stop-that-shit.ts --skills /absolute/path/to/stop-that-shit/skills --sts-contract "review agents=0 -- inspect"
+```
+
+Review the source before accepting OMP's extension trust prompt. Keep the
+OMP entrypoint explicit: the package's `pi.extensions` field selects the Pi
+adapter. `--skills` loads both advisory Skills; `--sts-contract` sets the root
+contract before tools run, including headless sessions.
+
+In an idle root session, use `/sts review -- ...`, `/sts change -- ...`, or
+`/sts status`. These native commands finish without a model turn. Invalid
+commands preserve the previous contract. The TUI also accepts first-line
+`$stop-that-shit` and `/skill:stop-that-shit` input. OMP 18.4.4 does not emit
+the Extension `input` event for RPC/SDK prompts, so use `/sts` for RPC mode
+changes and `--sts-contract` for print/SDK startup. A directive embedded in
+a model prompt cannot replace that control path.
+
+With a finite `agents=N`, `write agent://…` is rejected because it can wake
+untracked work. Use a new `task` call for tracked delegation. Reading `proc://…`
+and cancelling with `write proc://<id>/kill` remain available. Ordinary process
+input is not classified as a filesystem write.
+
+Contract input received mid-turn is handled with a request to resubmit while
+idle. Extension-generated input and child commands cannot grant root authority.
+Unreadable or malformed saved child links preserve the file and allow read-only
+recovery. Restore a known-good link or start a new root session. Start a new OMP
+process after changing the adapter.
+To stop loading it, omit the Extension and Skills arguments on the next launch.
+
+Packed native CLI/RPC checks observed review denial with no file created,
+continued reading, and an allowed change write. Native child-executor checks
+observed root inheritance, rejected child authority, completed-slot reuse,
+and a permitted child write. These checks use a deterministic local provider.
+The interactive TUI also passed these paths with a local provider, including
+native task completion and rejection of a reused task execution ID.
+Git-source installation remains unverified.

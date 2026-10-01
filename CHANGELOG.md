@@ -2,6 +2,10 @@
 
 ## Unreleased / 未发布
 
+- 新增 OMP 独立 Extension 候选，支持原生 `/sts` 控制入口与子任务预算，
+  并通过共享控制器记录父关联恢复决策。公开 0.2.4 不包含此适配。
+  / Add a separate OMP Extension with native `/sts` commands, task budgets,
+  and audited parent-link recovery. Published 0.2.4 does not include it.
 - 修复重复执行 ID 绕过并发预算、损坏账本归零和依赖段落变更漏判。
   / Reject reused execution IDs, preserve ambiguous lifecycle capacity,
   validate saved state, and detect dependency section changes.

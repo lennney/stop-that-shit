@@ -30,6 +30,7 @@
     "cases",
     "hooks",
     "opencode",
+    "omp",
     "package-lock.json",
     "package.json",
     "pi",
