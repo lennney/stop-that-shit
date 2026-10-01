@@ -39,12 +39,22 @@ tasks with inherited authority, and rejection of a reused task ID. A direct
 first-line directive changed the contract; an invalid `/sts` command retained
 it without starting a model turn. This TUI run used the preceding packed
 snapshot; the reviewed follow-up changed manifest classification and docs.
-The later installed snapshot passed the CLI/RPC checks above. The table-identity
-and edit-format fixes passed source regressions; installed-host checks were not rerun
-for those fixes.
+The later installed snapshot passed the CLI/RPC checks above.
 
-All host checks used deterministic local responses with zero external model
-API calls. They do not establish general model effectiveness. Git-source
+On 2026-10-01, the 57-file npm package from `ce548bc` was installed in a clean
+Windows workspace with lifecycle scripts disabled. The native OMP 18.4.4 loader,
+ExtensionToolWrapper, and EditTool passed 19 scenarios across replace, structured
+patch, apply-patch, hashline, and anchored (`sloppy`) edits. All 13 denied calls
+preserved file bytes and paths; all 19 allowed calls made the expected filesystem
+changes. Cases covered Cargo table names and quoted spelling, dependency removal,
+manifest promotion, moves, batch rename destinations, anchored insertion and
+replacement, quoted paths, continuation headers, file boundaries, and hash policy.
+The native runner reported no adapter errors. These checks exercised the installed
+package through native host components; they did not repeat the interactive TUI.
+
+The earlier CLI/RPC/TUI checks used deterministic local responses. The latest edit
+checks called native tools directly. No external model API calls were made.
+These results do not establish general model effectiveness. Git-source
 installation, arbitrary models, nested batch tasks, and completed-agent wakeup
 remain unverified. Codex Desktop evidence is recorded separately below.
 
@@ -57,6 +67,15 @@ Manifest regressions also cover commented TOML headers, compact JSON, removal
 of the last dependency, and dependency-map fragments. Paired synthetic cases
 cover damaged-state recovery and repeated execution IDs. No installed-host
 claim follows from these component tests.
+
+A temporary integration of the `ce548bc` implementation and the independent
+`33c8374` dependency fix passed a clean install, validator regeneration, 522 source
+tests (zero failed, three optional OpenCode checks skipped), 22/22 paired-case
+arms, release and Hermes checks, and whitespace checks. Ajv resolved fast-uri
+3.1.8, npm audit reported zero vulnerabilities, and the generated validator had
+no content changes. The integration changed only package-lock.json relative to
+the OMP candidate. It was a local compatibility check, not a merged or released
+version.
 
 ## Unreleased Issue #66 scope correction
 
