@@ -35,7 +35,8 @@ a new published plugin version. The original macOS environment remains untested.
 The observed Hook payload had no independent trusted automation identity; these
 checks do not establish source authentication or authorize embedded directives.
 Cross-chat tool messages did not emit UserPromptSubmit in this test, so the
-mode changes used the native input field. Issue #66 remains partially open.
+mode changes used the native input field. These results cover scope parsing
+and the tested Windows recovery path.
 
 ## 0.2.4 OpenCode V1/V2 adapter — 2026-09-28
 
