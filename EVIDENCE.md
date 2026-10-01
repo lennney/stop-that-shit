@@ -42,8 +42,8 @@ The final installed package passed the CLI/RPC checks above.
 
 All host checks used deterministic local responses with zero external model
 API calls. They do not establish general model effectiveness. Git-source
-installation, arbitrary models, nested batch tasks, completed-agent wakeup,
-and actual Codex Desktop heartbeat recovery remain unverified.
+installation, arbitrary models, nested batch tasks, and completed-agent wakeup
+remain unverified. Codex Desktop evidence is recorded separately below.
 
 ## Unreleased shared control corrections
 

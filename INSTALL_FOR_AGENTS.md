@@ -114,7 +114,8 @@ change in a disposable workspace. Use `/sts review -- ...`, `/sts change -- ...`
 and `/sts status` for root control, including RPC. RPC/SDK model prompts do not
 emit OMP's `input` event; do not parse their body as authorization. Native CLI/RPC
 and child-executor effects were checked with a deterministic local provider.
-Interactive TUI and Git-source installation remain unverified.
+Interactive TUI checks also passed the tested control and task paths with a
+deterministic local provider. Git-source installation remains unverified.
 See [INSTALL.md](INSTALL.md#oh-my-pi-unreleased-candidate).
 
 ## Smoke test
