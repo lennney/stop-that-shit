@@ -25,6 +25,14 @@ transitions. Contract and lifecycle writes share `updateSession` and its lock.
 Adapters never correlate by arrival order. OpenCode preserves source-session
 identity when calls from several children use a shared root contract.
 
+Use a fresh action ID for each delegation execution within its source session.
+Guard returns `DUPLICATE_ACTION_ID` for a previously accepted ID, whether its
+reservation is pending, running, or completed. Duplicate lifecycle facts are
+safe to deliver. A later `not_started` for a repeated execution attempt cannot
+release the original pending call. If watch/off permits executions with the
+same ID, call-local completion cannot resolve their combined history; only
+confirmed completion of all delegations or a new session restores a finite limit.
+
 Each adapter independently declares `lifecycleVersion: 2` as a fixed value.
 The core requires both this declaration and `protocolVersion: 2` before it
 accepts lifecycle facts. Importing the runtime's protocol number alone cannot

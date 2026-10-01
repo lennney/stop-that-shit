@@ -14,7 +14,17 @@ the action.
 Version: 0.2.4 OpenCode V1/V2 compatibility
 Release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.4
 Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.3
-Last updated: 2026-09-28
+Last updated: 2026-10-01
+
+## Unreleased shared control corrections
+
+Shared regression tests cover repeated execution IDs, ambiguous completion,
+watch/off history, damaged current ledgers, legacy migration, state replacement
+errors, declaration-section changes, and metadata-only recovery diagnostics.
+Manifest regressions also cover commented TOML headers, compact JSON, removal
+of the last dependency, and dependency-map fragments. Paired synthetic cases
+cover damaged-state recovery and repeated execution IDs. No installed-host
+claim follows from these component tests.
 
 ## Unreleased Issue #66 scope correction
 

@@ -2,6 +2,9 @@
 
 ## Unreleased / 未发布
 
+- 修复重复执行 ID 绕过并发预算、损坏账本归零和依赖段落变更漏判。
+  / Reject reused execution IDs, preserve ambiguous lifecycle capacity,
+  validate saved state, and detect dependency section changes.
 - 修复 #66：中文“只观察实际定时轮次”等对象范围描述保留既有 change 权限；
   独立只读指令仍生效，嵌入 heartbeat 的指令不授予权限。
   / Preserve existing change authority for Chinese observation objects.

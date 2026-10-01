@@ -54,6 +54,13 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
   const mode = contract.mode || 'unconfirmed';
   const level = contract.level || 'watch';
 
+  if (state.storageError) {
+    return action.mutability === 'read' || action.mutability === 'control' && !action.delegationLifecycleUnproven
+      ? decision('allow', null, 'RECOVERY_READ_ONLY', 'Read-only recovery remains available.', null)
+      : decision('deny_and_explain', 'I', 'STATE_DAMAGED', state.storageError.message,
+        'Restore the saved state from a known-good backup or start a new host session. Do not clear unresolved delegation records.');
+  }
+
   const delegationCount = action.mutability === 'delegate'
     ? (Number.isInteger(action.delegationCount) ? action.delegationCount : 1)
     : 0;
@@ -66,7 +73,7 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
       'S',
       'INVALID_DIRECTIVE',
       `The active Stop That Shit directive is invalid: ${state.directiveError.message || state.directiveError.code || 'unknown directive error'}.`,
-      'Submit a corrected agents=N directive before delegating.'
+      'Submit a corrected directive for the reported field before delegating.'
     );
   }
 
@@ -169,12 +176,12 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
     );
   }
 
-  if (action.mutability === 'delegate' && action.duplicateActionConflict) {
+  if (action.mutability === 'delegate' && action.duplicateActionId) {
     return decision(
       controlledOutcome(level),
       'S',
       'DUPLICATE_ACTION_ID',
-      'The host reused an action identifier with a different delegation count, so the request cannot be charged safely.',
+      'The host reused an already accepted action identifier. Another execution cannot share the original reservation or completion events.',
       'Use a unique action identifier for each delegation call.'
     );
   }
@@ -199,7 +206,7 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
       'Use a new delegation call so agents=N can track its completion. Messaging and resuming remain available without a finite agent limit.'
     );
   }
-  if (action.mutability === 'delegate' && !action.alreadyReserved && activeAgents + delegationCount > agentBudget) {
+  if (action.mutability === 'delegate' && activeAgents + delegationCount > agentBudget) {
     return decision(
       controlledOutcome(level),
       'S',

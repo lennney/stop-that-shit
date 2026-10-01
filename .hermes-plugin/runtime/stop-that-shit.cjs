@@ -284,7 +284,7 @@ const { inspectDelegation, applyDelegationFact } = __require("src/delegation-sta
 const { decide } = __require("src/decision.cjs");
 const { readRuntime, recordDecision } = __require("src/runtime-audit.cjs");
 const { recordAnnotation } = __require("src/runtime-annotations.cjs");
-const { readState, updateSession } = __require("src/state.cjs");
+const { readState, recoveryState, updateSession } = __require("src/state.cjs");
 
 function none() {
   return { kind: 'none' };
@@ -294,7 +294,14 @@ function context(text) {
   return { kind: 'context', text };
 }
 
+function contractFields(contract, delegation = {}) {
+  const summary = inspectDelegation(delegation);
+  const limit = Number.isSafeInteger(contract.agentBudget) && contract.agentBudget >= 0 ? contract.agentBudget : DEFAULT_AGENT_LIMIT;
+  return `mode=${contract.mode}; agents=${summary.reservedUpperBound}/${limit} reserved${summary.unresolvedReasons.length ? '; count unproven' : ''}; hash=${contract.hashPolicy || 'deny'}; deps=${contract.dependencyPolicy || 'ask'}; files=${Array.isArray(contract.allowedPaths) ? contract.allowedPaths.join('|') : 'unbounded'}.`;
+}
+
 function contractContext(contract, delegation = {}, phase = 'active', directiveWarning = null) {
+  if (contract.source === 'recovery') return 'STATE_DAMAGED: the saved contract is unavailable. Read-only recovery is active. Restore a known-good backup or start a new host session; the damaged file is preserved.';
   if (typeof delegation === 'string') {
     phase = delegation;
     delegation = {};
@@ -314,13 +321,9 @@ function contractContext(contract, delegation = {}, phase = 'active', directiveW
     ].filter(Boolean).join(' ');
   }
 
-  const agentLimit = Number.isSafeInteger(contract.agentBudget) && contract.agentBudget >= 0
-    ? contract.agentBudget
-    : DEFAULT_AGENT_LIMIT;
-
   return [
     directiveWarning && directiveWarning.message ? `Warning: ${directiveWarning.message}` : null,
-    `Stop That Shit (${phase}): mode=${contract.mode}; agents=${inspectDelegation(delegation).reservedUpperBound}/${agentLimit} reserved${inspectDelegation(delegation).unresolvedReasons.length ? "; count unproven" : ""}; hash=${contract.hashPolicy || 'deny'}; deps=${contract.dependencyPolicy || 'ask'}; files=${Array.isArray(contract.allowedPaths) ? contract.allowedPaths.join('|') : 'unbounded'}.`,
+    `Stop That Shit (${phase}): ${contractFields(contract, delegation)}`,
     'Stop Ladder: Is it requested? Is it necessary? What reachable evidence proves that? Would omission fail the current acceptance?',
     'Report real findings even when implementation is not authorized.',
     'Before expanding scope, name reachable evidence, failure if omitted, and the fact that changes the next action.',
@@ -344,8 +347,7 @@ function decisionMessage(result, contract, event, responseOutcome, analysisReaso
       ? 'Guard returned context; it did not deny the action.'
       : executionDenial ? 'Guard returned a pre-execution denial.' : 'Guard returned permission deny.',
     `Reason: ${result.reasonCode}`,
-    ...(isShellAnalysisReason(analysisReason) && ['MODE_FORBIDS_MUTATION', 'MUTABILITY_UNPROVEN'].includes(result.reasonCode)
-      ? [`Detail: ${result.explanation}`] : []),
+    ...(result.explanation ? [`Detail: ${result.explanation}`] : []),
     `Code: ${result.family}/${result.reasonCode}`,
     `State: ${activeControlState(contract)} / ${contract.mode}`
   ];
@@ -385,6 +387,12 @@ function handleRuntimeCommand(command, event, state, options) {
     return context([
       'Stop That Shit status',
       `State: ${activeControlState(state.contract)} / ${state.contract.mode}`,
+      contractFields(state.contract, state.delegation),
+      `Authority source: ${state.contract.source || 'unconfirmed'}`,
+      ...(state.storageError ? [`${state.storageError.code}: ${state.storageError.message}`] : []),
+      ...(state.directiveError ? [`Directive error: ${state.directiveError.code}: ${state.directiveError.message}`] : []),
+      ...(inspectDelegation(state.delegation).unresolvedReasons.length
+        ? [`Unresolved activity: ${inspectDelegation(state.delegation).unresolvedReasons.join(', ')}. A confirmed completion or a new host session is required; do not reset the ledger.`] : []),
       'Host effect: unobserved',
       'Use runtime for checked-action and Guard-response counts.'
     ].join('\n'));
@@ -418,6 +426,7 @@ function handleRuntimeCommand(command, event, state, options) {
 function handlePrompt(event, state, options) {
   const command = runtimeCommand(event.prompt);
   if (command) return handleRuntimeCommand(command, event, state, options);
+  if (state.storageError) return context(`${state.storageError.code}: ${state.storageError.message}`);
   const parsed = parseContractPrompt(event.prompt, state.contract);
   if (parsed.error) {
     state.directiveError = parsed.error;
@@ -457,9 +466,8 @@ function handleBeforeAction(event, options) {
       unboundedDelegation: Boolean(event.action.unboundedDelegation),
       delegationLifecycleUnproven: Boolean(event.action.delegationLifecycleUnproven)
     };
-    const summary = inspectDelegation(state.delegation, { id: event.action.id, delegationCount });
-    action.duplicateActionConflict = summary.duplicateActionConflict;
-    action.alreadyReserved = summary.alreadyReserved;
+    const summary = inspectDelegation(state.delegation, { id: event.action.id });
+    action.duplicateActionId = summary.duplicateActionId;
     const result = decide({ contract: state.contract, action, delegation: summary, state });
     if (changesDelegation && ['allow', 'report_and_defer'].includes(result.outcome)) {
       state.delegation = applyDelegationFact(state.delegation, {
@@ -469,6 +477,10 @@ function handleBeforeAction(event, options) {
           : action.unboundedDelegation ? 'unbounded_execution'
           : action.delegationLifecycleUnproven ? 'unversioned_resume' : null
       });
+    } else if (changesDelegation && summary.duplicateActionId) {
+      // A later not-started event may describe this rejected attempt, not the
+      // original pending execution that still owns the reservation.
+      state.delegation = applyDelegationFact(state.delegation, { kind: 'duplicate_rejected', id: event.action.id });
     }
     return { state, result };
   };
@@ -476,9 +488,11 @@ function handleBeforeAction(event, options) {
   // Separate host processes can issue independent agent launches close together.
   // Serialize delegation reservations across Hook processes. Prompt updates
   // and completion handlers use the same lock; pure reads stay unlocked.
-  const { state, result } = changesDelegation
-    ? updateSession(event.sessionId, options.dataDir, evaluate)
-    : evaluate(readState(event.sessionId, options.dataDir));
+  const { state, result } = options.recoveryError
+    ? evaluate(recoveryState(options.recoveryError))
+    : changesDelegation
+      ? updateSession(event.sessionId, options.dataDir, evaluate)
+      : evaluate(readState(event.sessionId, options.dataDir));
 
   const denied = result.outcome === 'deny_and_explain' || result.outcome === 'require_user_approval';
   const responseOutcome = denied
@@ -1014,13 +1028,11 @@ function reservationForAction(state, actionId) {
 // Callers consume this summary; reservation layout and deduplication stay here.
 function inspectDelegation(state, intent = {}) {
   const acceptedCount = acceptedActionCount(state, intent.id);
-  const count = intent.delegationCount ?? 0;
   return {
     reservedUpperBound: activeDelegationCount(state),
     unresolvedReasons: [...new Set(Object.values(state && state.unresolved || {}))],
     unknownResults: Object.values(reservationsOf(state)).filter(value => value.resultUnknown).length,
-    alreadyReserved: acceptedCount !== null && acceptedCount === count,
-    duplicateActionConflict: acceptedCount !== null && acceptedCount !== count
+    duplicateActionId: acceptedCount !== null
   };
 }
 
@@ -1040,7 +1052,11 @@ function applyDelegationFact(state, fact) {
   const actionId = fact.id;
   const reservationId = reservationForAction(state, actionId);
   if (fact.kind === 'accepted') {
-    if (acceptedActionCount(state, actionId) !== null) return state;
+    // Watch/off may permit another execution with the same host identity.
+    // Its terminal events cannot distinguish the executions from each other.
+    if (acceptedActionCount(state, actionId) !== null) return {
+      ...state, unresolved: { ...state.unresolved, [actionId]: 'reused_action_id' }
+    };
     const id = `reservation:${actionId}`;
     let next = reserveDelegation(state, id, actionId, fact.count);
     next = { ...next, reservations: { ...next.reservations,
@@ -1048,11 +1064,18 @@ function applyDelegationFact(state, fact) {
     if (fact.uncertainty) next = { ...next, unresolved: { ...next.unresolved, [actionId]: fact.uncertainty } };
     return next;
   }
+  if (fact.kind === 'duplicate_rejected') {
+    if (!reservationId) return state;
+    return { ...state, reservations: { ...state.reservations,
+      [reservationId]: { ...state.reservations[reservationId], notStartedAmbiguous: true } } };
+  }
   if (fact.kind === 'joined' || fact.kind === 'not_started') {
+    if (state.unresolved?.[actionId] === 'reused_action_id') return state;
     if (!reservationId && !Object.prototype.hasOwnProperty.call(state.unresolved || {}, actionId)) return state;
     // A late denial cannot contradict an already observed execution.
     const reservation = reservationsOf(state)[reservationId];
-    if (fact.kind === 'not_started' && reservation && (reservation.observedRunning || reservation.agentIds.length)) return state;
+    if (fact.kind === 'not_started' && reservation
+        && (reservation.notStartedAmbiguous || reservation.observedRunning || reservation.agentIds.length)) return state;
     const unresolved = { ...state.unresolved };
     delete unresolved[actionId];
     return { ...releaseReservation(state, reservationId), unresolved };
@@ -1160,6 +1183,13 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
   const mode = contract.mode || 'unconfirmed';
   const level = contract.level || 'watch';
 
+  if (state.storageError) {
+    return action.mutability === 'read' || action.mutability === 'control' && !action.delegationLifecycleUnproven
+      ? decision('allow', null, 'RECOVERY_READ_ONLY', 'Read-only recovery remains available.', null)
+      : decision('deny_and_explain', 'I', 'STATE_DAMAGED', state.storageError.message,
+        'Restore the saved state from a known-good backup or start a new host session. Do not clear unresolved delegation records.');
+  }
+
   const delegationCount = action.mutability === 'delegate'
     ? (Number.isInteger(action.delegationCount) ? action.delegationCount : 1)
     : 0;
@@ -1172,7 +1202,7 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
       'S',
       'INVALID_DIRECTIVE',
       `The active Stop That Shit directive is invalid: ${state.directiveError.message || state.directiveError.code || 'unknown directive error'}.`,
-      'Submit a corrected agents=N directive before delegating.'
+      'Submit a corrected directive for the reported field before delegating.'
     );
   }
 
@@ -1275,12 +1305,12 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
     );
   }
 
-  if (action.mutability === 'delegate' && action.duplicateActionConflict) {
+  if (action.mutability === 'delegate' && action.duplicateActionId) {
     return decision(
       controlledOutcome(level),
       'S',
       'DUPLICATE_ACTION_ID',
-      'The host reused an action identifier with a different delegation count, so the request cannot be charged safely.',
+      'The host reused an already accepted action identifier. Another execution cannot share the original reservation or completion events.',
       'Use a unique action identifier for each delegation call.'
     );
   }
@@ -1305,7 +1335,7 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
       'Use a new delegation call so agents=N can track its completion. Messaging and resuming remain available without a finite agent limit.'
     );
   }
-  if (action.mutability === 'delegate' && !action.alreadyReserved && activeAgents + delegationCount > agentBudget) {
+  if (action.mutability === 'delegate' && activeAgents + delegationCount > agentBudget) {
     return decision(
       controlledOutcome(level),
       'S',
@@ -1450,8 +1480,17 @@ function readRuntime(query = {}, options = {}) {
   let damagedRecords = 0;
   for (const file of eventFiles(query, options)) {
     const parsed = readJsonl(file);
-    events.push(...parsed.records);
-    damagedRecords += parsed.damaged;
+    const valid = parsed.records.filter(event => event && event.schemaVersion === 1
+      && typeof event.eventId === 'string' && /^evt_[0-9a-f-]+$/i.test(event.eventId)
+      && typeof event.occurredAt === 'string' && Number.isFinite(Date.parse(event.occurredAt))
+      && ['off', 'observing', 'armed'].includes(event.controlState)
+      && event.action && typeof event.action.toolName === 'string' && typeof event.action.mutability === 'string'
+      && event.contract && typeof event.contract.mode === 'string'
+      && event.decision && typeof event.decision.policyOutcome === 'string'
+      && typeof event.decision.reasonCode === 'string' && /^[A-Z][A-Z_0-9]*$/.test(event.decision.reasonCode)
+      && typeof event.decision.responseOutcome === 'string');
+    events.push(...valid);
+    damagedRecords += parsed.damaged + parsed.records.length - valid.length;
   }
   // V8's stable sort preserves append order for equal timestamps within a log.
   events.sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
@@ -1521,7 +1560,7 @@ module.exports = {
     "pretest": "npm run schema:check",
     "hermes:build": "node scripts/build-hermes-plugin.cjs",
     "hermes:check": "node scripts/build-hermes-plugin.cjs --check",
-    "test": "node --test test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/delegation-state.test.cjs test/delegation-lifecycle.test.cjs test/delegation-facts.test.cjs test/lifecycle-compatibility.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/opencode-v2-plugin.test.mjs test/opencode-dual-smoke.test.mjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs test/stss-skill.test.cjs",
+    "test": "node --test test/manifest-dependencies.test.cjs test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/delegation-state.test.cjs test/delegation-lifecycle.test.cjs test/delegation-facts.test.cjs test/lifecycle-compatibility.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/opencode-v2-plugin.test.mjs test/opencode-dual-smoke.test.mjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs test/stss-skill.test.cjs",
     "sts": "node scripts/sts.cjs",
     "eval": "node scripts/evaluate-cases.cjs",
     "eval:selftest": "node --test test/case-bundle.test.cjs test/paired-eval.test.cjs",
@@ -1588,7 +1627,12 @@ function recordAnnotation(eventId, label, options = {}) {
 }
 
 function readAnnotations(options = {}) {
-  return readJsonl(annotationsPath(options));
+  const parsed = readJsonl(annotationsPath(options));
+  const records = parsed.records.filter(record => record && record.schemaVersion === 1
+    && typeof record.eventId === 'string' && /^evt_[0-9a-f-]+$/i.test(record.eventId)
+    && typeof record.occurredAt === 'string' && Number.isFinite(Date.parse(record.occurredAt))
+    && LABELS.has(record.label));
+  return { records, damaged: parsed.damaged + parsed.records.length - records.length };
 }
 
 module.exports = { LABELS, readAnnotations, recordAnnotation };
@@ -1676,6 +1720,14 @@ function freshState() {
   };
 }
 
+function recoveryState(error = { code: 'STATE_DAMAGED', message: 'The saved control state cannot be read. Read-only recovery is active; restore the state from a known-good backup or start a new host session. The damaged file has been preserved.' }) {
+  const state = freshState();
+  state.contract = { ...state.contract, mode: 'review', level: 'guard', source: 'recovery' };
+  state.storageError = error;
+  state.delegation.unresolved['state:damaged'] = 'state_unavailable';
+  return state;
+}
+
 function safeCount(value) {
   return Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
@@ -1707,6 +1759,7 @@ function normalizeDelegation(value) {
         reportedAliases: Array.isArray(reservation.reportedAliases) ? reservation.reportedAliases.filter(value => typeof value === 'string' && value) : [],
         completionScope: reservation.completionScope === 'call' ? 'call' : 'children',
         observedRunning: reservation.observedRunning === true || reservation.asyncLaunched === true,
+        notStartedAmbiguous: reservation.notStartedAmbiguous === true,
         resultUnknown: reservation.resultUnknown === true,
         actionId: typeof reservation.actionId === 'string' ? reservation.actionId : '',
         asyncLaunched: typeof reservation.asyncLaunched === 'boolean' ? reservation.asyncLaunched : null,
@@ -1793,15 +1846,59 @@ function normalizeState(parsed) {
   };
 }
 
+function validStoredContract(contract, schemaVersion) {
+  const checks = {
+    mode: value => ['unconfirmed', 'answer', 'review', 'change', 'monitor', 'open'].includes(value),
+    level: value => ['watch', 'guard', 'lock', 'off'].includes(value),
+    agentBudget: value => validAgentBudget(value) !== null,
+    hashPolicy: value => ['deny', 'ask', 'allow'].includes(value),
+    dependencyPolicy: value => ['deny', 'ask', 'allow'].includes(value),
+    allowedPaths: value => value === null || Array.isArray(value) && value.every(item => typeof item === 'string')
+  };
+  return Object.entries(checks).every(([key, check]) =>
+    !Object.hasOwn(contract, key) && schemaVersion !== CURRENT_SCHEMA_VERSION || check(contract[key]));
+}
+
+function validStoredDelegation(value) {
+  const record = item => item !== null && typeof item === 'object' && !Array.isArray(item);
+  const string = item => typeof item === 'string' && item.length > 0;
+  const count = item => Number.isSafeInteger(item) && item >= 0;
+  const strings = items => Array.isArray(items) && items.every(string) && new Set(items).size === items.length;
+  const entries = (item, check) => record(item) && Object.entries(item).every(([key, entry]) => string(key) && check(entry));
+  if (!record(value) || !record(value.reservations) || !strings(value.agentIdsSeen)
+      || !strings(value.stoppedAgentIds) || !entries(value.acceptedActions, count)
+      || !entries(value.unresolved, string)
+      || value.agentAliases !== undefined && !entries(value.agentAliases, string)) return false;
+  return Object.entries(value.reservations).every(([id, reservation]) => string(id) && record(reservation)
+    && string(reservation.actionId) && count(reservation.pendingCount) && strings(reservation.agentIds)
+    && Object.hasOwn(value.acceptedActions, reservation.actionId)
+    && reservation.pendingCount + reservation.agentIds.length <= value.acceptedActions[reservation.actionId]
+    && (reservation.reportedAliases === undefined || strings(reservation.reportedAliases))
+    && (reservation.completionScope === undefined || ['call', 'children'].includes(reservation.completionScope))
+    && (reservation.asyncLaunched == null || typeof reservation.asyncLaunched === 'boolean')
+    && ['observedRunning', 'notStartedAmbiguous', 'resultUnknown'].every(key => reservation[key] === undefined || typeof reservation[key] === 'boolean'));
+}
+
 function readState(sessionId, override) {
   const file = statePath(sessionId, override);
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+        || parsed.schemaVersion !== undefined && (!Number.isSafeInteger(parsed.schemaVersion)
+          || parsed.schemaVersion < 1 || parsed.schemaVersion > CURRENT_SCHEMA_VERSION)
+        || !parsed.contract || typeof parsed.contract !== 'object' || Array.isArray(parsed.contract)
+        || !validStoredContract(parsed.contract, parsed.schemaVersion)
+        || parsed.schemaVersion === CURRENT_SCHEMA_VERSION && !validStoredDelegation(parsed.delegation)) {
+      throw new SyntaxError('Invalid control state structure');
+    }
     // Reads may run without the session lock. Normalize in memory only;
     // the next locked mutation persists the current schema and latest ledger.
     return normalizeState(parsed);
   } catch (error) {
-    if (error && (error.code === 'ENOENT' || error.name === 'SyntaxError')) return freshState();
+    if (error && error.code === 'ENOENT') return freshState();
+    if (error && error.name === 'SyntaxError') {
+      return recoveryState();
+    }
     throw error;
   }
 }
@@ -1811,13 +1908,20 @@ function writeState(sessionId, state, override) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  // Do not replace an atomic rename with a partial overwrite on Windows.
   try {
-    fs.renameSync(temporary, file);
-  } catch (error) {
-    if (process.platform !== 'win32') throw error;
-    fs.copyFileSync(temporary, file);
-    fs.unlinkSync(temporary);
+    // Concurrent readers can briefly prevent replacement on Windows. Keep the
+    // same atomic rename and session lock; never fall back to partial overwrite.
+    const started = Date.now();
+    while (true) {
+      try { fs.renameSync(temporary, file); break; }
+      catch (error) {
+        if (process.platform !== 'win32' || error.code !== 'EPERM' || Date.now() - started >= 100) throw error;
+        sleepSync(10);
+      }
+    }
   }
+  finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
 }
 
 
@@ -1885,8 +1989,9 @@ function withSessionLock(sessionId, override, fn, options) {
 function updateSession(sessionId, override, update) {
   return withSessionLock(sessionId, override, () => {
     const state = readState(sessionId, override);
+    const damaged = Boolean(state.storageError);
     const result = update(state);
-    writeState(sessionId, state, override);
+    if (!damaged) writeState(sessionId, state, override);
     return result;
   });
 }
@@ -1896,6 +2001,7 @@ module.exports = {
   acquireSessionLock,
   dataRoot,
   freshState,
+  recoveryState,
   readState,
   sessionKey,
   statePath,
@@ -1906,6 +2012,8 @@ module.exports = {
 },
 "src/adapters/hermes-tool-classifier.cjs": function(module, exports, __require) {
 'use strict';
+
+const { manifestEditDependencyIntent, manifestDependencyIntent, patchDependencyIntent } = __require("src/manifest-dependencies.cjs");
 
 const nodePath = require('node:path');
 const {
@@ -2023,74 +2131,12 @@ function codexToolName(toolName, toolInput) {
   return String(toolName || '');
 }
 
-const HERMES_MANIFEST = /(?:^|\/)(?:package\.json|pyproject\.toml|requirements[^/]*\.txt|Cargo\.toml|go\.mod|composer\.json|Gemfile)$/i;
-const JSON_DEPENDENCY_FIELD = /["']?(?:dependencies|devDependencies|optionalDependencies|require)["']?\s*[:=]/i;
-const REQUIREMENT_DECLARATION = /^\s*[A-Za-z0-9][A-Za-z0-9_.-]*(?:\[[^\]\r\n]+\])?\s*(?:(?:===|==|~=|!=|<=|>=|<|>|\^)\s*\S+)?(?:\s*;.*)?$/;
-const CARGO_ASSIGNMENT = /^\s*[A-Za-z0-9][A-Za-z0-9_-]*\s*=\s*(?:["']|\{)/;
-const GO_REQUIRE_DECLARATION = /^\s*(?:require\s+\S+\s+v\d|[A-Za-z0-9_.\/-]+\s+v\d)/m;
-const GEM_DECLARATION = /^\s*gem\s+["']/;
-
-function isCargoDependencySection(section) {
-  return /(?:^|\.)(?:dependencies|dev-dependencies|build-dependencies)(?:\.|$)/.test(section);
-}
-
-function detectHermesManifestDependency(filePath, content) {
-  const normalizedPath = String(filePath || '').trim().replace(/\\/g, '/');
-  const text = String(content || '');
-  if (!HERMES_MANIFEST.test(normalizedPath)) return false;
-
-  if (/(?:^|\/)(?:package\.json|pyproject\.toml|composer\.json)$/i.test(normalizedPath)) {
-    return JSON_DEPENDENCY_FIELD.test(text);
-  }
-  if (/(?:^|\/)requirements[^/]*\.txt$/i.test(normalizedPath)) {
-    return text.split(/\r?\n/).some((line) => REQUIREMENT_DECLARATION.test(line));
-  }
-  if (/(?:^|\/)Cargo\.toml$/i.test(normalizedPath)) {
-    let dependencySection = false;
-    for (const line of text.split(/\r?\n/)) {
-      const header = /^\s*\[([^\]]+)\]\s*$/.exec(line);
-      if (header) dependencySection = isCargoDependencySection(header[1]);
-      if (dependencySection && CARGO_ASSIGNMENT.test(line)) return true;
-    }
-    return false;
-  }
-  if (/(?:^|\/)go\.mod$/i.test(normalizedPath)) return GO_REQUIRE_DECLARATION.test(text);
-  if (/(?:^|\/)Gemfile$/i.test(normalizedPath)) return GEM_DECLARATION.test(text);
-  return false;
-}
-
-function hermesPatchSections(text) {
-  const sections = [];
-  let current = null;
-  for (const line of String(text || '').split(/\r?\n/)) {
-    const header = /^\*\*\*\s*(?:Add|Update)\s+File:\s*(.+?)\s*$/.exec(line);
-    if (header) {
-      current = { path: header[1], content: [] };
-      sections.push(current);
-      continue;
-    }
-    if (/^\*\*\*/.test(line)) {
-      current = null;
-      continue;
-    }
-    if (!current) continue;
-    if (/^\+(?!\+\+)/.test(line) || /^ /.test(line)) current.content.push(line.slice(1));
-  }
-  return sections;
-}
-
 function detectDependencyIntent(toolName, toolInput) {
   const name = codexToolName(toolName, toolInput);
   const input = codexIntentInput(toolName, toolInput);
-  if (name === 'Write') {
-    return detectHermesManifestDependency(input.path, input.content);
-  }
-  if (name === 'apply_patch') {
-    const sections = hermesPatchSections(input.patch);
-    if (sections.some((section) => detectHermesManifestDependency(section.path, section.content.join('\n')))) return true;
-    const normalizedPatch = String(input.patch || '').replace(/^\*\*\*(?=(?:Add|Update|Delete)\s+File:)/gm, '*** ');
-    return detectCodexDependencyIntent(name, { ...input, patch: normalizedPatch });
-  }
+  if (toolName === 'patch' && name === 'Write') return manifestEditDependencyIntent(input.path, toolInput.old_string, input.content);
+  if (name === 'Write') return manifestDependencyIntent(input.path, input.content);
+  if (name === 'apply_patch') return patchDependencyIntent(input.patch);
   return detectCodexDependencyIntent(name, input);
 }
 
@@ -2120,10 +2166,162 @@ module.exports = {
 };
 
 },
+"src/manifest-dependencies.cjs": function(module, exports, __require) {
+'use strict';
+
+const MANIFEST = /(?:^|\/)(package\.json|pyproject\.toml|requirements[^/]*\.txt|Cargo\.toml|go\.mod|composer\.json|Gemfile)$/i;
+const FIELD = /["']?(?:dependencies|devDependencies|optionalDependencies|peerDependencies|require|require-dev)["']?\s*[:=]/i;
+const REQUIREMENT = /^\s*[A-Za-z0-9][A-Za-z0-9_.-]*(?:\[[^\]\r\n]+\])?\s*(?:(?:===|==|~=|!=|<=|>=|<|>|@)\s*\S+)?(?:\s*;.*)?\s*$/;
+
+function sectionKey(section) {
+  // Bare TOML keys may also be quoted or padded around their separators.
+  return section.trim().replace(/(^|\.)\s*(?:([\w-]+)|"([\w-]+)"|'([\w-]+)')\s*(?=\.|$)/g,
+    (_, dot, bare, double, single) => dot + (bare ?? double ?? single));
+}
+
+function dependencySection(filePath, section) {
+  const file = String(filePath || '').replace(/\\/g, '/').split('/').pop().toLowerCase();
+  return file === 'cargo.toml'
+    ? /(?:^|\.)(?:dependencies|dev-dependencies|build-dependencies)(?:\.|$)/.test(section)
+    : file === 'pyproject.toml' && /(?:^|\.)(?:dependencies|dev-dependencies|optional-dependencies)(?:\.|$)/.test(section);
+}
+
+function jsonDeclarations(filePath, content, fragment) {
+  if (!/(?:^|\/)(?:package|composer)\.json$/i.test(String(filePath || '').replace(/\\/g, '/'))) return null;
+  let manifest;
+  try { manifest = JSON.parse(String(content)); } catch { return null; }
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) return null;
+  const fields = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'require', 'require-dev'];
+  // Native edits can supply only a dependency map, without its enclosing field.
+  // Keep the existing version hints, comparing entries so removals can continue.
+  if (fragment && !fields.some(field => Object.hasOwn(manifest, field))) {
+    return Object.entries(manifest)
+      .filter(([, version]) => typeof version === 'string' && /(?:==|>=|~=|\^\d)/.test(version))
+      .map(entry => JSON.stringify(entry));
+  }
+  const declarations = [];
+  for (const field of fields) {
+    const entries = manifest[field];
+    if (!entries || typeof entries !== 'object' || Array.isArray(entries)) continue;
+    for (const [name, version] of Object.entries(entries)) declarations.push(JSON.stringify([field, name, version]));
+  }
+  return declarations;
+}
+
+function fragmentHeader(content) {
+  const lines = String(content || '').split(/\r?\n/).map(line => line.trim())
+    .filter(line => line && !line.startsWith('#'));
+  const header = lines.length === 1 ? /^\[([^\]]+)\](?:\s*#.*)?$/.exec(lines[0]) : null;
+  return header ? sectionKey(header[1]) : null;
+}
+
+// Resolve declaration roles before comparing old and new fragments. A line
+// moved out of metadata becomes a dependency even when its text stays the same.
+// These are syntax hints from the supplied tool input, not a full manifest diff.
+function dependencyLines(filePath, content, fragment = false) {
+  const match = MANIFEST.exec(String(filePath || '').replace(/\\/g, '/'));
+  if (!match) return [];
+  const json = jsonDeclarations(filePath, content, fragment);
+  if (json) return json;
+  const file = match[1].toLowerCase();
+  let section = '';
+  let dependencyBlock = false;
+  const declarations = [];
+  for (const text of String(content || '').split(/\r?\n/)) {
+    const line = text.trim();
+    if (!line || line.startsWith('#') || line.startsWith('//')) continue;
+    const header = /^\[([^\]]+)\]/.exec(line);
+    if (header) section = sectionKey(header[1]);
+    let declaration = false;
+    if (file.startsWith('requirements')) {
+      declaration = REQUIREMENT.test(line.replace(/\s+#.*$/, ''));
+    } else if (file === 'cargo.toml') {
+      declaration = dependencySection(filePath, section)
+        && /^[\w-]+\s*=\s*(?:["']|\{)/.test(line);
+    } else if (file === 'go.mod') {
+      declaration = /^(?:require\s+)?[A-Za-z0-9_.\/-]+\s+v\d/.test(line);
+    } else if (file === 'gemfile') {
+      declaration = /^gem\s+["']/.test(line);
+    } else {
+      const field = FIELD.test(line);
+      declaration = field || (dependencyBlock && /^["'][^"']+["']/.test(line));
+      if (file === 'pyproject.toml') {
+        declaration ||= dependencySection(filePath, section)
+          && /^[\w"'-]+\s*=/.test(line);
+      }
+      if (field) dependencyBlock = /[\[{]/.test(line) && !/[\]}]\s*,?\s*$/.test(line);
+      else if (/^[\]}]/.test(line) || header) dependencyBlock = false;
+    }
+    // Preserve version hints for native fragments that omit their section.
+    if (fragment && !section && /(?:==|>=|~=|\^\d)/.test(line)) declaration = true;
+    if (declaration) declarations.push(JSON.stringify([section, line.replace(/,\s*$/, '')]));
+  }
+  return declarations;
+}
+
+function manifestDependencyIntent(filePath, content) {
+  return dependencyLines(filePath, content).length > 0;
+}
+
+function manifestEditDependencyIntent(filePath, oldText, newText, oldPath = filePath) {
+  // A header-only edit can reclassify entries outside the supplied fragment.
+  // Merely appending an empty table, or moving dependencies back to metadata,
+  // does not introduce a dependency declaration.
+  const oldHeader = fragmentHeader(oldText);
+  const newHeader = fragmentHeader(newText);
+  if (oldHeader && newHeader && (oldHeader !== newHeader || !dependencySection(oldPath, oldHeader))
+      && dependencySection(filePath, newHeader)) return true;
+  const remaining = new Map();
+  for (const key of dependencyLines(oldPath, oldText, true)) {
+    remaining.set(key, (remaining.get(key) || 0) + 1);
+  }
+  for (const key of dependencyLines(filePath, newText, true)) {
+    const count = remaining.get(key) || 0;
+    if (!count) return true;
+    remaining.set(key, count - 1);
+  }
+  return false;
+}
+
+function patchDependencyIntent(patch) {
+  let filePath = '';
+  let oldPath = '';
+  let before = [];
+  let after = [];
+  const addedDependency = () => manifestEditDependencyIntent(filePath, before.join('\n'), after.join('\n'), oldPath);
+  for (const line of String(patch || '').split(/\r?\n/)) {
+    const move = /^\*\*\*\s*Move to:\s*(.+?)\s*$/.exec(line);
+    if (move) {
+      filePath = move[1];
+      continue;
+    }
+    const header = /^\*\*\*\s*(?:Add|Update)\s+File:\s*(.+?)\s*$/.exec(line);
+    if (header || /^\*\*\*/.test(line)) {
+      if (addedDependency()) return true;
+      filePath = header ? header[1] : '';
+      oldPath = filePath;
+      before = []; after = [];
+    } else if (line.startsWith('@@')) {
+      // Separate hunks have no guaranteed intervening section context.
+      if (addedDependency()) return true;
+      before = []; after = [];
+      if (line.slice(2).trim()) { before.push(line.slice(2).trim()); after.push(line.slice(2).trim()); }
+    } else {
+      if (/^[- ]/.test(line)) before.push(line.slice(1));
+      if (/^[+ ]/.test(line)) after.push(line.slice(1));
+    }
+  }
+  return addedDependency();
+}
+
+module.exports = { manifestDependencyIntent, manifestEditDependencyIntent, patchDependencyIntent };
+
+},
 "src/adapters/codex-tool-classifier.cjs": function(module, exports, __require) {
 'use strict';
 
 const nodePath = require('node:path');
+const { patchDependencyIntent } = __require("src/manifest-dependencies.cjs");
 
 const WRITE_NAME = /(?:^|__|_)(?:add|append|apply|archive|close|commit|copy|create|delete|deploy|edit|install|merge|move|patch|post|publish|push|remove|rename|send|set|submit|update|upload|write)(?:$|__|_)/i;
 const READ_NAME = /(?:^|__|_)(?:cat|check|diff|fetch|find|get|inspect|list|load|open|read|review|search|show|status|view)(?:$|__|_)/i;
@@ -2194,38 +2392,13 @@ function extractAffectedPaths(toolName, toolInput, cwd) {
   return [...new Set(paths.filter(Boolean))];
 }
 
-function addedLinesByPatchedFile(text) {
-  const sections = [];
-  let current = null;
-  for (const line of String(text || '').split(/\r?\n/)) {
-    const header = /^\*\*\* (?:Add|Update) File:\s*(.+?)\s*$/.exec(line);
-    if (header) {
-      current = { path: normalizePath(header[1]), added: [] };
-      sections.push(current);
-      continue;
-    }
-    if (/^\*\*\*/.test(line)) {
-      current = null;
-      continue;
-    }
-    if (current && /^\+(?!\+\+)/.test(line)) current.added.push(line);
-  }
-  return sections;
-}
-
 function detectDependencyIntent(toolName, toolInput) {
   const name = String(toolName || '');
   const text = inputText(toolInput);
   if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
     return analyzeShell(text).dependencyIntent;
   }
-  if (name === 'apply_patch') {
-    const manifest = /(?:^|\/)(?:package\.json|pyproject\.toml|requirements[^/]*\.txt|Cargo\.toml|go\.mod|composer\.json|Gemfile)$/i;
-    const dependencyDeclaration = /["']?(?:dependencies|devDependencies|optionalDependencies)["']?\s*[:=]|^[+]\s*[^#\s][^\r\n]*(?:==|>=|~=|\^\d)/mi;
-    return addedLinesByPatchedFile(text).some((section) => (
-      manifest.test(section.path) && dependencyDeclaration.test(section.added.join('\n'))
-    ));
-  }
+  if (name === 'apply_patch') return patchDependencyIntent(text);
   return false;
 }
 
@@ -2621,7 +2794,7 @@ __modules["package.json"] = function(module) { module.exports = {
     "pretest": "npm run schema:check",
     "hermes:build": "node scripts/build-hermes-plugin.cjs",
     "hermes:check": "node scripts/build-hermes-plugin.cjs --check",
-    "test": "node --test test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/delegation-state.test.cjs test/delegation-lifecycle.test.cjs test/delegation-facts.test.cjs test/lifecycle-compatibility.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/opencode-v2-plugin.test.mjs test/opencode-dual-smoke.test.mjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs test/stss-skill.test.cjs",
+    "test": "node --test test/manifest-dependencies.test.cjs test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/delegation-state.test.cjs test/delegation-lifecycle.test.cjs test/delegation-facts.test.cjs test/lifecycle-compatibility.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/opencode-v2-plugin.test.mjs test/opencode-dual-smoke.test.mjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs test/stss-skill.test.cjs",
     "sts": "node scripts/sts.cjs",
     "eval": "node scripts/evaluate-cases.cjs",
     "eval:selftest": "node --test test/case-bundle.test.cjs test/paired-eval.test.cjs",

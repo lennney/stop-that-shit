@@ -120,6 +120,20 @@ test('runtime reader tolerates a damaged final JSONL record', (t) => {
   assert.equal(runtime.summary.damagedRecords, 1);
 });
 
+test('runtime isolates structurally damaged events and labels while retaining valid evidence', (t) => {
+  const directory = dataDir(t);
+  const event = recordDecision(facts(), { dataDir: directory });
+  recordAnnotation(event.eventId, 'correct', { dataDir: directory });
+  const logs = path.join(directory, 'runtime');
+  const log = fs.readdirSync(logs).find(name => name !== 'annotations.jsonl');
+  fs.appendFileSync(path.join(logs, log), '{}\nnull\n{"occurredAt":12}\n');
+  fs.appendFileSync(path.join(logs, 'annotations.jsonl'), '{}\n' + JSON.stringify({ eventId: event.eventId, label: '__proto__' }) + '\n');
+  const runtime = readRuntime({ eventId: event.eventId }, { dataDir: directory });
+  assert.equal(runtime.events.length, 1);
+  assert.equal(runtime.events[0].label, 'correct');
+  assert.equal(runtime.summary.damagedRecords, 5);
+});
+
 test('annotations are append-only and summaries use the latest label', (t) => {
   const directory = dataDir(t);
   const event = recordDecision(facts(), { dataDir: directory });

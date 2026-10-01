@@ -1,0 +1,10 @@
+{
+  "id": "STS-I-002-G", "kind": "good", "family": "I",
+  "title": "Read-only inspection while the saved control state is damaged",
+  "input": {
+    "contract": { "mode": "change", "level": "guard" },
+    "state": { "storageError": { "message": "The saved state is damaged." } },
+    "action": { "mutability": "read" }
+  },
+  "expected": { "outcome": "allow", "family": null, "reasonCode": "RECOVERY_READ_ONLY" }
+}

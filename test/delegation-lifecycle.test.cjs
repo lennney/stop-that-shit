@@ -14,6 +14,48 @@ const { activeDelegationCount } = require(path.join(root, 'src/delegation-state.
 const temporaryRoot = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'sts-lifecycle-'));
 require('node:test').after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
 function dataDir() { return fs.mkdtempSync(path.join(temporaryRoot, 'state-')); }
+
+test('Windows state replacement retries a transient EPERM without overwriting the old state', { skip: process.platform !== 'win32' }, (t) => {
+  const state = require('../src/state.cjs');
+  const dir = dataDir();
+  const initial = state.freshState('rename-race');
+  state.writeState('rename-race', initial, dir);
+  const file = state.statePath('rename-race', dir);
+  const before = fs.readFileSync(file, 'utf8');
+  const rename = fs.renameSync;
+  let attempts = 0;
+  t.mock.method(fs, 'renameSync', (source, destination) => {
+    assert.equal(fs.readFileSync(destination, 'utf8'), before);
+    if (++attempts === 1) throw Object.assign(new Error('sharing race'), { code: 'EPERM' });
+    return rename(source, destination);
+  });
+  state.writeState('rename-race', { ...initial, updatedAt: 'changed' }, dir);
+  assert.equal(attempts, 2);
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).updatedAt, 'changed');
+});
+
+test('failed state replacement preserves the old file and stops retrying', (t) => {
+  const state = require('../src/state.cjs');
+  const dir = dataDir();
+  const initial = state.freshState('rename-failure');
+  state.writeState('rename-failure', initial, dir);
+  const file = state.statePath('rename-failure', dir);
+  const before = fs.readFileSync(file, 'utf8');
+  let attempts = 0;
+  t.mock.method(fs, 'renameSync', () => {
+    attempts += 1;
+    throw Object.assign(new Error('persistent access error'), { code: 'EPERM' });
+  });
+  assert.throws(() => state.writeState('rename-failure', { ...initial, updatedAt: 'changed' }, dir), { code: 'EPERM' });
+  assert.ok(attempts <= 30, `bounded attempts: ${attempts}`);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+  assert.equal(fs.readdirSync(path.dirname(file)).filter(name => name.endsWith('.tmp')).length, 0);
+  attempts = 0;
+  fs.renameSync.mock.mockImplementation(() => { attempts += 1; throw Object.assign(new Error('disk error'), { code: 'EIO' }); });
+  assert.throws(() => state.writeState('rename-failure', initial, dir), { code: 'EIO' });
+  assert.equal(attempts, 1);
+});
+
 function claude() {
   const dir = dataDir();
   const session_id = 'synthetic-parent';

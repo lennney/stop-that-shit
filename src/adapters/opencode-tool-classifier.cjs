@@ -1,5 +1,7 @@
 'use strict';
 
+const { manifestEditDependencyIntent, manifestDependencyIntent } = require('../manifest-dependencies.cjs');
+
 const path = require('node:path');
 const {
   analyzeShell,
@@ -12,8 +14,6 @@ const {
 const WRITE_TOOLS = new Set(['apply_patch', 'edit', 'write']);
 const READ_TOOLS = new Set(['glob', 'grep', 'lsp', 'read', 'webfetch', 'websearch']);
 const CONTROL_TOOLS = new Set(['plan_enter', 'plan_exit', 'question', 'skill', 'todowrite']);
-const MANIFEST_PATH = /(?:^|\/)(?:package\.json|pyproject\.toml|requirements[^/]*\.txt|Cargo\.toml|go\.mod|composer\.json|Gemfile)$/i;
-const DEPENDENCY_DECLARATION = /["']?(?:dependencies|devDependencies|optionalDependencies)["']?\s*[:=]|(?:^|\n)\s*[^#\s][^\r\n]*(?:==|>=|~=|\^\d)/i;
 
 function normalizePath(value, cwd) {
   const original = String(value || '').trim().replace(/^['"]|['"]$/g, '');
@@ -79,7 +79,8 @@ function detectDependencyIntent(toolName, args) {
   if (name === 'edit' || name === 'write') {
     const file = normalizePath(args && args.filePath);
     const added = String(args && (name === 'edit' ? args.newString : args.content) || '');
-    return MANIFEST_PATH.test(file) && DEPENDENCY_DECLARATION.test(added);
+    return name === 'write' ? manifestDependencyIntent(file, added)
+      : manifestEditDependencyIntent(file, args && args.oldString, added);
   }
   return false;
 }

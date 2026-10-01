@@ -162,12 +162,19 @@ semantic labels do not imply automatic host inference.
 completion evidence. Dependency and hash pairs check authority, not the
 engineering necessity of every package or digest.
 
+Recovery pair [STS-I-002-B](0.0.1/STS-I-002-B.json) /
+[STS-I-002-G](0.0.1/STS-I-002-G.json) checks blocked writes and permitted reads.
+Execution-ID pair [STS-S-007-B](0.0.1/STS-S-007-B.json) /
+[STS-S-007-G](0.0.1/STS-S-007-G.json) checks reused and fresh IDs.
+These inputs supply damage and duplicate facts directly; controller regression
+tests separately verify how stored state and host events establish those facts.
+
 ## Reading the evidence
 
 | Material | What it establishes |
 | --- | --- |
 | Case explanation or source report | The disputed action and the fact that should change the decision |
-| The 18 policy cases in `npm run eval` | Whether the decision function returns the expected result for supplied input |
+| The 22 policy cases in `npm run eval` | Whether the decision function returns the expected result for supplied input |
 | Tasks in `evals/codex-paired/cases/` | How to check task results; a fixture alone proves no run or improvement |
 | Host traces and baseline/plugin run records | What happened in a specific configuration; report enforcement, completion, and Good Case results separately |
 

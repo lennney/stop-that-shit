@@ -48,7 +48,7 @@ Pi Extension          ----> Pi Adapter -----------/  decision(contract, action)
   reserves active units; only a confirmed completion result releases
   them. Unknown results retain capacity; only confirmed bound-child completion
   or whole-call joined/not-started facts release it. Session-end alone is not proof. The ledger also keeps accepted action IDs and session-local
-  agent stop/start metadata so retries, delayed duplicate starts, and stop-before-
+  agent stop/start metadata so repeated lifecycle facts, delayed duplicate starts, and stop-before-
   start events cannot charge or bind a later reservation; this metadata is not
   active usage or runtime audit data.
 - `src/runtime-audit.cjs` appends and reads metadata-only decision events.
@@ -185,7 +185,34 @@ unresolved activity captures unbounded execution and unversioned resumes.
 A known bounded call with an unknown result retains its existing capacity.
 Only matching terminal evidence clears unresolved activity. Sequential chains
 hold their capacity through individual step stops until the whole call joins.
+Each delegation execution needs a new action ID within its source session.
+Guard rejects a previously accepted ID, including after completion. Repeated
+lifecycle notifications remain idempotent. After a repeated execution attempt,
+`not_started` cannot release the original pending reservation; its whole-call
+completion can. If watch/off permits both executions, their completion events
+are ambiguous. That history remains unresolved until confirmed whole-session
+completion or a new host session.
 All contract and ledger writes use `updateSession`; reads have no write effect.
 Each adapter declares its own lifecycle version. Core protocol imports cannot
 substitute for that declaration; undeclared lifecycle events never change the ledger.
 See HOST-ADAPTER-CONTRACT.md for actual host evidence and unsupported paths.
+
+## Shared manifest facts and recovery
+
+Adapters map native file and content fields into `src/manifest-dependencies.cjs`.
+The helper recognizes dependency declarations in supported manifests. Patch
+and replacement fragments resolve each line's declaration role in the old and
+new sections before comparing them. Moving metadata into a dependency section
+or replacing its header can introduce dependency intent. Unchanged declarations,
+removals and newly appended empty tables remain permitted. Full writes supply
+only new content, so this is intent detection, not a semantic dependency diff.
+Fragments that omit their section may remain unrecognized.
+
+A damaged control-state file is preserved. Current-schema contract and ledger
+fields are validated before normalization; malformed counts cannot become free
+capacity. The affected session enters read-only recovery and reports
+`STATE_DAMAGED`; restore a known-good backup or start a new host
+session. Runtime queries skip malformed records and count them as damaged.
+Neither path clears unresolved delegation. Status includes effective constraints
+and authority source. Denial details stay in the host response; audit records
+retain metadata only.

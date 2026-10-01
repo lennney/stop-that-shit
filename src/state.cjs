@@ -37,6 +37,14 @@ function freshState() {
   };
 }
 
+function recoveryState(error = { code: 'STATE_DAMAGED', message: 'The saved control state cannot be read. Read-only recovery is active; restore the state from a known-good backup or start a new host session. The damaged file has been preserved.' }) {
+  const state = freshState();
+  state.contract = { ...state.contract, mode: 'review', level: 'guard', source: 'recovery' };
+  state.storageError = error;
+  state.delegation.unresolved['state:damaged'] = 'state_unavailable';
+  return state;
+}
+
 function safeCount(value) {
   return Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
@@ -68,6 +76,7 @@ function normalizeDelegation(value) {
         reportedAliases: Array.isArray(reservation.reportedAliases) ? reservation.reportedAliases.filter(value => typeof value === 'string' && value) : [],
         completionScope: reservation.completionScope === 'call' ? 'call' : 'children',
         observedRunning: reservation.observedRunning === true || reservation.asyncLaunched === true,
+        notStartedAmbiguous: reservation.notStartedAmbiguous === true,
         resultUnknown: reservation.resultUnknown === true,
         actionId: typeof reservation.actionId === 'string' ? reservation.actionId : '',
         asyncLaunched: typeof reservation.asyncLaunched === 'boolean' ? reservation.asyncLaunched : null,
@@ -154,15 +163,59 @@ function normalizeState(parsed) {
   };
 }
 
+function validStoredContract(contract, schemaVersion) {
+  const checks = {
+    mode: value => ['unconfirmed', 'answer', 'review', 'change', 'monitor', 'open'].includes(value),
+    level: value => ['watch', 'guard', 'lock', 'off'].includes(value),
+    agentBudget: value => validAgentBudget(value) !== null,
+    hashPolicy: value => ['deny', 'ask', 'allow'].includes(value),
+    dependencyPolicy: value => ['deny', 'ask', 'allow'].includes(value),
+    allowedPaths: value => value === null || Array.isArray(value) && value.every(item => typeof item === 'string')
+  };
+  return Object.entries(checks).every(([key, check]) =>
+    !Object.hasOwn(contract, key) && schemaVersion !== CURRENT_SCHEMA_VERSION || check(contract[key]));
+}
+
+function validStoredDelegation(value) {
+  const record = item => item !== null && typeof item === 'object' && !Array.isArray(item);
+  const string = item => typeof item === 'string' && item.length > 0;
+  const count = item => Number.isSafeInteger(item) && item >= 0;
+  const strings = items => Array.isArray(items) && items.every(string) && new Set(items).size === items.length;
+  const entries = (item, check) => record(item) && Object.entries(item).every(([key, entry]) => string(key) && check(entry));
+  if (!record(value) || !record(value.reservations) || !strings(value.agentIdsSeen)
+      || !strings(value.stoppedAgentIds) || !entries(value.acceptedActions, count)
+      || !entries(value.unresolved, string)
+      || value.agentAliases !== undefined && !entries(value.agentAliases, string)) return false;
+  return Object.entries(value.reservations).every(([id, reservation]) => string(id) && record(reservation)
+    && string(reservation.actionId) && count(reservation.pendingCount) && strings(reservation.agentIds)
+    && Object.hasOwn(value.acceptedActions, reservation.actionId)
+    && reservation.pendingCount + reservation.agentIds.length <= value.acceptedActions[reservation.actionId]
+    && (reservation.reportedAliases === undefined || strings(reservation.reportedAliases))
+    && (reservation.completionScope === undefined || ['call', 'children'].includes(reservation.completionScope))
+    && (reservation.asyncLaunched == null || typeof reservation.asyncLaunched === 'boolean')
+    && ['observedRunning', 'notStartedAmbiguous', 'resultUnknown'].every(key => reservation[key] === undefined || typeof reservation[key] === 'boolean'));
+}
+
 function readState(sessionId, override) {
   const file = statePath(sessionId, override);
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+        || parsed.schemaVersion !== undefined && (!Number.isSafeInteger(parsed.schemaVersion)
+          || parsed.schemaVersion < 1 || parsed.schemaVersion > CURRENT_SCHEMA_VERSION)
+        || !parsed.contract || typeof parsed.contract !== 'object' || Array.isArray(parsed.contract)
+        || !validStoredContract(parsed.contract, parsed.schemaVersion)
+        || parsed.schemaVersion === CURRENT_SCHEMA_VERSION && !validStoredDelegation(parsed.delegation)) {
+      throw new SyntaxError('Invalid control state structure');
+    }
     // Reads may run without the session lock. Normalize in memory only;
     // the next locked mutation persists the current schema and latest ledger.
     return normalizeState(parsed);
   } catch (error) {
-    if (error && (error.code === 'ENOENT' || error.name === 'SyntaxError')) return freshState();
+    if (error && error.code === 'ENOENT') return freshState();
+    if (error && error.name === 'SyntaxError') {
+      return recoveryState();
+    }
     throw error;
   }
 }
@@ -172,13 +225,20 @@ function writeState(sessionId, state, override) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  // Do not replace an atomic rename with a partial overwrite on Windows.
   try {
-    fs.renameSync(temporary, file);
-  } catch (error) {
-    if (process.platform !== 'win32') throw error;
-    fs.copyFileSync(temporary, file);
-    fs.unlinkSync(temporary);
+    // Concurrent readers can briefly prevent replacement on Windows. Keep the
+    // same atomic rename and session lock; never fall back to partial overwrite.
+    const started = Date.now();
+    while (true) {
+      try { fs.renameSync(temporary, file); break; }
+      catch (error) {
+        if (process.platform !== 'win32' || error.code !== 'EPERM' || Date.now() - started >= 100) throw error;
+        sleepSync(10);
+      }
+    }
   }
+  finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
 }
 
 
@@ -246,8 +306,9 @@ function withSessionLock(sessionId, override, fn, options) {
 function updateSession(sessionId, override, update) {
   return withSessionLock(sessionId, override, () => {
     const state = readState(sessionId, override);
+    const damaged = Boolean(state.storageError);
     const result = update(state);
-    writeState(sessionId, state, override);
+    if (!damaged) writeState(sessionId, state, override);
     return result;
   });
 }
@@ -257,6 +318,7 @@ module.exports = {
   acquireSessionLock,
   dataRoot,
   freshState,
+  recoveryState,
   readState,
   sessionKey,
   statePath,

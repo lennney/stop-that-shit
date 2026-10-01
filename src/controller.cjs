@@ -6,7 +6,7 @@ const { inspectDelegation, applyDelegationFact } = require('./delegation-state.c
 const { decide } = require('./decision.cjs');
 const { readRuntime, recordDecision } = require('./runtime-audit.cjs');
 const { recordAnnotation } = require('./runtime-annotations.cjs');
-const { readState, updateSession } = require('./state.cjs');
+const { readState, recoveryState, updateSession } = require('./state.cjs');
 
 function none() {
   return { kind: 'none' };
@@ -16,7 +16,14 @@ function context(text) {
   return { kind: 'context', text };
 }
 
+function contractFields(contract, delegation = {}) {
+  const summary = inspectDelegation(delegation);
+  const limit = Number.isSafeInteger(contract.agentBudget) && contract.agentBudget >= 0 ? contract.agentBudget : DEFAULT_AGENT_LIMIT;
+  return `mode=${contract.mode}; agents=${summary.reservedUpperBound}/${limit} reserved${summary.unresolvedReasons.length ? '; count unproven' : ''}; hash=${contract.hashPolicy || 'deny'}; deps=${contract.dependencyPolicy || 'ask'}; files=${Array.isArray(contract.allowedPaths) ? contract.allowedPaths.join('|') : 'unbounded'}.`;
+}
+
 function contractContext(contract, delegation = {}, phase = 'active', directiveWarning = null) {
+  if (contract.source === 'recovery') return 'STATE_DAMAGED: the saved contract is unavailable. Read-only recovery is active. Restore a known-good backup or start a new host session; the damaged file is preserved.';
   if (typeof delegation === 'string') {
     phase = delegation;
     delegation = {};
@@ -36,13 +43,9 @@ function contractContext(contract, delegation = {}, phase = 'active', directiveW
     ].filter(Boolean).join(' ');
   }
 
-  const agentLimit = Number.isSafeInteger(contract.agentBudget) && contract.agentBudget >= 0
-    ? contract.agentBudget
-    : DEFAULT_AGENT_LIMIT;
-
   return [
     directiveWarning && directiveWarning.message ? `Warning: ${directiveWarning.message}` : null,
-    `Stop That Shit (${phase}): mode=${contract.mode}; agents=${inspectDelegation(delegation).reservedUpperBound}/${agentLimit} reserved${inspectDelegation(delegation).unresolvedReasons.length ? "; count unproven" : ""}; hash=${contract.hashPolicy || 'deny'}; deps=${contract.dependencyPolicy || 'ask'}; files=${Array.isArray(contract.allowedPaths) ? contract.allowedPaths.join('|') : 'unbounded'}.`,
+    `Stop That Shit (${phase}): ${contractFields(contract, delegation)}`,
     'Stop Ladder: Is it requested? Is it necessary? What reachable evidence proves that? Would omission fail the current acceptance?',
     'Report real findings even when implementation is not authorized.',
     'Before expanding scope, name reachable evidence, failure if omitted, and the fact that changes the next action.',
@@ -66,8 +69,7 @@ function decisionMessage(result, contract, event, responseOutcome, analysisReaso
       ? 'Guard returned context; it did not deny the action.'
       : executionDenial ? 'Guard returned a pre-execution denial.' : 'Guard returned permission deny.',
     `Reason: ${result.reasonCode}`,
-    ...(isShellAnalysisReason(analysisReason) && ['MODE_FORBIDS_MUTATION', 'MUTABILITY_UNPROVEN'].includes(result.reasonCode)
-      ? [`Detail: ${result.explanation}`] : []),
+    ...(result.explanation ? [`Detail: ${result.explanation}`] : []),
     `Code: ${result.family}/${result.reasonCode}`,
     `State: ${activeControlState(contract)} / ${contract.mode}`
   ];
@@ -107,6 +109,12 @@ function handleRuntimeCommand(command, event, state, options) {
     return context([
       'Stop That Shit status',
       `State: ${activeControlState(state.contract)} / ${state.contract.mode}`,
+      contractFields(state.contract, state.delegation),
+      `Authority source: ${state.contract.source || 'unconfirmed'}`,
+      ...(state.storageError ? [`${state.storageError.code}: ${state.storageError.message}`] : []),
+      ...(state.directiveError ? [`Directive error: ${state.directiveError.code}: ${state.directiveError.message}`] : []),
+      ...(inspectDelegation(state.delegation).unresolvedReasons.length
+        ? [`Unresolved activity: ${inspectDelegation(state.delegation).unresolvedReasons.join(', ')}. A confirmed completion or a new host session is required; do not reset the ledger.`] : []),
       'Host effect: unobserved',
       'Use runtime for checked-action and Guard-response counts.'
     ].join('\n'));
@@ -140,6 +148,7 @@ function handleRuntimeCommand(command, event, state, options) {
 function handlePrompt(event, state, options) {
   const command = runtimeCommand(event.prompt);
   if (command) return handleRuntimeCommand(command, event, state, options);
+  if (state.storageError) return context(`${state.storageError.code}: ${state.storageError.message}`);
   const parsed = parseContractPrompt(event.prompt, state.contract);
   if (parsed.error) {
     state.directiveError = parsed.error;
@@ -179,9 +188,8 @@ function handleBeforeAction(event, options) {
       unboundedDelegation: Boolean(event.action.unboundedDelegation),
       delegationLifecycleUnproven: Boolean(event.action.delegationLifecycleUnproven)
     };
-    const summary = inspectDelegation(state.delegation, { id: event.action.id, delegationCount });
-    action.duplicateActionConflict = summary.duplicateActionConflict;
-    action.alreadyReserved = summary.alreadyReserved;
+    const summary = inspectDelegation(state.delegation, { id: event.action.id });
+    action.duplicateActionId = summary.duplicateActionId;
     const result = decide({ contract: state.contract, action, delegation: summary, state });
     if (changesDelegation && ['allow', 'report_and_defer'].includes(result.outcome)) {
       state.delegation = applyDelegationFact(state.delegation, {
@@ -191,6 +199,10 @@ function handleBeforeAction(event, options) {
           : action.unboundedDelegation ? 'unbounded_execution'
           : action.delegationLifecycleUnproven ? 'unversioned_resume' : null
       });
+    } else if (changesDelegation && summary.duplicateActionId) {
+      // A later not-started event may describe this rejected attempt, not the
+      // original pending execution that still owns the reservation.
+      state.delegation = applyDelegationFact(state.delegation, { kind: 'duplicate_rejected', id: event.action.id });
     }
     return { state, result };
   };
@@ -198,9 +210,11 @@ function handleBeforeAction(event, options) {
   // Separate host processes can issue independent agent launches close together.
   // Serialize delegation reservations across Hook processes. Prompt updates
   // and completion handlers use the same lock; pure reads stay unlocked.
-  const { state, result } = changesDelegation
-    ? updateSession(event.sessionId, options.dataDir, evaluate)
-    : evaluate(readState(event.sessionId, options.dataDir));
+  const { state, result } = options.recoveryError
+    ? evaluate(recoveryState(options.recoveryError))
+    : changesDelegation
+      ? updateSession(event.sessionId, options.dataDir, evaluate)
+      : evaluate(readState(event.sessionId, options.dataDir));
 
   const denied = result.outcome === 'deny_and_explain' || result.outcome === 'require_user_approval';
   const responseOutcome = denied

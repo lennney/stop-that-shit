@@ -1,6 +1,7 @@
 'use strict';
 
 const nodePath = require('node:path');
+const { patchDependencyIntent } = require('../manifest-dependencies.cjs');
 
 const WRITE_NAME = /(?:^|__|_)(?:add|append|apply|archive|close|commit|copy|create|delete|deploy|edit|install|merge|move|patch|post|publish|push|remove|rename|send|set|submit|update|upload|write)(?:$|__|_)/i;
 const READ_NAME = /(?:^|__|_)(?:cat|check|diff|fetch|find|get|inspect|list|load|open|read|review|search|show|status|view)(?:$|__|_)/i;
@@ -71,38 +72,13 @@ function extractAffectedPaths(toolName, toolInput, cwd) {
   return [...new Set(paths.filter(Boolean))];
 }
 
-function addedLinesByPatchedFile(text) {
-  const sections = [];
-  let current = null;
-  for (const line of String(text || '').split(/\r?\n/)) {
-    const header = /^\*\*\* (?:Add|Update) File:\s*(.+?)\s*$/.exec(line);
-    if (header) {
-      current = { path: normalizePath(header[1]), added: [] };
-      sections.push(current);
-      continue;
-    }
-    if (/^\*\*\*/.test(line)) {
-      current = null;
-      continue;
-    }
-    if (current && /^\+(?!\+\+)/.test(line)) current.added.push(line);
-  }
-  return sections;
-}
-
 function detectDependencyIntent(toolName, toolInput) {
   const name = String(toolName || '');
   const text = inputText(toolInput);
   if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
     return analyzeShell(text).dependencyIntent;
   }
-  if (name === 'apply_patch') {
-    const manifest = /(?:^|\/)(?:package\.json|pyproject\.toml|requirements[^/]*\.txt|Cargo\.toml|go\.mod|composer\.json|Gemfile)$/i;
-    const dependencyDeclaration = /["']?(?:dependencies|devDependencies|optionalDependencies)["']?\s*[:=]|^[+]\s*[^#\s][^\r\n]*(?:==|>=|~=|\^\d)/mi;
-    return addedLinesByPatchedFile(text).some((section) => (
-      manifest.test(section.path) && dependencyDeclaration.test(section.added.join('\n'))
-    ));
-  }
+  if (name === 'apply_patch') return patchDependencyIntent(text);
   return false;
 }
 

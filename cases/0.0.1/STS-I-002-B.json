@@ -1,0 +1,10 @@
+{
+  "id": "STS-I-002-B", "kind": "bad", "family": "I",
+  "title": "Mutation while the saved control state is damaged",
+  "input": {
+    "contract": { "mode": "change", "level": "guard" },
+    "state": { "storageError": { "message": "The saved state is damaged." } },
+    "action": { "mutability": "write" }
+  },
+  "expected": { "outcome": "deny_and_explain", "family": "I", "reasonCode": "STATE_DAMAGED" }
+}

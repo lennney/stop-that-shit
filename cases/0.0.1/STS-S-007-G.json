@@ -1,0 +1,9 @@
+{
+  "id": "STS-S-007-G", "kind": "good", "family": "S",
+  "title": "Use a fresh delegation execution ID within the available budget",
+  "input": {
+    "contract": { "mode": "change", "level": "guard", "agentBudget": 1 },
+    "action": { "mutability": "delegate", "delegationCount": 1, "duplicateActionId": false }
+  },
+  "expected": { "outcome": "allow", "family": null, "reasonCode": "WITHIN_CONTRACT" }
+}

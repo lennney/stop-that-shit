@@ -1,0 +1,9 @@
+{
+  "id": "STS-S-007-B", "kind": "bad", "family": "S",
+  "title": "Reuse an already accepted delegation execution ID",
+  "input": {
+    "contract": { "mode": "change", "level": "guard", "agentBudget": 1 },
+    "action": { "mutability": "delegate", "delegationCount": 1, "duplicateActionId": true }
+  },
+  "expected": { "outcome": "deny_and_explain", "family": "S", "reasonCode": "DUPLICATE_ACTION_ID" }
+}
