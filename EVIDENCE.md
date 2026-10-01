@@ -16,6 +16,13 @@ Release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.4
 Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.3
 Last updated: 2026-09-28
 
+## Unreleased Issue #66 scope correction
+
+Parser and Hook regression tests cover Chinese observation objects, standalone
+read-only instructions, repeated heartbeat text, embedded directives, and direct
+user recovery. This is a scope-parsing correction. Actual Desktop automation
+inheritance and recovery remain unverified; Issue #66 is not fully resolved.
+
 ## 0.2.4 OpenCode V1/V2 adapter — 2026-09-28
 
 This candidate builds on 0.2.3; the published 0.2.3 release does
