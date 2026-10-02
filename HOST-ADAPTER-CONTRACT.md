@@ -412,8 +412,13 @@ becomes `sessionId`. A payload without a session identity is not translated,
 because an empty key would merge unrelated contracts.
 
 `agent/pre-step` maps the prompt text to `prompt` and the turn identifier to
-`turnId`. A `prompt-error` result becomes a denial, which the harness expresses
-as `{ kind: 'deny', reason }` on that waterfall.
+`turnId`. Its decision type is not the tool gate's: `PreStepDecision` is
+`{ kind: 'reject' } | { kind: 'enter', messages }`, so a rejection has no reason
+field. A `prompt-error` result is therefore returned as
+`{ kind: 'reject', reason }`, keeping the message for the calling plugin, which
+must surface it itself. The agent loop discards the reason: a rejection ends the
+turn as `blocked` and reports nothing further. Callers that want the model to
+read the message must log it or attach it through another channel.
 
 `tools/pre-execute` maps the pending `exec` to `action.before`: `exec.name`,
 `exec.arguments`, `exec.callId`, and the session workspace `cwd`. The harness

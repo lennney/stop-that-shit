@@ -145,14 +145,23 @@ function toControlEvent(hookPoint, payload) {
   return event;
 }
 
-// A denial returned to `tools/pre-execute` is a typed decision, not an exit
-// code. Context is attached to the downstream turn through the harness's own
-// waterfall decision rather than a host-specific output block.
+// The two pre-dispatch points cannot carry a denial the same way.
+//
+// `tools/pre-execute` returns a typed PreToolDecision, so a denial is
+// `{ kind: 'deny', reason }` and the model is told why.
+//
+// `agent/pre-step` returns a PreStepDecision, which is only
+// `{ kind: 'reject' } | { kind: 'enter', messages }`. A rejection ends the turn
+// as `blocked` and carries no reason field, so returning the reason here would
+// silently discard it. The caller receives `{ kind: 'reject', reason }` and
+// decides how to surface the text — the loop itself cannot.
 function fromControlResult(hookPoint, result) {
   if (!result || result.kind === 'none') return null;
 
   if (result.kind === 'prompt-error') {
-    return { kind: 'deny', reason: result.message };
+    return hookPoint === 'agent/pre-step'
+      ? { kind: 'reject', reason: result.message }
+      : { kind: 'deny', reason: result.message };
   }
 
   if (result.kind === 'context') {

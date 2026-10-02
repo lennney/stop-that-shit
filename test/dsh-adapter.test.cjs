@@ -188,7 +188,7 @@ test('Context is offered before dispatch but not after a settled result', () => 
   assert.equal(fromControlResult('tools/pre-execute', null), null);
 });
 
-test('A malformed directive denies the prompt instead of arming a contract', (t) => {
+test('A malformed directive rejects the prompt instead of arming a contract', (t) => {
   const options = workspace(t);
   const session = 'dsh-prompt-error';
   start(session, options);
@@ -197,7 +197,10 @@ test('A malformed directive denies the prompt instead of arming a contract', (t)
     prompt(session, '$stop-that-shit bogus=1 -- do the thing'),
     options
   );
-  assert.equal(decision.kind, 'deny');
+  // The harness pre-step decision is `{ kind: 'reject' }` with no reason field,
+  // so the adapter keeps the message for the caller rather than emitting a
+  // `deny` the waterfall would silently discard.
+  assert.equal(decision.kind, 'reject');
   assert.match(decision.reason, /Unknown directive field/);
   // The error path returns before assigning a contract, so the session keeps
   // the unconfirmed default rather than arming a partial directive.
@@ -213,4 +216,17 @@ test('Watch mode reports context rather than claiming mutations are blocked', (t
   const decision = handleDshHook('agent/pre-step', prompt(session, 'fix the failing test'), options);
   assert.equal(decision.kind, 'context');
   assert.match(decision.text, /watch-only mode/);
+});
+
+test('A prompt denial is shaped by the point it is returned to', () => {
+  // The same control result is rendered differently per waterfall: the tool
+  // gate takes a typed deny, the pre-step gate takes a bare reject.
+  assert.deepEqual(
+    fromControlResult('tools/pre-execute', { kind: 'prompt-error', message: 'bad directive' }),
+    { kind: 'deny', reason: 'bad directive' }
+  );
+  assert.deepEqual(
+    fromControlResult('agent/pre-step', { kind: 'prompt-error', message: 'bad directive' }),
+    { kind: 'reject', reason: 'bad directive' }
+  );
 });
