@@ -1,9 +1,9 @@
 # Host Adapter Contract
 
-Stop That Shit has six implemented host adapters in this candidate: Codex,
-Claude Code, OpenCode, Hermes Agent CLI, Pi, and Oh My Pi. Each adapter translates
-host input into the same `ControlEvent v2` and reuses the same contract parser,
-controller, decisions, state, and runtime evidence.
+Stop That Shit has seven implemented host adapters in this candidate: Codex,
+Claude Code, DeepSeek Harness, OpenCode, Hermes Agent CLI, Pi, and Oh My Pi.
+Each adapter translates host input into the same `ControlEvent v2` and reuses
+the same contract parser, controller, decisions, state, and runtime evidence.
 
 An Adapter may reuse the decision module only if its host exposes:
 
@@ -385,6 +385,73 @@ including provider rejection or invalid final output. Unknown result shapes and
 session-end notifications retain capacity.
 No fabricated `reservation_id` is required or accepted from Hermes lifecycle
 hooks. The generated runtime ships together with the adapter.
+
+## DeepSeek Harness
+
+The DeepSeek Harness adapter is implemented in `src/adapters/dsh-hooks.cjs` and
+classifies tools in `src/adapters/dsh-tool-classifier.cjs`. Harness is an
+event-emitter plugin host rather than a hook-file host, so there is no
+`hooks.json` to read: a listener calls `handleDshHook(point, payload)` with the
+harness extension point name and that point's own payload. The mapped surface is:
+
+```text
+Harness session/created    -> session.start
+Harness session/disposed   -> session.end
+Harness agent/pre-step     -> prompt.submit
+Harness tools/pre-execute  -> action.before
+Harness tools/post-execute -> action.after
+Harness subagent/start     -> subagent.start
+Harness subagent/end       -> subagent.stop
+```
+
+`tools/execute` and the other waterfall points are deliberately not mapped. The
+adapter ignores an unrecognized point instead of guessing a kind.
+
+`session/created` and `session/disposed` carry the session object, so its `id`
+becomes `sessionId`. A payload without a session identity is not translated,
+because an empty key would merge unrelated contracts.
+
+`agent/pre-step` maps the prompt text to `prompt` and the turn identifier to
+`turnId`. A `prompt-error` result becomes a denial, which the harness expresses
+as `{ kind: 'deny', reason }` on that waterfall.
+
+`tools/pre-execute` maps the pending `exec` to `action.before`: `exec.name`,
+`exec.arguments`, `exec.callId`, and the session workspace `cwd`. The harness
+call id becomes `action.id`. A delegated call without a call id is not
+translated, because the controller cannot correlate it.
+
+`tools/post-execute` maps the settled outcome to `action.after`. A `deny` or
+`cancel` decision reports `not_started`, since the tool body never ran. An
+explicit asynchronous launch reports `running`. Every other outcome reports
+`unknown`, including an accepted result: the harness reports no child completion
+for a delegated call, so an accepted call is not evidence that its subagents
+finished. This is stricter than the Claude adapter and keeps capacity reserved.
+
+The harness registers tools under lowercase snake_case names. `write`, `edit`,
+and `str_replace_editor` are writes; `bash`, `pwsh`, and `run_code` are
+classified from the parsed command rather than the tool name; `subagent`,
+`spawn_teammate`, and `workflow` are delegations; `terminal_list` and
+`terminal_read` are reads while `terminal_send`, `terminal_signal`, and
+`terminal_close` mutate a live terminal. Unknown names fall back to the
+host-neutral heuristics, which also cover MCP names such as
+`mcp__server__create_item`.
+
+`send_message` sets `delegationLifecycleUnproven` because it can wake a
+teammate that already stopped, and `subagent/end` carries no run identity that
+separates that new run from a delayed report about the previous one. `workflow`
+is reported as unbounded delegation because the harness exposes no bounded
+fan-out argument.
+
+Context is offered at `session/created`, `agent/pre-step`, and
+`tools/pre-execute`. It is not offered at `tools/post-execute`,
+`subagent/end`, or `session/disposed`, where there is no way to fold text back
+into the settled result without replacing tool output.
+
+DeepSeek Harness publishes no concurrency setting comparable to Codex's
+`agents.max_concurrent_threads_per_session`. `agents=N` is therefore counted
+from STS reservations alone, and delegation under a finite limit is
+conservative: capacity is released only by a correlated completion fact, which
+this adapter does not currently produce.
 
 ### Explicit Hermes tool coverage
 
