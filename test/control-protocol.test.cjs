@@ -38,7 +38,10 @@ test('damaged control state retains its evidence and offers read-only recovery i
   call('prompt.submit', { prompt: '$stop-that-shit change agents=1' });
   const file = statePath('damaged', directory);
   fs.writeFileSync(file, '{partial');
-  assert.match(call('prompt.submit', { prompt: '$stop-that-shit status' }).text, /STATE_DAMAGED/);
+  const status = call('prompt.submit', { prompt: '$stop-that-shit status' }).text;
+  assert.match(status, /STATE_DAMAGED/);
+  assert.match(status, /count unproven/);
+  assert.match(status, /Unresolved activity: state_unavailable/);
   assert.equal(call('action.before', { action: { id: 'read', name: 'read', mutability: 'read' } }).kind, 'none');
   const blocked = call('action.before', { action: { id: 'write', name: 'write', mutability: 'write' } });
   assert.match(blocked.message, /STATE_DAMAGED/);

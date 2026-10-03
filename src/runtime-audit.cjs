@@ -7,7 +7,7 @@ const packageJson = require('../package.json');
 const { PROTOCOL_VERSION, isShellAnalysisReason } = require('./control-protocol.cjs');
 const { inspectDelegation } = require('./delegation-state.cjs');
 const { readAnnotations } = require('./runtime-annotations.cjs');
-const { appendJsonl, readJsonl, runtimeRoot } = require('./runtime-storage.cjs');
+const { appendJsonl, scanJsonl, runtimeRoot } = require('./runtime-storage.cjs');
 const { sessionKey } = require('./state.cjs');
 
 function controlState(contract) {
@@ -27,6 +27,7 @@ function recordDecision(facts, options = {}) {
 
   const action = facts.action || {};
   const decision = facts.decision || {};
+  const activity = inspectDelegation(delegation);
   const event = {
     schemaVersion: 1,
     eventId: `evt_${crypto.randomUUID()}`,
@@ -51,8 +52,8 @@ function recordDecision(facts, options = {}) {
       mode: String(contract.mode || 'unconfirmed'),
       level: String(contract.level || 'watch'),
       agentBudget: Number.isSafeInteger(contract.agentBudget) ? contract.agentBudget : Number.MAX_SAFE_INTEGER,
-      reservedUpperBound: inspectDelegation(delegation).reservedUpperBound,
-      countUnproven: inspectDelegation(delegation).unresolvedReasons.length > 0,
+      reservedUpperBound: activity.reservedUpperBound,
+      countUnproven: activity.unresolvedReasons.length > 0,
       hashPolicy: String(contract.hashPolicy || 'deny'),
       dependencyPolicy: String(contract.dependencyPolicy || 'ask'),
       allowedPathCount: Array.isArray(contract.allowedPaths) ? contract.allowedPaths.length : 0
@@ -111,32 +112,40 @@ function summarize(events, annotations, damagedRecords) {
   return { events: labeledEvents, summary };
 }
 
+function isRuntimeEvent(event) {
+  return event && event.schemaVersion === 1
+    && typeof event.eventId === 'string' && /^evt_[0-9a-f-]+$/i.test(event.eventId)
+    && typeof event.occurredAt === 'string' && Number.isFinite(Date.parse(event.occurredAt))
+    && ['off', 'observing', 'armed'].includes(event.controlState)
+    && event.action && typeof event.action.toolName === 'string' && typeof event.action.mutability === 'string'
+    && event.contract && typeof event.contract.mode === 'string'
+    && event.decision && typeof event.decision.policyOutcome === 'string'
+    && typeof event.decision.reasonCode === 'string' && /^[A-Z][A-Z_0-9]*$/.test(event.decision.reasonCode)
+    && typeof event.decision.responseOutcome === 'string';
+}
+
 function readRuntime(query = {}, options = {}) {
   let events = [];
   let damagedRecords = 0;
   for (const file of eventFiles(query, options)) {
-    const parsed = readJsonl(file);
-    const valid = parsed.records.filter(event => event && event.schemaVersion === 1
-      && typeof event.eventId === 'string' && /^evt_[0-9a-f-]+$/i.test(event.eventId)
-      && typeof event.occurredAt === 'string' && Number.isFinite(Date.parse(event.occurredAt))
-      && ['off', 'observing', 'armed'].includes(event.controlState)
-      && event.action && typeof event.action.toolName === 'string' && typeof event.action.mutability === 'string'
-      && event.contract && typeof event.contract.mode === 'string'
-      && event.decision && typeof event.decision.policyOutcome === 'string'
-      && typeof event.decision.reasonCode === 'string' && /^[A-Z][A-Z_0-9]*$/.test(event.decision.reasonCode)
-      && typeof event.decision.responseOutcome === 'string');
-    events.push(...valid);
-    damagedRecords += parsed.damaged + parsed.records.length - valid.length;
+    const parsed = scanJsonl(file, event => {
+      if (!isRuntimeEvent(event)) {
+        damagedRecords += 1;
+        return;
+      }
+      // Retain only selected events, while still counting damage in the whole log.
+      if (query.limit !== 0 && (!query.eventId || event.eventId === query.eventId)) events.push(event);
+    });
+    damagedRecords += parsed.damaged;
   }
   // V8's stable sort preserves append order for equal timestamps within a log.
   events.sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
-  if (query.eventId) events = events.filter((event) => event.eventId === query.eventId);
   if (Number.isInteger(query.limit) && query.limit >= 0) events = events.slice(-query.limit);
 
-  const annotationResult = readAnnotations(options);
-  damagedRecords += annotationResult.damaged;
   const eventIds = new Set(events.map((event) => event.eventId));
-  const annotations = annotationResult.records.filter((annotation) => eventIds.has(annotation.eventId));
+  const annotationResult = readAnnotations(options, eventIds);
+  damagedRecords += annotationResult.damaged;
+  const annotations = annotationResult.records;
   const result = summarize(events, annotations, damagedRecords);
   return { schemaVersion: 1, ...result, annotations };
 }
