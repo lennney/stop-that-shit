@@ -26,6 +26,9 @@ const DSH_READ_TOOLS = new Set([
   'list_mcp_resource_templates',
   'list_subagent_models',
   'load_workspace_dependencies',
+  // Every documented `lsp` operation is a navigation query: goToDefinition,
+  // findReferences, goToImplementation, hover. None of them writes.
+  'lsp',
   'read',
   'read_image',
   'read_mcp_resource',
@@ -52,6 +55,10 @@ const DSH_CONTROL_TOOLS = new Set([
   'plugin_manager',
   'present',
   'schedule_create',
+  // Delivering a message to an agent writes nothing to the workspace. The
+  // generic name heuristic matches `send` and would classify it as a write,
+  // which under any file boundary denies a routine status update.
+  'send_message',
   'schedule_delete',
   'schedule_list',
   'schedule_update',
@@ -74,7 +81,15 @@ const DSH_CONTROL_TOOLS = new Set([
 // a config-driven tool name, so it must reserve capacity identically.
 // `spawn_teammate` creates a durable teammate and `workflow` fans out a
 // pipeline. All four reserve task capacity.
-const DSH_DELEGATE_TOOLS = new Set(['subagent', 'subagent_fork', 'spawn_teammate', 'workflow']);
+// `ralph` runs a fresh-agent loop: each round opens a new child with no
+// parent conversation, so it reserves task capacity like any other delegation.
+const DSH_DELEGATE_TOOLS = new Set([
+  'ralph',
+  'spawn_teammate',
+  'subagent',
+  'subagent_fork',
+  'workflow'
+]);
 
 // Terminal calls mutate an interactive session rather than the workspace
 // directly, so they classify by what the harness documents: open/read/list are

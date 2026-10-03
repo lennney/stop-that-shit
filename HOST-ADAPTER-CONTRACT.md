@@ -493,9 +493,17 @@ The harness registers tools under lowercase snake_case names. `write` and `edit`
 are writes; `bash` and `pwsh` are classified from the parsed command rather than
 the tool name; `subagent`, `subagent_fork`, `spawn_teammate`, and `workflow` are
 delegations; `terminal_list` and `terminal_read` are reads while `terminal_send`,
-`terminal_signal`, and `terminal_close` mutate a live terminal. Unknown names
-fall back to the host-neutral heuristics, which also cover MCP names such as
-`mcp__server__create_item`.
+`terminal_signal`, and `terminal_close` mutate a live terminal. `lsp` is a read
+because every documented operation is a navigation query, `send_message` is a
+control operation because delivering a message writes nothing to the workspace,
+and `ralph` is a delegation because each round opens a fresh child. Unknown
+names fall back to the host-neutral heuristics, which also cover MCP names such
+as `mcp__server__create_item`.
+
+The experimental `stagehand_*` browser tools are deliberately unmapped and stay
+`unknown`. Their actions are not verified against a shipped schema here, and an
+unknown mutability is refused or requires approval rather than passing, so the
+default fails closed.
 
 `subagent_fork` is the shipped alias of the `subagent` package, selected by a
 config-driven tool name. It must reserve delegation capacity identically, or a
@@ -519,11 +527,19 @@ it would be through `write`.
 
 `run_code` is a transport, not an analyzed action. It carries `description` and
 `code` rather than a shell `command`, so it is classified `control`: it owns no
-workspace effect of its own. Each tool called inside the program is scheduled
-through the registry and traverses `tools/pre-execute` on its own, so a nested
-read or write is classified and gated under its real name, and a nested denial
-surfaces inside the program as a binding rejection. Classifying the transport as
-`unknown` would refuse a read-only program before its reads are ever examined.
+workspace effect of its own. The program receives exactly one global binding,
+`tools`, and each call through it is scheduled through the registry and
+traverses `tools/pre-execute` on its own, so a nested read or write is
+classified and gated under its real name, and a nested denial surfaces inside
+the program as a binding rejection. Classifying the transport as `unknown` would
+refuse a read-only program before its reads are ever examined.
+
+This does not cover a program that reaches the filesystem through its own
+runtime rather than through `tools.*`. A sandbox policy is optional for a PTC
+runtime, so a deployment that runs programs unsandboxed has no STS gate on that
+path. Enforcing it is the host's responsibility under the ownership table
+above, not the adapter's; a deployment that needs the guarantee should require
+the sandbox rather than rely on this classification.
 
 `send_message` sets `delegationLifecycleUnproven` because it can wake a
 teammate that already stopped, and `subagent/end` carries no run identity that

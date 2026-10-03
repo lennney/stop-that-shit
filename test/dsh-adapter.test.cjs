@@ -509,3 +509,49 @@ test('A tool call with no calling agent is not translated', () => {
   assert.equal(payload.session.id, '');
   assert.equal(toControlEvent('tools/pre-execute', payload), null);
 });
+
+test('Regression: agent messaging is not treated as a file write', (t) => {
+  const options = workspace(t);
+  const session = 'dsh-send-message';
+  start(session, options);
+  handleDshHook('agent/pre-step', prompt(session, '$stop-that-shit change files=src/** -- implement and report'), options);
+
+  // `send_message` delivers a message and writes nothing. The generic name
+  // heuristic matches `send` and would demand a proven path on every status
+  // update, refusing routine delegation chatter.
+  const status = handleDshHook(
+    'tools/pre-execute',
+    pre(session, 'send_message', { agent_id: 'lead', message: 'parser done' }, 'call-1'),
+    options
+  );
+  assert.equal(status, null);
+
+  // A real write under the same contract is still gated.
+  const write = handleDshHook(
+    'tools/pre-execute',
+    pre(session, 'write', { file_path: 'docs/other.md', content: 'x' }, 'call-2'),
+    options
+  );
+  assert.equal(write.kind, 'deny');
+});
+
+test('Regression: read-only navigation and the Ralph loop classify correctly', (t) => {
+  const options = workspace(t);
+  const session = 'dsh-nav-and-ralph';
+  start(session, options);
+
+  // Every documented lsp operation is a navigation query.
+  handleDshHook('agent/pre-step', prompt(session, '$stop-that-shit review -- inspect the code'), options);
+  const navigation = handleDshHook(
+    'tools/pre-execute',
+    pre(session, 'lsp', { operation: 'goToDefinition', line: 1, character: 1 }, 'call-1'),
+    options
+  );
+  assert.equal(navigation, null, 'lsp navigation is an observation');
+
+  // ralph opens a fresh child per round, so it must reserve capacity.
+  handleDshHook('agent/pre-step', prompt(session, '$stop-that-shit change agents=0 -- run the loop', 'turn-2'), options);
+  const loop = handleDshHook('tools/pre-execute', pre(session, 'ralph', { objective: 'converge' }, 'call-2'), options);
+  assert.equal(loop.kind, 'deny');
+  assert.match(loop.reason, /AGENT_BUDGET_EXHAUSTED/);
+});
