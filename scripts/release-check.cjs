@@ -166,7 +166,7 @@ if (fs.existsSync(path.join(root, hermesPluginRoot, 'hooks'))) {
 }
 
 const selectedFiles = releaseManifest.include.flatMap((entry) => walk(path.join(root, entry)));
-const textExtensions = new Set(['', '.cjs', '.js', '.json', '.md', '.ts', '.txt', '.yaml', '.yml']);
+const textExtensions = new Set(['', '.cjs', '.csv', '.js', '.json', '.md', '.mjs', '.py', '.svg', '.ts', '.txt', '.yaml', '.yml']);
 // Historical versions in CHANGELOG.md and EVIDENCE.md are intentional.
 const staleVersion = /(?:v0\.1(?:\.\d+)?|0\.1\.2)/i;
 const currentVersionSurfaces = new Set([
@@ -179,7 +179,7 @@ const currentVersionSurfaces = new Set([
   'SECURITY.md'
 ]);
 const releaseReference = /(?:--ref\s+|--branch\s+|stop-that-shit@|\/(?:releases\/tag|releases\/download|blob|tree|archive\/refs\/tags)\/)(\d+\.\d+\.\d+)(?=[\s/.)?#]|$)/g;
-const privatePath = /(?:[A-Za-z]:\\Users\\|[A-Za-z]:\\object\\|\/Users\/|\/home\/)/;
+const privatePath = /(?:[A-Za-z]:[\\/](?:Users|object)[\\/]|\/Users\/|\/home\/)/;
 const mojibake = /(?:\uFFFD|\u9225|\u6E1F|\u951F)/;
 
 for (const file of selectedFiles) {

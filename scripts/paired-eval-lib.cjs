@@ -739,19 +739,31 @@ function materializeFixture(name, target, root = path.resolve(__dirname, '..')) 
   }
 }
 
-function gitStatus(workspace, paths = []) {
-  const result = spawnSync('git', ['status', '--short', '--', ...paths], {
+function gitStatus(workspace, paths = [], flags = []) {
+  const result = spawnSync('git', ['status', '--porcelain=v1', '--untracked-files=all', ...flags, '--', ...paths], {
     cwd: workspace,
     encoding: 'utf8'
   });
   if (result.status !== 0) throw new Error(result.stderr || 'git status failed');
-  return result.stdout.trimEnd();
+  return result.stdout;
 }
 
 function changedPaths(workspace) {
-  const status = gitStatus(workspace);
+  const status = gitStatus(workspace, [], ['-z']);
   if (!status) return [];
-  return status.split(/\r?\n/).map((line) => line.slice(3).replace(/\\/g, '/'))
+  const entries = status.split('\0');
+  const files = [];
+  for (let index = 0; index < entries.length - 1; index += 1) {
+    const entry = entries[index];
+    const change = entry.slice(0, 2);
+    files.push(entry.slice(3));
+    // In -z output, a rename/copy has a second entry for its source path.
+    if (/[RC]/.test(change)) {
+      const source = entries[++index];
+      if (change.includes('R')) files.push(source);
+    }
+  }
+  return files
     .filter((file) => file && !file.startsWith('.codex/'))
     .sort();
 }
@@ -999,7 +1011,7 @@ function evaluateAcceptance({
 }) {
   const checks = acceptance.map((check) => {
     if (check.type === 'unchanged') {
-      const status = gitStatus(workspace, [check.path]);
+      const status = gitStatus(workspace, [check.path]).trimEnd();
       return { ...check, pass: status === '', actual: status || 'unchanged' };
     }
     if (check.type === 'responseMatches') {

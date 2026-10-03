@@ -2,16 +2,9 @@
 
 const { manifestDependencyIntent, manifestEditDependencyIntent } = require('../manifest-dependencies.cjs');
 
-const {
-  analyzeShell,
-  detectDependencyIntent: detectCodexDependencyIntent,
-  detectHashIntent: detectCodexHashIntent,
-  classifyShell
-} = require('./codex-tool-classifier.cjs');
-const {
-  detectHashIntent: detectOpenCodeHashIntent,
-  normalizePath
-} = require('./opencode-tool-classifier.cjs');
+const { analyzeShell, classifyShell } = require('../shell-analysis.cjs');
+const { normalizePath } = require('./opencode-tool-classifier.cjs');
+const { fileHashIntent } = require('../hash-intent.cjs');
 
 const READ_TOOLS = new Set(['read', 'grep', 'find', 'ls']);
 const WRITE_TOOLS = new Set(['write', 'edit']);
@@ -64,7 +57,7 @@ function detectDependencyIntent(toolName, toolInput) {
   const name = String(toolName || '').toLowerCase();
   const input = toolInput && typeof toolInput === 'object' ? toolInput : {};
   if (name === 'bash' || name === 'powershell') {
-    return detectCodexDependencyIntent('Bash', { command: input.command });
+    return analyzeShell(input.command).dependencyIntent;
   }
   if (name === 'write') return manifestDependencyIntent(input.path, input.content);
   if (name === 'edit') {
@@ -78,19 +71,13 @@ function detectHashIntent(toolName, toolInput) {
   const name = String(toolName || '').toLowerCase();
   const input = toolInput && typeof toolInput === 'object' ? toolInput : {};
   if (name === 'bash' || name === 'powershell') {
-    return detectCodexHashIntent('Bash', { command: input.command });
+    return analyzeShell(input.command).hashIntent;
   }
   if (name === 'write') {
-    return detectOpenCodeHashIntent('write', {
-      filePath: input.path,
-      content: input.content
-    });
+    return fileHashIntent(input.path, input.content);
   }
   if (name === 'edit') {
-    return detectOpenCodeHashIntent('edit', {
-      filePath: input.path,
-      newString: editAddedText(input)
-    });
+    return fileHashIntent(input.path, editAddedText(input));
   }
   return false;
 }
