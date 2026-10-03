@@ -20,7 +20,10 @@ unnecessary or necessary action, and the reason it should be stopped or kept.
 | --- | --- |
 | Agent guidance or the Stop Ladder | `skills/stop-that-shit/SKILL.md` |
 | Hook discovery and lifecycle events | `hooks/` |
-| Task contracts and decisions | `src/` |
+| Task directives and contract parsing | `src/contracts.cjs`, `test/contracts.test.cjs` |
+| Authorization decisions | `src/decision.cjs`, `test/decision.test.cjs` |
+| Saved-state validation and migration | `src/state-schema.cjs`, `test/state.test.cjs` |
+| State I/O and process locks | `src/state.cjs`, `test/session-lock.test.cjs` |
 | Codex event translation | `src/adapters/` |
 | A reader-facing case explanation | `cases/README.md` and `cases/README_CN.md` |
 | An executable Bad/Good policy pair | `cases/0.0.1/` |

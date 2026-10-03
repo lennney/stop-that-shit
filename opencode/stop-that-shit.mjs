@@ -254,7 +254,7 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
       lastAppliedMessage.set(controlSessionID, sequence);
     }
     const state = readState(controlSessionID, dataDir);
-    const active = contractContext(state.contract, state.delegation);
+    const active = contractContext(state.contract, state.delegation, 'active', null, state.storageError);
     const resultText = result && result.kind === 'context' ? result.text : active;
     const contextText = state.directiveError ? `${directiveErrorText(state.directiveError)}\n${resultText}` : resultText;
     await injectContext(controlSessionID, info, contextText);
