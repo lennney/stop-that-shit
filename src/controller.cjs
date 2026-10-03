@@ -16,8 +16,7 @@ function context(text) {
   return { kind: 'context', text };
 }
 
-function contractFields(contract, delegation = {}) {
-  const summary = inspectDelegation(delegation);
+function contractFields(contract, summary) {
   const limit = Number.isSafeInteger(contract.agentBudget) && contract.agentBudget >= 0 ? contract.agentBudget : DEFAULT_AGENT_LIMIT;
   return `mode=${contract.mode}; agents=${summary.reservedUpperBound}/${limit} reserved${summary.unresolvedReasons.length ? '; count unproven' : ''}; hash=${contract.hashPolicy || 'deny'}; deps=${contract.dependencyPolicy || 'ask'}; files=${Array.isArray(contract.allowedPaths) ? contract.allowedPaths.join('|') : 'unbounded'}.`;
 }
@@ -46,7 +45,7 @@ function contractContext(contract, delegation = {}, phase = 'active', directiveW
 
   return [
     directiveWarning && directiveWarning.message ? `Warning: ${directiveWarning.message}` : null,
-    `Stop That Shit (${phase}): ${contractFields(contract, delegation)}`,
+    `Stop That Shit (${phase}): ${contractFields(contract, inspectDelegation(delegation))}`,
     'Stop Ladder: Is it requested? Is it necessary? What reachable evidence proves that? Would omission fail the current acceptance?',
     'Report real findings even when implementation is not authorized.',
     'Before expanding scope, name reachable evidence, failure if omitted, and the fact that changes the next action.',
@@ -107,15 +106,16 @@ function runtimeSummaryText(runtime) {
 
 function handleRuntimeCommand(command, event, state, options) {
   if (command.name === 'status') {
+    const summary = inspectDelegation(state.delegation);
     return context([
       'Stop That Shit status',
       `State: ${activeControlState(state.contract)} / ${state.contract.mode}`,
-      contractFields(state.contract, state.delegation),
+      contractFields(state.contract, summary),
       `Authority source: ${state.contract.source || 'unconfirmed'}`,
       ...(state.storageError ? [`${state.storageError.code}: ${state.storageError.message}`] : []),
       ...(state.directiveError ? [`Directive error: ${state.directiveError.code}: ${state.directiveError.message}`] : []),
-      ...(inspectDelegation(state.delegation).unresolvedReasons.length
-        ? [`Unresolved activity: ${inspectDelegation(state.delegation).unresolvedReasons.join(', ')}. A confirmed completion or a new host session is required; do not reset the ledger.`] : []),
+      ...(summary.unresolvedReasons.length
+        ? [`Unresolved activity: ${summary.unresolvedReasons.join(', ')}. A confirmed completion or a new host session is required; do not reset the ledger.`] : []),
       'Host effect: unobserved',
       'Use runtime for checked-action and Guard-response counts.'
     ].join('\n'));
@@ -146,9 +146,7 @@ function handleRuntimeCommand(command, event, state, options) {
   ].join('\n'));
 }
 
-function handlePrompt(event, state, options) {
-  const command = runtimeCommand(event.prompt);
-  if (command) return handleRuntimeCommand(command, event, state, options);
+function handlePrompt(event, state) {
   if (state.storageError) return context(`${state.storageError.code}: ${state.storageError.message}`);
   const parsed = parseContractPrompt(event.prompt, state.contract);
   if (parsed.error) {
@@ -282,10 +280,12 @@ function handleControlEvent(rawEvent, options = {}) {
     event = { ...event, action: { ...event.action, id: JSON.stringify([event.sourceSessionId, event.action.id]) } };
   }
   switch (event.kind) {
-    case 'prompt.submit':
-      return runtimeCommand(event.prompt)
-        ? handlePrompt(event, readState(event.sessionId, options.dataDir), options)
-        : updateSession(event.sessionId, options.dataDir, state => handlePrompt(event, state, options));
+    case 'prompt.submit': {
+      const command = runtimeCommand(event.prompt);
+      return command
+        ? handleRuntimeCommand(command, event, readState(event.sessionId, options.dataDir), options)
+        : updateSession(event.sessionId, options.dataDir, state => handlePrompt(event, state));
+    }
     case 'action.before':
       return handleBeforeAction(event, options);
     case 'action.after':

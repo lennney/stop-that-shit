@@ -2,7 +2,7 @@
 
 const crypto = require('node:crypto');
 const path = require('node:path');
-const { appendJsonl, readJsonl, runtimeRoot } = require('./runtime-storage.cjs');
+const { appendJsonl, scanJsonl, runtimeRoot } = require('./runtime-storage.cjs');
 
 const LABELS = new Set(['correct', 'incorrect', 'inconclusive']);
 
@@ -32,13 +32,21 @@ function recordAnnotation(eventId, label, options = {}) {
   }
 }
 
-function readAnnotations(options = {}) {
-  const parsed = readJsonl(annotationsPath(options));
-  const records = parsed.records.filter(record => record && record.schemaVersion === 1
+function isAnnotation(record) {
+  return record && record.schemaVersion === 1
     && typeof record.eventId === 'string' && /^evt_[0-9a-f-]+$/i.test(record.eventId)
     && typeof record.occurredAt === 'string' && Number.isFinite(Date.parse(record.occurredAt))
-    && LABELS.has(record.label));
-  return { records, damaged: parsed.damaged + parsed.records.length - records.length };
+    && LABELS.has(record.label);
+}
+
+function readAnnotations(options = {}, eventIds) {
+  const records = [];
+  let damaged = 0;
+  const parsed = scanJsonl(annotationsPath(options), record => {
+    if (!isAnnotation(record)) damaged += 1;
+    else if (!eventIds || eventIds.has(record.eventId)) records.push(record);
+  });
+  return { records, damaged: damaged + parsed.damaged };
 }
 
 module.exports = { LABELS, readAnnotations, recordAnnotation };

@@ -27,6 +27,7 @@ unnecessary or necessary action, and the reason it should be stopped or kept.
 | Saved-state validation and migration | `src/state-schema.cjs`, `test/state.test.cjs` |
 | State I/O and process locks | `src/state.cjs`, `test/session-lock.test.cjs` |
 | Host event translation | `src/adapters/`, `HOST-ADAPTER-CONTRACT.md` |
+| Runtime evidence queries and JSONL reads | `src/runtime-audit.cjs`, `src/runtime-annotations.cjs`, `src/runtime-storage.cjs`, `test/runtime-audit.test.cjs`, `test/runtime-storage.test.cjs` |
 | A reader-facing case explanation | `cases/README.md` and `cases/README_CN.md` |
 | An executable Bad/Good policy pair | `cases/0.0.1/` |
 | Reproducible model evaluation | `evals/codex-paired/cases/<family>/` |
