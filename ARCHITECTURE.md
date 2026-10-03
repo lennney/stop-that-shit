@@ -132,6 +132,9 @@ documented hooks: `message.part.updated` and session events through `event`, plu
 the SDK `client.session.message` call, injects contract context with
 `client.session.prompt({ noReply: true })`, and maps child sessions to the root
 contract so a subagent cannot silently replace user authority.
+Within its bounded message cache, V1 keeps first-delivery order across retries:
+an earlier failed message cannot replace a newer processed root input. A retry
+in another root session remains independent.
 An embedded directive mention cannot arm the contract or trigger the plugin's
 implicit promotion from review to an editable host mode. Separate text parts
 are joined with newlines, so directive fields must stay in the first part's
