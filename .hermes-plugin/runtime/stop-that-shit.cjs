@@ -300,7 +300,8 @@ function contractFields(contract, delegation = {}) {
   return `mode=${contract.mode}; agents=${summary.reservedUpperBound}/${limit} reserved${summary.unresolvedReasons.length ? '; count unproven' : ''}; hash=${contract.hashPolicy || 'deny'}; deps=${contract.dependencyPolicy || 'ask'}; files=${Array.isArray(contract.allowedPaths) ? contract.allowedPaths.join('|') : 'unbounded'}.`;
 }
 
-function contractContext(contract, delegation = {}, phase = 'active', directiveWarning = null) {
+function contractContext(contract, delegation = {}, phase = 'active', directiveWarning = null, storageError = null) {
+  if (contract.source === 'recovery' && storageError) return `${storageError.code}: ${storageError.message}`;
   if (contract.source === 'recovery') return 'STATE_DAMAGED: the saved contract is unavailable. Read-only recovery is active. Restore a known-good backup or start a new host session; the damaged file is preserved.';
   if (typeof delegation === 'string') {
     phase = delegation;
@@ -437,7 +438,7 @@ function handlePrompt(event, state, options) {
   state.contract = parsed.contract;
   if (parsed.directive || parsed.correction) state.directiveError = null;
   if (parsed.directive || parsed.correction) state.directiveWarning = parsed.warning;
-  const promptContext = contractContext(state.contract, state.delegation, 'active', state.directiveWarning);
+  const promptContext = contractContext(state.contract, state.delegation, 'active', state.directiveWarning, state.storageError);
   const repeatedContext = state.lastPromptContext === promptContext;
   state.lastPromptContext = promptContext;
   return repeatedContext ? none() : context(promptContext);
@@ -543,7 +544,7 @@ function handleLifecycleContext(event, options) {
       : event.kind === 'subagent.stop' ? { kind: 'child_stopped', agentId: event.agentId }
       : { kind: event.allDelegationsStopped === true ? 'all_stopped' : 'unknown' };
     state.delegation = applyDelegationFact(state.delegation, fact);
-    return context(contractContext(state.contract, state.delegation, 'active', state.directiveWarning));
+    return context(contractContext(state.contract, state.delegation, 'active', state.directiveWarning, state.storageError));
   };
   // Ordinary session end carries no completion fact. Keep its context response
   // without waiting for another writer or rewriting state during shutdown.
@@ -862,6 +863,7 @@ module.exports = {
   MODES,
   DEFAULT_AGENT_LIMIT,
   defaultContract,
+  normalizeContract,
   parseContractPrompt
 };
 
@@ -1184,10 +1186,12 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
   const level = contract.level || 'watch';
 
   if (state.storageError) {
+    const lockDamaged = state.storageError.code === 'STS_LOCK_DAMAGED';
     return action.mutability === 'read' || action.mutability === 'control' && !action.delegationLifecycleUnproven
       ? decision('allow', null, 'RECOVERY_READ_ONLY', 'Read-only recovery remains available.', null)
-      : decision('deny_and_explain', 'I', 'STATE_DAMAGED', state.storageError.message,
-        'Restore the saved state from a known-good backup or start a new host session. Do not clear unresolved delegation records.');
+      : decision('deny_and_explain', 'I', lockDamaged ? 'STS_LOCK_DAMAGED' : 'STATE_DAMAGED', state.storageError.message,
+        lockDamaged ? 'Follow the legacy lock recovery steps in INSTALL.md. Keep saved contracts and delegation records.'
+          : 'Restore the saved state from a known-good backup or start a new host session. Do not clear unresolved delegation records.');
   }
 
   const delegationCount = action.mutability === 'delegate'
@@ -1561,7 +1565,8 @@ module.exports = {
     "pretest": "npm run schema:check",
     "hermes:build": "node scripts/build-hermes-plugin.cjs",
     "hermes:check": "node scripts/build-hermes-plugin.cjs --check",
-    "test": "node --test test/manifest-dependencies.test.cjs test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/delegation-state.test.cjs test/delegation-lifecycle.test.cjs test/delegation-facts.test.cjs test/lifecycle-compatibility.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/omp-adapter.test.cjs test/omp-extension.test.cjs test/omp-package.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/opencode-v2-plugin.test.mjs test/opencode-dual-smoke.test.mjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs test/stss-skill.test.cjs test/release-check.test.cjs",
+    "test": "node scripts/test.cjs",
+    "check": "npm test && npm run eval && npm run release:check",
     "sts": "node scripts/sts.cjs",
     "eval": "node scripts/evaluate-cases.cjs",
     "eval:selftest": "node --test test/case-bundle.test.cjs test/paired-eval.test.cjs",
@@ -1689,9 +1694,9 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { defaultContract } = __require("src/contracts.cjs");
+const { decodeState, freshState, recoveryState } = __require("src/state-schema.cjs");
 
-const CURRENT_SCHEMA_VERSION = 4;
+const LOCK_STALE_MS = 10000;
 
 function dataRoot(override) {
   return override || process.env.PLUGIN_DATA || process.env.CLAUDE_PLUGIN_DATA || path.join(os.tmpdir(), 'stop-that-shit-dev');
@@ -1704,6 +1709,221 @@ function sessionKey(sessionId) {
 function statePath(sessionId, override) {
   return path.join(dataRoot(override), 'sessions', `${sessionKey(sessionId)}.json`);
 }
+
+function readState(sessionId, override) {
+  const file = statePath(sessionId, override);
+  // Ordinary tool checks do not acquire the session lock. They must still
+  // see a failed legacy lock migration instead of trusting stale authority.
+  try {
+    const lock = `${file}.lock`;
+    const stat = fs.statSync(lock, { throwIfNoEntry: false });
+    if (stat?.isFile() && Date.now() - stat.mtimeMs > LOCK_STALE_MS) legacyLockOwner(lock);
+  } catch (error) {
+    if (error.code === 'STS_LOCK_DAMAGED') return recoveryState({ code: error.code, message: error.message });
+    // A completed migration may remove the old file or replace it with a directory.
+    if (!['ENOENT', 'EISDIR'].includes(error.code)) throw error;
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    // Reads may run without the session lock. Normalize in memory only;
+    // the next locked mutation persists the current schema and latest ledger.
+    return decodeState(parsed);
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return freshState();
+    if (error && error.name === 'SyntaxError') {
+      return recoveryState();
+    }
+    throw error;
+  }
+}
+
+function writeState(sessionId, state, override) {
+  const file = statePath(sessionId, override);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
+  // Do not replace an atomic rename with a partial overwrite on Windows.
+  try {
+    fs.writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    // Concurrent readers can briefly prevent replacement on Windows. Keep the
+    // same atomic rename and session lock; never fall back to partial overwrite.
+    const started = Date.now();
+    while (true) {
+      try { fs.renameSync(temporary, file); break; }
+      catch (error) {
+        if (process.platform !== 'win32' || error.code !== 'EPERM' || Date.now() - started >= 100) throw error;
+        sleepSync(10);
+      }
+    }
+  }
+  finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
+}
+
+
+function lockPath(sessionId, override) {
+  return `${statePath(sessionId, override)}.lock`;
+}
+
+function sleepSync(milliseconds) {
+  const shared = new Int32Array(new SharedArrayBuffer(4));
+  Atomics.wait(shared, 0, 0, milliseconds);
+}
+
+function ownerHasExited(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return false; }
+  catch (error) { return error.code === 'ESRCH'; }
+}
+
+function legacyLockOwner(file) {
+  const match = /^(\d+):/.exec(fs.readFileSync(file, 'utf8'));
+  const pid = match && Number(match[1]);
+  if (Number.isSafeInteger(pid) && pid > 0) return pid;
+  const error = new Error(`The legacy session lock "${path.basename(file)}" has no valid owner. `
+    + 'Read-only recovery is active; the lock and saved state are preserved. '
+    + 'Start a new host session and submit a new contract, or stop every host process using this data directory '
+    + 'before moving only this lock file aside. Keep the saved state and delegation records. '
+    + 'See INSTALL.md#recover-a-damaged-legacy-session-lock.');
+  error.name = 'STS_LOCK_DAMAGED';
+  error.code = 'STS_LOCK_DAMAGED';
+  throw error;
+}
+
+function removeEmptyLock(directory) {
+  // Remove only an empty container. A contender may already have published
+  // its own nonempty lock directory at this path.
+  try { fs.rmdirSync(directory); }
+  catch (error) {
+    if (!['ENOENT', 'ENOTDIR', 'ENOTEMPTY', 'EEXIST'].includes(error.code)) throw error;
+  }
+}
+
+function removeLockOwner(directory, owner) {
+  try { fs.unlinkSync(path.join(directory, owner)); }
+  catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return;
+    throw error;
+  }
+  removeEmptyLock(directory);
+}
+
+function reclaimSessionLock(file, staleMs) {
+  try {
+    const stat = fs.statSync(file);
+    if (Date.now() - stat.mtimeMs <= staleMs) return;
+    if (stat.isDirectory()) {
+      const owners = fs.readdirSync(file);
+      if (owners.length === 0) {
+        removeEmptyLock(file);
+      } else {
+        // Interrupted contenders can leave more than one marker. Reclaim each
+        // confirmed exited owner by its unique name, retaining live owners.
+        for (const owner of owners) {
+          const match = /^(\d+)-[a-f0-9-]{36}$/.exec(owner);
+          if (match && ownerHasExited(Number(match[1]))) removeLockOwner(file, owner);
+        }
+      }
+    } else {
+      // Previous releases used a file containing "pid:uuid timestamp".
+      // A replacement directory cannot be removed by unlinkSync.
+      if (ownerHasExited(legacyLockOwner(file))) fs.unlinkSync(file);
+    }
+  } catch (error) {
+    if (['ENOENT', 'ENOTDIR', 'EISDIR'].includes(error.code)) return;
+    if (error.code === 'EPERM' && fs.statSync(file, { throwIfNoEntry: false })?.isDirectory()) return;
+    throw error;
+  }
+}
+
+function acquireSessionLock(sessionId, override, options = {}) {
+  const file = lockPath(sessionId, override);
+  const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 1500;
+  const staleMs = Number.isFinite(options.staleMs) ? options.staleMs : LOCK_STALE_MS;
+  const started = Date.now();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const owner = `${process.pid}-${crypto.randomUUID()}`;
+  while (true) {
+    let created = false;
+    try { fs.mkdirSync(file, { mode: 0o700 }); created = true; }
+    catch (error) { if (error.code !== 'EEXIST') throw error; }
+    if (created) {
+      let acquired = false;
+      try {
+        fs.writeFileSync(path.join(file, owner), '', { flag: 'wx', mode: 0o600 });
+        // If this process paused after mkdir, recovery may have replaced the
+        // empty directory. Only the sole marker owner may enter. Winners keep
+        // their marker until release, so a delayed initializer cannot also win.
+        const owners = fs.readdirSync(file);
+        acquired = owners.length === 1 && owners[0] === owner;
+        if (acquired) return () => removeLockOwner(file, owner);
+      } catch (error) {
+        if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error;
+      } finally {
+        if (!acquired) {
+          removeLockOwner(file, owner);
+          removeEmptyLock(file);
+        }
+      }
+    }
+    reclaimSessionLock(file, staleMs);
+    if (Date.now() - started >= timeoutMs) {
+      const timeout = new Error(`Timed out waiting for Stop That Shit session lock: ${sessionKey(sessionId)}`);
+      timeout.code = 'STS_LOCK_TIMEOUT';
+      throw timeout;
+    }
+    sleepSync(10);
+  }
+}
+
+function withSessionLock(sessionId, override, fn, options) {
+  const release = acquireSessionLock(sessionId, override, options);
+  try {
+    return fn();
+  } finally {
+    release();
+  }
+}
+
+function updateSession(sessionId, override, update) {
+  let release;
+  try {
+    release = acquireSessionLock(sessionId, override);
+  } catch (error) {
+    if (error.code !== 'STS_LOCK_DAMAGED') throw error;
+    return update(recoveryState({ code: error.code, message: error.message }));
+  }
+  try {
+    const state = readState(sessionId, override);
+    const damaged = Boolean(state.storageError);
+    const result = update(state);
+    if (!damaged) writeState(sessionId, state, override);
+    return result;
+  } finally {
+    release();
+  }
+}
+
+module.exports = {
+  updateSession,
+  acquireSessionLock,
+  dataRoot,
+  freshState,
+  recoveryState,
+  readState,
+  sessionKey,
+  statePath,
+  withSessionLock,
+  writeState
+};
+
+},
+"src/state-schema.cjs": function(module, exports, __require) {
+'use strict';
+
+const {
+  defaultContract, normalizeContract, MODES, LEVELS, HASH_POLICIES, SCOPE_POLICIES
+} = __require("src/contracts.cjs");
+
+const CURRENT_SCHEMA_VERSION = 4;
 
 function freshState() {
   return {
@@ -1732,23 +1952,6 @@ function recoveryState(error = { code: 'STATE_DAMAGED', message: 'The saved cont
 
 function safeCount(value) {
   return Number.isSafeInteger(value) && value >= 0 ? value : 0;
-}
-
-function validAgentBudget(value) {
-  return Number.isSafeInteger(value) && value >= 0 ? value : null;
-}
-
-function migratedAgentBudget(contract) {
-  const legacyBudget = validAgentBudget(contract.agentBudget);
-  if (legacyBudget !== null) return legacyBudget;
-
-  const concurrentBudget = validAgentBudget(contract.concurrentAgentBudget);
-  if (concurrentBudget !== null && concurrentBudget !== Number.MAX_SAFE_INTEGER) return concurrentBudget;
-
-  const totalBudget = validAgentBudget(contract.totalAgentBudget);
-  if (totalBudget !== null && totalBudget !== Number.MAX_SAFE_INTEGER) return totalBudget;
-
-  return Number.MAX_SAFE_INTEGER;
 }
 
 function normalizeDelegation(value) {
@@ -1796,15 +1999,9 @@ function normalizeDelegation(value) {
 }
 
 function normalizeState(parsed) {
-  const fresh = freshState();
   const source = parsed && typeof parsed === 'object' ? parsed : {};
   const legacyContract = source.contract && typeof source.contract === 'object' ? source.contract : {};
-  const contract = { ...fresh.contract, ...legacyContract };
-  delete contract.agentBudget;
-  contract.agentBudget = migratedAgentBudget(legacyContract);
-  delete contract.totalAgentBudget;
-  delete contract.concurrentAgentBudget;
-  delete contract.agentsUsed;
+  const contract = normalizeContract(legacyContract);
   delete contract.directiveWarning;
   delete contract.directiveError;
   const delegation = normalizeDelegation(source.delegation);
@@ -1850,11 +2047,11 @@ function normalizeState(parsed) {
 
 function validStoredContract(contract, schemaVersion) {
   const checks = {
-    mode: value => ['unconfirmed', 'answer', 'review', 'change', 'monitor', 'open'].includes(value),
-    level: value => ['watch', 'guard', 'lock', 'off'].includes(value),
-    agentBudget: value => validAgentBudget(value) !== null,
-    hashPolicy: value => ['deny', 'ask', 'allow'].includes(value),
-    dependencyPolicy: value => ['deny', 'ask', 'allow'].includes(value),
+    mode: value => value === 'unconfirmed' || MODES.has(value),
+    level: value => LEVELS.has(value),
+    agentBudget: value => Number.isSafeInteger(value) && value >= 0,
+    hashPolicy: value => HASH_POLICIES.has(value),
+    dependencyPolicy: value => SCOPE_POLICIES.has(value),
     allowedPaths: value => value === null || Array.isArray(value) && value.every(item => typeof item === 'string')
   };
   return Object.entries(checks).every(([key, check]) =>
@@ -1881,135 +2078,19 @@ function validStoredDelegation(value) {
     && ['observedRunning', 'notStartedAmbiguous', 'resultUnknown'].every(key => reservation[key] === undefined || typeof reservation[key] === 'boolean'));
 }
 
-function readState(sessionId, override) {
-  const file = statePath(sessionId, override);
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
-        || parsed.schemaVersion !== undefined && (!Number.isSafeInteger(parsed.schemaVersion)
-          || parsed.schemaVersion < 1 || parsed.schemaVersion > CURRENT_SCHEMA_VERSION)
-        || !parsed.contract || typeof parsed.contract !== 'object' || Array.isArray(parsed.contract)
-        || !validStoredContract(parsed.contract, parsed.schemaVersion)
-        || parsed.schemaVersion === CURRENT_SCHEMA_VERSION && !validStoredDelegation(parsed.delegation)) {
-      throw new SyntaxError('Invalid control state structure');
-    }
-    // Reads may run without the session lock. Normalize in memory only;
-    // the next locked mutation persists the current schema and latest ledger.
-    return normalizeState(parsed);
-  } catch (error) {
-    if (error && error.code === 'ENOENT') return freshState();
-    if (error && error.name === 'SyntaxError') {
-      return recoveryState();
-    }
-    throw error;
+function decodeState(parsed) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+      || parsed.schemaVersion !== undefined && (!Number.isSafeInteger(parsed.schemaVersion)
+        || parsed.schemaVersion < 1 || parsed.schemaVersion > CURRENT_SCHEMA_VERSION)
+      || !parsed.contract || typeof parsed.contract !== 'object' || Array.isArray(parsed.contract)
+      || !validStoredContract(parsed.contract, parsed.schemaVersion)
+      || parsed.schemaVersion === CURRENT_SCHEMA_VERSION && !validStoredDelegation(parsed.delegation)) {
+    throw new SyntaxError('Invalid control state structure');
   }
+  return normalizeState(parsed);
 }
 
-function writeState(sessionId, state, override) {
-  const file = statePath(sessionId, override);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-  // Do not replace an atomic rename with a partial overwrite on Windows.
-  try {
-    // Concurrent readers can briefly prevent replacement on Windows. Keep the
-    // same atomic rename and session lock; never fall back to partial overwrite.
-    const started = Date.now();
-    while (true) {
-      try { fs.renameSync(temporary, file); break; }
-      catch (error) {
-        if (process.platform !== 'win32' || error.code !== 'EPERM' || Date.now() - started >= 100) throw error;
-        sleepSync(10);
-      }
-    }
-  }
-  finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
-}
-
-
-function lockPath(sessionId, override) {
-  return `${statePath(sessionId, override)}.lock`;
-}
-
-function sleepSync(milliseconds) {
-  const shared = new Int32Array(new SharedArrayBuffer(4));
-  Atomics.wait(shared, 0, 0, milliseconds);
-}
-
-function acquireSessionLock(sessionId, override, options = {}) {
-  const file = lockPath(sessionId, override);
-  const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 1500;
-  const staleMs = Number.isFinite(options.staleMs) ? options.staleMs : 10000;
-  const started = Date.now();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-
-  while (true) {
-    try {
-      const fd = fs.openSync(file, 'wx', 0o600);
-      const token = `${process.pid}:${crypto.randomUUID()}`;
-      fs.writeFileSync(fd, `${token} ${Date.now()}\n`, 'utf8');
-      return () => {
-        try { fs.closeSync(fd); } catch {}
-        try {
-          const owner = fs.readFileSync(file, 'utf8').trim().split(/\s+/, 1)[0];
-          if (owner === token) fs.unlinkSync(file);
-        } catch (error) {
-          if (!error || error.code !== 'ENOENT') throw error;
-        }
-      };
-    } catch (error) {
-      if (!error || error.code !== 'EEXIST') throw error;
-      try {
-        const stat = fs.statSync(file);
-        if (Date.now() - stat.mtimeMs > staleMs) {
-          fs.unlinkSync(file);
-          continue;
-        }
-      } catch (statError) {
-        if (statError && statError.code === 'ENOENT') continue;
-        throw statError;
-      }
-      if (Date.now() - started >= timeoutMs) {
-        const timeout = new Error(`Timed out waiting for Stop That Shit session lock: ${sessionKey(sessionId)}`);
-        timeout.code = 'STS_LOCK_TIMEOUT';
-        throw timeout;
-      }
-      sleepSync(10);
-    }
-  }
-}
-
-function withSessionLock(sessionId, override, fn, options) {
-  const release = acquireSessionLock(sessionId, override, options);
-  try {
-    return fn();
-  } finally {
-    release();
-  }
-}
-
-function updateSession(sessionId, override, update) {
-  return withSessionLock(sessionId, override, () => {
-    const state = readState(sessionId, override);
-    const damaged = Boolean(state.storageError);
-    const result = update(state);
-    if (!damaged) writeState(sessionId, state, override);
-    return result;
-  });
-}
-
-module.exports = {
-  updateSession,
-  acquireSessionLock,
-  dataRoot,
-  freshState,
-  recoveryState,
-  readState,
-  sessionKey,
-  statePath,
-  withSessionLock,
-  writeState
-};
+module.exports = { decodeState, freshState, recoveryState };
 
 },
 "src/adapters/hermes-tool-classifier.cjs": function(module, exports, __require) {
@@ -2797,7 +2878,8 @@ __modules["package.json"] = function(module) { module.exports = {
     "pretest": "npm run schema:check",
     "hermes:build": "node scripts/build-hermes-plugin.cjs",
     "hermes:check": "node scripts/build-hermes-plugin.cjs --check",
-    "test": "node --test test/manifest-dependencies.test.cjs test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/delegation-state.test.cjs test/delegation-lifecycle.test.cjs test/delegation-facts.test.cjs test/lifecycle-compatibility.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/omp-adapter.test.cjs test/omp-extension.test.cjs test/omp-package.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/opencode-v2-plugin.test.mjs test/opencode-dual-smoke.test.mjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs test/stss-skill.test.cjs test/release-check.test.cjs",
+    "test": "node scripts/test.cjs",
+    "check": "npm test && npm run eval && npm run release:check",
     "sts": "node scripts/sts.cjs",
     "eval": "node scripts/evaluate-cases.cjs",
     "eval:selftest": "node --test test/case-bundle.test.cjs test/paired-eval.test.cjs",

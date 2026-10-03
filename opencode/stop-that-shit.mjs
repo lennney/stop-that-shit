@@ -16,7 +16,7 @@ const { contractContext, handleControlEvent } = require('../src/controller.cjs')
 const { readState, updateSession } = require('../src/state.cjs');
 
 const CONTEXT_PREFIX = 'Stop That Shit context:';
-const MAX_PROCESSED_MESSAGES = 1024;
+const MAX_TRACKED_MESSAGES = 1024;
 
 function appendToolContext(output, text) {
   if (!text || !output) return;
@@ -27,7 +27,9 @@ function appendToolContext(output, text) {
 export const StopThatShitPlugin = async ({ client, directory }, options = {}) => {
   const dataDir = resolveDataDir(options);
   const roots = new Map();
-  const processedMessages = new Map();
+  const messageStates = new Map();
+  const lastAppliedMessage = new Map();
+  let messageSequence = 0;
   const pending = new Map();
   const lastInjected = new Map();
   const pendingContext = new Map();
@@ -91,6 +93,7 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
     }
     pending.delete(info.id);
     lastInjected.delete(info.id);
+    lastAppliedMessage.delete(info.id);
   }
 
   async function rootSession(sessionID) {
@@ -147,14 +150,17 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
     pendingContext.set(key, { text, timer });
   }
 
-  function rememberProcessed(messageID) {
-    if (processedMessages.size >= MAX_PROCESSED_MESSAGES) {
-      processedMessages.delete(processedMessages.keys().next().value);
+  function trackMessage(messageID) {
+    if (messageStates.has(messageID)) return messageStates.get(messageID);
+    if (messageStates.size >= MAX_TRACKED_MESSAGES) {
+      messageStates.delete(messageStates.keys().next().value);
     }
-    processedMessages.set(messageID, true);
+    const state = { sequence: ++messageSequence, processed: false };
+    messageStates.set(messageID, state);
+    return state;
   }
 
-  async function fetchMessage(sessionID, messageID, fallbackPart) {
+  async function fetchMessage(sessionID, messageID) {
     try {
       const response = await client.session.message({ path: { id: sessionID, messageID } });
       const data = response && response.data;
@@ -162,7 +168,7 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
     } catch (error) {
       await logFailure('message fetch', error);
     }
-    return { info: null, parts: fallbackPart ? [fallbackPart] : [] };
+    return null;
   }
 
   async function injectContext(sessionID, info, text) {
@@ -225,12 +231,15 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
     });
   }
 
-  async function processUserText(sessionID, info, text) {
+  async function processUserText(sessionID, info, text, sequence) {
     const resolved = await resolveRoot(sessionID, 'session resolution');
     const controlSessionID = resolved.sessionID;
     const isControlSession = resolved.certain && sessionID === controlSessionID;
     let result = null;
     if (isControlSession) {
+      // A failed earlier delivery may retry after a newer user input succeeds.
+      // Keep first-delivery order so that retry cannot restore old authority.
+      if (sequence < (lastAppliedMessage.get(controlSessionID) || 0)) return true;
       const input = {
         sessionID: controlSessionID,
         agent: info && info.agent,
@@ -242,26 +251,35 @@ export const StopThatShitPlugin = async ({ client, directory }, options = {}) =>
       if (!mentionsDirective(text) && await advanceReviewOnEditableAgent(controlSessionID, info)) {
         result = null;
       }
+      lastAppliedMessage.set(controlSessionID, sequence);
     }
     const state = readState(controlSessionID, dataDir);
-    const active = contractContext(state.contract, state.delegation);
+    const active = contractContext(state.contract, state.delegation, 'active', null, state.storageError);
     const resultText = result && result.kind === 'context' ? result.text : active;
     const contextText = state.directiveError ? `${directiveErrorText(state.directiveError)}\n${resultText}` : resultText;
     await injectContext(controlSessionID, info, contextText);
+    return resolved.certain;
   }
 
   async function handlePartUpdated(part) {
     if (!part || part.type !== 'text' || part.synthetic || part.ignored) return;
     if (!part.sessionID || !part.messageID) return;
-    if (processedMessages.has(part.messageID)) return;
-    rememberProcessed(part.messageID);
+    const state = trackMessage(part.messageID);
+    if (state.processed) return;
     await enqueueSession(part.sessionID, async () => {
-      const message = await fetchMessage(part.sessionID, part.messageID, part);
+      // Queued duplicates must check again after the earlier attempt finishes.
+      // Fetch and ancestry failures remain retryable until a newer input wins.
+      if (state.processed) return;
+      const message = await fetchMessage(part.sessionID, part.messageID);
+      if (!message) return;
       const info = message.info;
-      if (!info || info.role !== 'user') return;
+      if (info.role !== 'user') {
+        state.processed = true;
+        return;
+      }
       const text = promptText(message.parts);
       if (!text) return;
-      await processUserText(part.sessionID, info, text);
+      if (await processUserText(part.sessionID, info, text, state.sequence)) state.processed = true;
     });
   }
 

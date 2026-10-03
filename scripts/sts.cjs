@@ -16,12 +16,15 @@ const latestReleaseEndpoint = 'https://api.github.com/repos/lennney/stop-that-sh
 function parseArgs(argv) {
   const positional = [];
   const options = {};
+  const valueOptions = { '--data-dir': 'dataDir', '--id': 'id', '--output': 'output' };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
-    if (value === '--data-dir') options.dataDir = argv[++index];
-    else if (value === '--id') options.id = argv[++index];
-    else if (value === '--output') options.output = argv[++index];
-    else if (value === '--check-update') options.checkUpdate = true;
+    if (Object.hasOwn(valueOptions, value)) {
+      const argument = argv[++index];
+      if (!argument || argument.startsWith('--')) throw new Error(`${value} requires a value`);
+      options[valueOptions[value]] = argument;
+    } else if (value === '--check-update') options.checkUpdate = true;
+    else if (value.startsWith('--')) throw new Error(`unknown option: ${value}`);
     else positional.push(value);
   }
   return { positional, options };
@@ -115,6 +118,7 @@ async function main() {
   if (command === 'doctor') return print(await doctor(dataDir, options));
   if (command === 'runtime') return print(readRuntime({}, { dataDir }));
   if (command === 'explain') {
+    if (!subcommand) throw new Error('explain requires an event ID');
     const runtime = readRuntime({ eventId: subcommand }, { dataDir });
     if (runtime.events.length === 0) throw new Error(`runtime event not found: ${subcommand}`);
     return print({ schemaVersion: 1, event: runtime.events[0], annotations: runtime.annotations });
