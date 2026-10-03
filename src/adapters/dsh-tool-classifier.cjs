@@ -137,10 +137,25 @@ const PLUGIN_MANAGER_READ_ACTIONS = new Set([
   'list_version_exemptions'
 ]);
 
+const PLUGIN_MANAGER_WRITE_ACTIONS = new Set([
+  'install_bundle',
+  'remove_bundle',
+  'set_bundle',
+  'set_plugin',
+  'set_version_exemption'
+]);
+
+// The two known action sets are classified precisely so the tool is neither
+// over- nor under-gated. An unrecognized action defaults to `write`, which is
+// the stricter direction: outside a change contract a write is refused, while
+// `unknown` would only ask for approval. Under a bare change contract with no
+// `files=` boundary the core admits any write with no affected path, for every
+// adapter alike, so the default does not change that.
 function classifyPluginManager(toolInput) {
   const action = String((toolInput && toolInput.action) || '');
-  if (!action) return 'unknown';
-  return PLUGIN_MANAGER_READ_ACTIONS.has(action) ? 'read' : 'write';
+  if (PLUGIN_MANAGER_READ_ACTIONS.has(action)) return 'read';
+  if (PLUGIN_MANAGER_WRITE_ACTIONS.has(action)) return 'write';
+  return 'write';
 }
 
 function isShellTool(name) {

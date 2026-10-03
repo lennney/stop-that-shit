@@ -455,6 +455,13 @@ Without `context.result` the post-dispatch fact carries no result, and without
 `context.sessionId` a subagent fact is not translated at all: filing it under
 the child id would create an orphan contract key the parent ledger never sees.
 
+The run info's `runId` is the only start/end correlator the harness provides,
+and the child `id` repeats across runs of the same agent. It is carried on the
+normalized payload so a consumer never has to fall back to arrival order, which
+this contract forbids. `ControlEvent` has no field for it, so it does not reach
+the event today: the adapter emits no completion facts and capacity stays
+reserved.
+
 The normalized shape is `{ session: { id }, prompt, turnId }` for the pre-step
 point and `{ session: { id }, exec: { name, arguments, callId }, cwd }` for the
 tool gate. `messageText` flattens the admitted messages into the prompt string,
@@ -528,8 +535,13 @@ as `mcp__server__create_item`.
 
 `plugin_manager` is classified by its `action`, not by its name. A `list_*`
 action only observes. `install_bundle` can execute build scripts and every set
-action persists across the profile, so those classify as writes and a missing
-or unrecognized action stays `unknown`.
+action persists across the profile, so those classify as writes.
+
+An unrecognized or missing action defaults to `write`, which is the stricter
+direction: outside a change contract a write is refused, while `unknown` would
+only request approval. Under a bare change contract with no `files=` boundary
+the core admits any write with no affected path, for every adapter alike, so
+this default does not change that behavior.
 
 Tool names are matched case-insensitively. A tool's registered name is
 configurable — `tool-subagent` selects its own at load time — so exact-case

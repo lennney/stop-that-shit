@@ -109,12 +109,22 @@ function fromNativeEvent(hookPoint, native, context) {
   if (hookPoint === 'subagent/start' || hookPoint === 'subagent/end') {
     // The run info is flat: { runId, provider, id, local }. `id` is the child.
     // The parent session is not on it and must be supplied by the caller.
+    //
+    // `runId` is the only correlator the harness provides for pairing a start
+    // with its end, and the child `id` repeats across runs of the same agent.
+    // It is carried on the normalized payload so a future consumer never has
+    // to fall back to arrival order. `ControlEvent` has no field for it, so it
+    // does not reach the event today: the adapter emits no completion facts and
+    // capacity stays reserved.
     const info = native || {};
     const parent = String(extra.sessionId || (extra.session && extra.session.id) || '');
-    return {
+    const payload = {
       session: { id: parent },
       agentId: optionalIdentifier(info.id, info.agentId) || undefined
     };
+    const runId = optionalIdentifier(info.runId);
+    if (runId) payload.runId = runId;
+    return payload;
   }
 
   // Session lifecycle points already receive the Session.

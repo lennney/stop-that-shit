@@ -587,6 +587,14 @@ test('The subagent bridge files against the parent session and keeps the child i
   assert.equal(event.kind, 'subagent.start');
   assert.equal(event.sessionId, 'parent-1');
   assert.equal(event.agentId, 'child-1');
+
+  // runId is the only start/end correlator, so it is carried on the payload.
+  // ControlEvent has no field for it, so it must not leak into the event.
+  assert.equal(payload.runId, 'r1');
+  assert.equal('runId' in event, false);
+  const ended = fromNativeEvent('subagent/end', { ...info, local: false }, { sessionId: 'parent-1' });
+  assert.equal(ended.runId, 'r1');
+  assert.equal(toControlEvent('subagent/end', ended).kind, 'subagent.stop');
 });
 
 test('A subagent fact without a parent session is not translated', () => {
@@ -641,13 +649,14 @@ test('plugin_manager is classified by its action, not its name', (t) => {
   );
   assert.equal(installed.kind, 'deny');
 
-  // An unrecognized action fails closed rather than reading as a list.
-  const unknown = handleDshHook(
-    'tools/pre-execute',
-    pre(session, 'plugin_manager', {}, 'call-3'),
-    options
-  );
-  assert.ok(unknown === null || unknown.kind === 'deny' || unknown.kind === 'require_user_approval');
+  // An unrecognized or missing action defaults to write, which is the stricter
+  // direction: outside a change contract it is refused outright rather than
+  // merely asking for approval.
+  for (const args of [{}, { action: '' }, { action: 'bogus_future_action' }]) {
+    const unknown = handleDshHook('tools/pre-execute', pre(session, 'plugin_manager', args, 'call-3'), options);
+    assert.notEqual(unknown, null, JSON.stringify(args));
+    assert.equal(unknown.kind, 'deny', JSON.stringify(args));
+  }
 });
 
 test('applyDshDecision never returns a deny at the pre-step gate', async () => {
