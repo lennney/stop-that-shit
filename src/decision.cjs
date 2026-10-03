@@ -55,10 +55,12 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
   const level = contract.level || 'watch';
 
   if (state.storageError) {
+    const lockDamaged = state.storageError.code === 'STS_LOCK_DAMAGED';
     return action.mutability === 'read' || action.mutability === 'control' && !action.delegationLifecycleUnproven
       ? decision('allow', null, 'RECOVERY_READ_ONLY', 'Read-only recovery remains available.', null)
-      : decision('deny_and_explain', 'I', 'STATE_DAMAGED', state.storageError.message,
-        'Restore the saved state from a known-good backup or start a new host session. Do not clear unresolved delegation records.');
+      : decision('deny_and_explain', 'I', lockDamaged ? 'STS_LOCK_DAMAGED' : 'STATE_DAMAGED', state.storageError.message,
+        lockDamaged ? 'Follow the legacy lock recovery steps in INSTALL.md. Keep saved contracts and delegation records.'
+          : 'Restore the saved state from a known-good backup or start a new host session. Do not clear unresolved delegation records.');
   }
 
   const delegationCount = action.mutability === 'delegate'
