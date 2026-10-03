@@ -64,6 +64,69 @@ test('invalid saved contract fields enter recovery without replacing the origina
   }
 });
 
+test('a damaged legacy lock before the first contract preserves evidence and permits a new session', t => {
+  const directory = dataDir(t);
+  const { statePath } = require('../src/state.cjs');
+  const call = (sessionId, kind, fields) => handleControlEvent({
+    protocolVersion: PROTOCOL_VERSION, lifecycleVersion: 2, sessionId, kind, ...fields
+  }, { dataDir: directory });
+  const file = statePath('legacy-empty', directory);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const lock = `${file}.lock`;
+  fs.writeFileSync(lock, '');
+  const old = new Date(Date.now() - 20000);
+  fs.utimesSync(lock, old, old);
+  assert.match(call('legacy-empty', 'prompt.submit', { prompt: '$stop-that-shit guard review' }).text, /STS_LOCK_DAMAGED/);
+  assert.equal(call('legacy-empty', 'action.before', { action: { name: 'write', mutability: 'write' } }).kind, 'deny');
+  assert.equal(call('legacy-empty', 'action.before', { action: { name: 'read', mutability: 'read' } }).kind, 'none');
+  assert.equal(fs.existsSync(file), false);
+  assert.equal(fs.readFileSync(lock, 'utf8'), '');
+  assert.match(call('new-session', 'prompt.submit', { prompt: '$stop-that-shit guard change' }).text, /mode=change/);
+  assert.equal(call('new-session', 'action.before', { action: { name: 'write', mutability: 'write' } }).kind, 'none');
+});
+
+for (const level of ['guard', 'watch', 'off']) {
+  test(`a damaged legacy lock keeps ${level} state intact and blocks fresh writes until recovery`, t => {
+    const directory = dataDir(t);
+    const { statePath } = require('../src/state.cjs');
+    const call = (kind, fields) => handleControlEvent({
+      protocolVersion: PROTOCOL_VERSION, lifecycleVersion: 2, sessionId: 'legacy', kind, ...fields
+    }, { dataDir: directory });
+    call('prompt.submit', { prompt: `$stop-that-shit ${level} change agents=1` });
+    call('action.before', { action: { id: 'active', name: 'agent', mutability: 'delegate', delegationCount: 1 } });
+    const file = statePath('legacy', directory);
+    const before = fs.readFileSync(file, 'utf8');
+    const savedDelegation = readState('legacy', directory).delegation;
+    const lock = `${file}.lock`;
+    fs.writeFileSync(lock, '');
+    const old = new Date(Date.now() - 20000);
+    fs.utimesSync(lock, old, old);
+
+    assert.match(call('prompt.submit', { prompt: '$stop-that-shit review guard' }).text, /STS_LOCK_DAMAGED/);
+    assert.match(call('prompt.submit', { prompt: '$stop-that-shit status' }).text, /STS_LOCK_DAMAGED/);
+    assert.match(call('session.start', {}).text, /STS_LOCK_DAMAGED/);
+    assert.equal(call('action.before', { action: { name: 'read', mutability: 'read' } }).kind, 'none');
+    for (const mutability of ['write', 'delegate']) {
+      const result = call('action.before', { action: { id: 'blocked', name: mutability, mutability } });
+      assert.equal(result.kind, 'deny');
+      assert.equal(result.decision.reasonCode, 'STS_LOCK_DAMAGED');
+      assert.match(result.message, /stop every host process/i);
+      assert.doesNotMatch(result.decision.nextStep, /restore.*state.*backup/i);
+    }
+    assert.equal(fs.readFileSync(file, 'utf8'), before);
+    assert.equal(fs.readFileSync(lock, 'utf8'), '');
+
+    // This fixture has no host writers. Quarantine only its damaged lock.
+    fs.renameSync(lock, `${lock}.quarantine`);
+    assert.deepEqual(readState('legacy', directory).delegation, savedDelegation);
+    assert.match(call('prompt.submit', { prompt: '$stop-that-shit guard review' }).text, /mode=review/);
+    assert.equal(call('action.before', { action: { name: 'write', mutability: 'write' } }).decision.reasonCode, 'MODE_FORBIDS_MUTATION');
+    assert.match(call('prompt.submit', { prompt: '$stop-that-shit guard change' }).text, /mode=change/);
+    assert.equal(call('action.before', { action: { name: 'write', mutability: 'write' } }).kind, 'none');
+    assert.deepEqual(readState('legacy', directory).delegation, savedDelegation);
+  });
+}
+
 test('shell analysis reasons accept only optional fixed string codes', () => {
   const event = {
     protocolVersion: PROTOCOL_VERSION, kind: 'action.before', sessionId: 'reason-session',

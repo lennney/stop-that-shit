@@ -22,7 +22,8 @@ function contractFields(contract, delegation = {}) {
   return `mode=${contract.mode}; agents=${summary.reservedUpperBound}/${limit} reserved${summary.unresolvedReasons.length ? '; count unproven' : ''}; hash=${contract.hashPolicy || 'deny'}; deps=${contract.dependencyPolicy || 'ask'}; files=${Array.isArray(contract.allowedPaths) ? contract.allowedPaths.join('|') : 'unbounded'}.`;
 }
 
-function contractContext(contract, delegation = {}, phase = 'active', directiveWarning = null) {
+function contractContext(contract, delegation = {}, phase = 'active', directiveWarning = null, storageError = null) {
+  if (contract.source === 'recovery' && storageError) return `${storageError.code}: ${storageError.message}`;
   if (contract.source === 'recovery') return 'STATE_DAMAGED: the saved contract is unavailable. Read-only recovery is active. Restore a known-good backup or start a new host session; the damaged file is preserved.';
   if (typeof delegation === 'string') {
     phase = delegation;
@@ -159,7 +160,7 @@ function handlePrompt(event, state, options) {
   state.contract = parsed.contract;
   if (parsed.directive || parsed.correction) state.directiveError = null;
   if (parsed.directive || parsed.correction) state.directiveWarning = parsed.warning;
-  const promptContext = contractContext(state.contract, state.delegation, 'active', state.directiveWarning);
+  const promptContext = contractContext(state.contract, state.delegation, 'active', state.directiveWarning, state.storageError);
   const repeatedContext = state.lastPromptContext === promptContext;
   state.lastPromptContext = promptContext;
   return repeatedContext ? none() : context(promptContext);
@@ -265,7 +266,7 @@ function handleLifecycleContext(event, options) {
       : event.kind === 'subagent.stop' ? { kind: 'child_stopped', agentId: event.agentId }
       : { kind: event.allDelegationsStopped === true ? 'all_stopped' : 'unknown' };
     state.delegation = applyDelegationFact(state.delegation, fact);
-    return context(contractContext(state.contract, state.delegation, 'active', state.directiveWarning));
+    return context(contractContext(state.contract, state.delegation, 'active', state.directiveWarning, state.storageError));
   };
   // Ordinary session end carries no completion fact. Keep its context response
   // without waiting for another writer or rewriting state during shutdown.
