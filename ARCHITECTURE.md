@@ -56,6 +56,11 @@ OMP Extension         ----> OMP Adapter ----------/
   active usage or runtime audit data.
 - `src/runtime-audit.cjs` appends and reads metadata-only decision events.
 - `src/runtime-annotations.cjs` appends independent human labels.
+- `src/runtime-storage.cjs` scans JSONL in chunks, preserving UTF-8 characters
+  across reads. Event and label readers validate each record before selecting
+  it, so filtered queries retain damage counts without retaining unrelated
+  records. Queries returning all events still retain those events for sorting
+  and output; scanning does not provide an index or change label precedence.
 
 ## Host event boundaries
 

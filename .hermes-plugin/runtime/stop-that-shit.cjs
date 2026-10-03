@@ -294,8 +294,7 @@ function context(text) {
   return { kind: 'context', text };
 }
 
-function contractFields(contract, delegation = {}) {
-  const summary = inspectDelegation(delegation);
+function contractFields(contract, summary) {
   const limit = Number.isSafeInteger(contract.agentBudget) && contract.agentBudget >= 0 ? contract.agentBudget : DEFAULT_AGENT_LIMIT;
   return `mode=${contract.mode}; agents=${summary.reservedUpperBound}/${limit} reserved${summary.unresolvedReasons.length ? '; count unproven' : ''}; hash=${contract.hashPolicy || 'deny'}; deps=${contract.dependencyPolicy || 'ask'}; files=${Array.isArray(contract.allowedPaths) ? contract.allowedPaths.join('|') : 'unbounded'}.`;
 }
@@ -323,7 +322,7 @@ function contractContext(contract, delegation = {}, phase = 'active', directiveW
 
   return [
     directiveWarning && directiveWarning.message ? `Warning: ${directiveWarning.message}` : null,
-    `Stop That Shit (${phase}): ${contractFields(contract, delegation)}`,
+    `Stop That Shit (${phase}): ${contractFields(contract, inspectDelegation(delegation))}`,
     'Stop Ladder: Is it requested? Is it necessary? What reachable evidence proves that? Would omission fail the current acceptance?',
     'Report real findings even when implementation is not authorized.',
     'Before expanding scope, name reachable evidence, failure if omitted, and the fact that changes the next action.',
@@ -384,15 +383,16 @@ function runtimeSummaryText(runtime) {
 
 function handleRuntimeCommand(command, event, state, options) {
   if (command.name === 'status') {
+    const summary = inspectDelegation(state.delegation);
     return context([
       'Stop That Shit status',
       `State: ${activeControlState(state.contract)} / ${state.contract.mode}`,
-      contractFields(state.contract, state.delegation),
+      contractFields(state.contract, summary),
       `Authority source: ${state.contract.source || 'unconfirmed'}`,
       ...(state.storageError ? [`${state.storageError.code}: ${state.storageError.message}`] : []),
       ...(state.directiveError ? [`Directive error: ${state.directiveError.code}: ${state.directiveError.message}`] : []),
-      ...(inspectDelegation(state.delegation).unresolvedReasons.length
-        ? [`Unresolved activity: ${inspectDelegation(state.delegation).unresolvedReasons.join(', ')}. A confirmed completion or a new host session is required; do not reset the ledger.`] : []),
+      ...(summary.unresolvedReasons.length
+        ? [`Unresolved activity: ${summary.unresolvedReasons.join(', ')}. A confirmed completion or a new host session is required; do not reset the ledger.`] : []),
       'Host effect: unobserved',
       'Use runtime for checked-action and Guard-response counts.'
     ].join('\n'));
@@ -423,9 +423,7 @@ function handleRuntimeCommand(command, event, state, options) {
   ].join('\n'));
 }
 
-function handlePrompt(event, state, options) {
-  const command = runtimeCommand(event.prompt);
-  if (command) return handleRuntimeCommand(command, event, state, options);
+function handlePrompt(event, state) {
   if (state.storageError) return context(`${state.storageError.code}: ${state.storageError.message}`);
   const parsed = parseContractPrompt(event.prompt, state.contract);
   if (parsed.error) {
@@ -559,10 +557,12 @@ function handleControlEvent(rawEvent, options = {}) {
     event = { ...event, action: { ...event.action, id: JSON.stringify([event.sourceSessionId, event.action.id]) } };
   }
   switch (event.kind) {
-    case 'prompt.submit':
-      return runtimeCommand(event.prompt)
-        ? handlePrompt(event, readState(event.sessionId, options.dataDir), options)
-        : updateSession(event.sessionId, options.dataDir, state => handlePrompt(event, state, options));
+    case 'prompt.submit': {
+      const command = runtimeCommand(event.prompt);
+      return command
+        ? handleRuntimeCommand(command, event, readState(event.sessionId, options.dataDir), options)
+        : updateSession(event.sessionId, options.dataDir, state => handlePrompt(event, state));
+    }
     case 'action.before':
       return handleBeforeAction(event, options);
     case 'action.after':
@@ -1371,7 +1371,7 @@ const packageJson = __require("package.json");
 const { PROTOCOL_VERSION, isShellAnalysisReason } = __require("src/control-protocol.cjs");
 const { inspectDelegation } = __require("src/delegation-state.cjs");
 const { readAnnotations } = __require("src/runtime-annotations.cjs");
-const { appendJsonl, readJsonl, runtimeRoot } = __require("src/runtime-storage.cjs");
+const { appendJsonl, scanJsonl, runtimeRoot } = __require("src/runtime-storage.cjs");
 const { sessionKey } = __require("src/state.cjs");
 
 function controlState(contract) {
@@ -1391,6 +1391,7 @@ function recordDecision(facts, options = {}) {
 
   const action = facts.action || {};
   const decision = facts.decision || {};
+  const activity = inspectDelegation(delegation);
   const event = {
     schemaVersion: 1,
     eventId: `evt_${crypto.randomUUID()}`,
@@ -1415,8 +1416,8 @@ function recordDecision(facts, options = {}) {
       mode: String(contract.mode || 'unconfirmed'),
       level: String(contract.level || 'watch'),
       agentBudget: Number.isSafeInteger(contract.agentBudget) ? contract.agentBudget : Number.MAX_SAFE_INTEGER,
-      reservedUpperBound: inspectDelegation(delegation).reservedUpperBound,
-      countUnproven: inspectDelegation(delegation).unresolvedReasons.length > 0,
+      reservedUpperBound: activity.reservedUpperBound,
+      countUnproven: activity.unresolvedReasons.length > 0,
       hashPolicy: String(contract.hashPolicy || 'deny'),
       dependencyPolicy: String(contract.dependencyPolicy || 'ask'),
       allowedPathCount: Array.isArray(contract.allowedPaths) ? contract.allowedPaths.length : 0
@@ -1475,32 +1476,40 @@ function summarize(events, annotations, damagedRecords) {
   return { events: labeledEvents, summary };
 }
 
+function isRuntimeEvent(event) {
+  return event && event.schemaVersion === 1
+    && typeof event.eventId === 'string' && /^evt_[0-9a-f-]+$/i.test(event.eventId)
+    && typeof event.occurredAt === 'string' && Number.isFinite(Date.parse(event.occurredAt))
+    && ['off', 'observing', 'armed'].includes(event.controlState)
+    && event.action && typeof event.action.toolName === 'string' && typeof event.action.mutability === 'string'
+    && event.contract && typeof event.contract.mode === 'string'
+    && event.decision && typeof event.decision.policyOutcome === 'string'
+    && typeof event.decision.reasonCode === 'string' && /^[A-Z][A-Z_0-9]*$/.test(event.decision.reasonCode)
+    && typeof event.decision.responseOutcome === 'string';
+}
+
 function readRuntime(query = {}, options = {}) {
   let events = [];
   let damagedRecords = 0;
   for (const file of eventFiles(query, options)) {
-    const parsed = readJsonl(file);
-    const valid = parsed.records.filter(event => event && event.schemaVersion === 1
-      && typeof event.eventId === 'string' && /^evt_[0-9a-f-]+$/i.test(event.eventId)
-      && typeof event.occurredAt === 'string' && Number.isFinite(Date.parse(event.occurredAt))
-      && ['off', 'observing', 'armed'].includes(event.controlState)
-      && event.action && typeof event.action.toolName === 'string' && typeof event.action.mutability === 'string'
-      && event.contract && typeof event.contract.mode === 'string'
-      && event.decision && typeof event.decision.policyOutcome === 'string'
-      && typeof event.decision.reasonCode === 'string' && /^[A-Z][A-Z_0-9]*$/.test(event.decision.reasonCode)
-      && typeof event.decision.responseOutcome === 'string');
-    events.push(...valid);
-    damagedRecords += parsed.damaged + parsed.records.length - valid.length;
+    const parsed = scanJsonl(file, event => {
+      if (!isRuntimeEvent(event)) {
+        damagedRecords += 1;
+        return;
+      }
+      // Retain only selected events, while still counting damage in the whole log.
+      if (query.limit !== 0 && (!query.eventId || event.eventId === query.eventId)) events.push(event);
+    });
+    damagedRecords += parsed.damaged;
   }
   // V8's stable sort preserves append order for equal timestamps within a log.
   events.sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
-  if (query.eventId) events = events.filter((event) => event.eventId === query.eventId);
   if (Number.isInteger(query.limit) && query.limit >= 0) events = events.slice(-query.limit);
 
-  const annotationResult = readAnnotations(options);
-  damagedRecords += annotationResult.damaged;
   const eventIds = new Set(events.map((event) => event.eventId));
-  const annotations = annotationResult.records.filter((annotation) => eventIds.has(annotation.eventId));
+  const annotationResult = readAnnotations(options, eventIds);
+  damagedRecords += annotationResult.damaged;
+  const annotations = annotationResult.records;
   const result = summarize(events, annotations, damagedRecords);
   return { schemaVersion: 1, ...result, annotations };
 }
@@ -1561,7 +1570,7 @@ module.exports = {
     "pretest": "npm run schema:check",
     "hermes:build": "node scripts/build-hermes-plugin.cjs",
     "hermes:check": "node scripts/build-hermes-plugin.cjs --check",
-    "test": "node --test test/manifest-dependencies.test.cjs test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/delegation-state.test.cjs test/delegation-lifecycle.test.cjs test/delegation-facts.test.cjs test/lifecycle-compatibility.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/omp-adapter.test.cjs test/omp-extension.test.cjs test/omp-package.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/opencode-v2-plugin.test.mjs test/opencode-dual-smoke.test.mjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs test/stss-skill.test.cjs",
+    "test": "node --test test/manifest-dependencies.test.cjs test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/delegation-state.test.cjs test/delegation-lifecycle.test.cjs test/delegation-facts.test.cjs test/lifecycle-compatibility.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/omp-adapter.test.cjs test/omp-extension.test.cjs test/omp-package.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/opencode-v2-plugin.test.mjs test/opencode-dual-smoke.test.mjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/runtime-storage.test.cjs test/sts-cli.test.cjs test/stss-skill.test.cjs",
     "sts": "node scripts/sts.cjs",
     "eval": "node scripts/evaluate-cases.cjs",
     "eval:selftest": "node --test test/case-bundle.test.cjs test/paired-eval.test.cjs",
@@ -1598,7 +1607,7 @@ module.exports = {
 
 const crypto = require('node:crypto');
 const path = require('node:path');
-const { appendJsonl, readJsonl, runtimeRoot } = __require("src/runtime-storage.cjs");
+const { appendJsonl, scanJsonl, runtimeRoot } = __require("src/runtime-storage.cjs");
 
 const LABELS = new Set(['correct', 'incorrect', 'inconclusive']);
 
@@ -1628,13 +1637,21 @@ function recordAnnotation(eventId, label, options = {}) {
   }
 }
 
-function readAnnotations(options = {}) {
-  const parsed = readJsonl(annotationsPath(options));
-  const records = parsed.records.filter(record => record && record.schemaVersion === 1
+function isAnnotation(record) {
+  return record && record.schemaVersion === 1
     && typeof record.eventId === 'string' && /^evt_[0-9a-f-]+$/i.test(record.eventId)
     && typeof record.occurredAt === 'string' && Number.isFinite(Date.parse(record.occurredAt))
-    && LABELS.has(record.label));
-  return { records, damaged: parsed.damaged + parsed.records.length - records.length };
+    && LABELS.has(record.label);
+}
+
+function readAnnotations(options = {}, eventIds) {
+  const records = [];
+  let damaged = 0;
+  const parsed = scanJsonl(annotationsPath(options), record => {
+    if (!isAnnotation(record)) damaged += 1;
+    else if (!eventIds || eventIds.has(record.eventId)) records.push(record);
+  });
+  return { records, damaged: damaged + parsed.damaged };
 }
 
 module.exports = { LABELS, readAnnotations, recordAnnotation };
@@ -1645,6 +1662,7 @@ module.exports = { LABELS, readAnnotations, recordAnnotation };
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { StringDecoder } = require('node:string_decoder');
 const { dataRoot } = __require("src/state.cjs");
 
 function runtimeRoot(options = {}) {
@@ -1657,29 +1675,59 @@ function appendJsonl(file, record) {
   fs.appendFileSync(file, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 });
 }
 
-function readJsonl(file) {
-  let text;
+function scanJsonl(file, onRecord) {
+  let descriptor;
   try {
-    text = fs.readFileSync(file, 'utf8');
+    descriptor = fs.openSync(file, 'r');
   } catch (error) {
-    if (error && error.code === 'ENOENT') return { records: [], damaged: 0 };
+    if (error && error.code === 'ENOENT') return { damaged: 0 };
     throw error;
   }
 
-  const records = [];
   let damaged = 0;
-  for (const line of text.split(/\r?\n/)) {
-    if (!line.trim()) continue;
+  function visitLine(line) {
+    if (!line.trim()) return;
+    let record;
     try {
-      records.push(JSON.parse(line));
+      record = JSON.parse(line);
     } catch {
       damaged += 1;
+      return;
     }
+    // Consumer failures are not malformed JSON and must reach the caller.
+    onRecord(record);
   }
+
+  try {
+    const buffer = Buffer.alloc(64 * 1024);
+    const decoder = new StringDecoder('utf8');
+    let pending = '';
+    let bytesRead;
+    do {
+      bytesRead = fs.readSync(descriptor, buffer, 0, buffer.length, null);
+      pending += bytesRead ? decoder.write(buffer.subarray(0, bytesRead)) : decoder.end();
+      let start = 0;
+      let end;
+      while ((end = pending.indexOf('\n', start)) !== -1) {
+        visitLine(pending.slice(start, end));
+        start = end + 1;
+      }
+      pending = pending.slice(start);
+    } while (bytesRead);
+    visitLine(pending);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+  return { damaged };
+}
+
+function readJsonl(file) {
+  const records = [];
+  const { damaged } = scanJsonl(file, record => records.push(record));
   return { records, damaged };
 }
 
-module.exports = { appendJsonl, readJsonl, runtimeRoot };
+module.exports = { appendJsonl, readJsonl, scanJsonl, runtimeRoot };
 
 },
 "src/state.cjs": function(module, exports, __require) {
@@ -2797,7 +2845,7 @@ __modules["package.json"] = function(module) { module.exports = {
     "pretest": "npm run schema:check",
     "hermes:build": "node scripts/build-hermes-plugin.cjs",
     "hermes:check": "node scripts/build-hermes-plugin.cjs --check",
-    "test": "node --test test/manifest-dependencies.test.cjs test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/delegation-state.test.cjs test/delegation-lifecycle.test.cjs test/delegation-facts.test.cjs test/lifecycle-compatibility.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/omp-adapter.test.cjs test/omp-extension.test.cjs test/omp-package.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/opencode-v2-plugin.test.mjs test/opencode-dual-smoke.test.mjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs test/stss-skill.test.cjs",
+    "test": "node --test test/manifest-dependencies.test.cjs test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/delegation-state.test.cjs test/delegation-lifecycle.test.cjs test/delegation-facts.test.cjs test/lifecycle-compatibility.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/omp-adapter.test.cjs test/omp-extension.test.cjs test/omp-package.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/opencode-v2-plugin.test.mjs test/opencode-dual-smoke.test.mjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/runtime-storage.test.cjs test/sts-cli.test.cjs test/stss-skill.test.cjs",
     "sts": "node scripts/sts.cjs",
     "eval": "node scripts/evaluate-cases.cjs",
     "eval:selftest": "node --test test/case-bundle.test.cjs test/paired-eval.test.cjs",

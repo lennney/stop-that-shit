@@ -22,6 +22,7 @@ unnecessary or necessary action, and the reason it should be stopped or kept.
 | Hook discovery and lifecycle events | `hooks/` |
 | Task contracts and decisions | `src/` |
 | Codex event translation | `src/adapters/` |
+| Runtime evidence queries and JSONL reads | `src/runtime-audit.cjs`, `src/runtime-annotations.cjs`, `src/runtime-storage.cjs`, `test/runtime-audit.test.cjs`, `test/runtime-storage.test.cjs` |
 | A reader-facing case explanation | `cases/README.md` and `cases/README_CN.md` |
 | An executable Bad/Good policy pair | `cases/0.0.1/` |
 | Reproducible model evaluation | `evals/codex-paired/cases/<family>/` |

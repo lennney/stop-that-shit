@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { handleHook } = require('../src/hook-policy.cjs');
-const { acquireSessionLock, readState } = require('../src/state.cjs');
+const { acquireSessionLock, readState, statePath } = require('../src/state.cjs');
 const { readRuntime } = require('../src/runtime-audit.cjs');
 
 function workspace(t) {
@@ -625,11 +625,19 @@ test('status, runtime, explain, and label commands do not mutate the active cont
   const denied = handleHook(pre('query-session', 'apply_patch', { command: 'patch' }), options);
   const eventId = denied.hookSpecificOutput.permissionDecisionReason.match(/evt_[0-9a-f-]+/)[0];
   const before = readState('query-session', options.dataDir).contract;
-
-  const status = handleHook(prompt('query-session', '$stop-that-shit status'), options);
-  const runtime = handleHook(prompt('query-session', '$stop-that-shit runtime'), options);
-  const explain = handleHook(prompt('query-session', `$stop-that-shit explain ${eventId}`), options);
-  const label = handleHook(prompt('query-session', `$stop-that-shit label ${eventId} correct`), options);
+  const file = statePath('query-session', options.dataDir);
+  const rawBefore = fs.readFileSync(file, 'utf8');
+  const modifiedBefore = fs.statSync(file).mtimeMs;
+  const release = acquireSessionLock('query-session', options.dataDir);
+  let status, runtime, explain, label;
+  try {
+    status = handleHook(prompt('query-session', '$stop-that-shit status'), options);
+    runtime = handleHook(prompt('query-session', '$stop-that-shit runtime'), options);
+    explain = handleHook(prompt('query-session', `$stop-that-shit explain ${eventId}`), options);
+    label = handleHook(prompt('query-session', `$stop-that-shit label ${eventId} correct`), options);
+  } finally {
+    release();
+  }
 
   assert.match(status.hookSpecificOutput.additionalContext, /ARMED \/ review/);
   assert.match(runtime.hookSpecificOutput.additionalContext, /checked actions: 1/i);
@@ -637,6 +645,8 @@ test('status, runtime, explain, and label commands do not mutate the active cont
   assert.match(explain.hookSpecificOutput.additionalContext, new RegExp(eventId));
   assert.match(label.hookSpecificOutput.additionalContext, /correct/);
   assert.deepEqual(readState('query-session', options.dataDir).contract, before);
+  assert.equal(fs.readFileSync(file, 'utf8'), rawBefore);
+  assert.equal(fs.statSync(file).mtimeMs, modifiedBefore);
   assert.equal(readRuntime({ eventId }, options).events[0].label, 'correct');
 
   for (const example of [
