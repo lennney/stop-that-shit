@@ -304,17 +304,15 @@ test('prompt updates share the delegation lock and preserve a concurrent reserva
   const release = state.acquireSessionLock(session, dir);
   const child = spawn(process.execPath, ['-e', `
     const fs = require('node:fs');
-    const open = fs.openSync;
+    const stat = fs.statSync;
     let reported = false;
-    fs.openSync = function (...args) {
-      try { return open.apply(this, args); }
-      catch (error) {
-        if (!reported && error.code === 'EEXIST' && String(args[0]).endsWith('.lock')) {
-          reported = true;
-          process.stdout.write('waiting\\n');
-        }
-        throw error;
+    fs.statSync = function (...args) {
+      const result = stat.apply(this, args);
+      if (!reported && String(args[0]).endsWith('.lock')) {
+        reported = true;
+        process.stdout.write('waiting\\n');
       }
+      return result;
     };
     const { handleControlEvent } = require('./src/controller.cjs');
     handleControlEvent({ protocolVersion: 2, lifecycleVersion: 2, kind: 'prompt.submit', sessionId: process.argv[1],
