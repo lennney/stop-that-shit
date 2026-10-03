@@ -130,9 +130,36 @@ test('doctor, runtime, explain, and label expose the local evidence chain', (t) 
   assert.equal(explain.status, 0, explain.stderr);
   assert.equal(JSON.parse(explain.stdout).event.eventId, event.eventId);
 
+  const missingEvent = run(['explain', '--data-dir', dataDir]);
+  assert.equal(missingEvent.status, 1);
+  assert.match(missingEvent.stderr, /explain requires an event ID/);
+  assert.equal(missingEvent.stdout, '');
+
+  const missingDataDir = run(['label', event.eventId, 'correct', '--data-dir'], {
+    env: { STS_RUNTIME_DATA: dataDir }
+  });
+  assert.equal(missingDataDir.status, 1);
+  assert.match(missingDataDir.stderr, /--data-dir requires a value/);
+  assert.equal(fs.existsSync(path.join(dataDir, 'runtime', 'annotations.jsonl')), false);
+
   const label = run(['label', event.eventId, 'correct', '--data-dir', dataDir]);
   assert.equal(label.status, 0, label.stderr);
   assert.equal(JSON.parse(label.stdout).label, 'correct');
+});
+
+test('CLI rejects missing option values and unknown options before reading runtime data', (t) => {
+  const env = { STS_RUNTIME_DATA: temporaryDirectory(t) };
+  for (const option of ['--data-dir', '--id', '--output']) {
+    for (const suffix of [[], ['--check-update']]) {
+      const result = run(['runtime', option, ...suffix], { env });
+      assert.equal(result.status, 1, result.stdout + result.stderr);
+      assert.ok(result.stderr.includes(`${option} requires a value`), result.stderr);
+      assert.equal(result.stdout, '');
+    }
+  }
+  const typo = run(['runtime', '--data-dri', 'unused'], { env });
+  assert.equal(typo.status, 1);
+  assert.match(typo.stderr, /unknown option: --data-dri/);
 });
 
 test('case new creates a deliberately incomplete reviewable skeleton', (t) => {
