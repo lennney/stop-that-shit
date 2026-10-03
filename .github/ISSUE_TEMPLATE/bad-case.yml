@@ -1,25 +1,25 @@
 name: Overengineering Bad Case
-description: Share a real Codex action that went beyond the task.
+description: Share a real agent action that went beyond the task.
 title: "[Overengineering Case] "
 labels: ["case:bad"]
 body:
   - type: markdown
     attributes:
       value: |
-        Share one concrete action Codex took that the task did not require. Cases from before or after installing Stop That Shit are both useful.
+        Share one concrete action the agent took that the task did not require. Cases from before or after installing Stop That Shit are both useful.
 
         Do not include secrets, private code, account data, or full transcripts. A small sanitized excerpt is enough.
   - type: textarea
     id: request
     attributes:
-      label: What did you ask Codex to do?
+      label: What did you ask the agent to do?
       description: Paste the exact sanitized request if possible. Include review/change/answer/monitor mode if you set one.
     validations:
       required: true
   - type: textarea
     id: action
     attributes:
-      label: What did Codex do beyond the task?
+      label: What did the agent do beyond the task?
       description: Name one material action, such as editing during review, changing adjacent files, adding a dependency, or building unused infrastructure.
     validations:
       required: true
@@ -27,7 +27,7 @@ body:
     id: evidence
     attributes:
       label: Why was that action unnecessary?
-      description: Point to the request, diff, test, runtime behavior, or other fact that shows where Codex should have stopped. Then state the smaller acceptable outcome.
+      description: Point to the request, diff, test, runtime behavior, or other fact that shows where the agent should have stopped. Then state the smaller acceptable outcome.
     validations:
       required: true
   - type: dropdown
@@ -47,7 +47,7 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Codex surface, version, model, reasoning level, operating system, and plugin revision if installed.
+      description: Host name (Codex, Claude Code, OpenCode, Hermes, Pi, or OMP), surface, version, model, reasoning level, operating system, and plugin revision if installed.
     validations:
       required: true
   - type: textarea
