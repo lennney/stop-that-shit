@@ -81,7 +81,7 @@ export const openCodeV2Effect = (ctx) => Effect.gen(function* () {
   yield* ctx.session.hook('context', (event) => Effect.gen(function* () {
     const current = yield* prepare(event.sessionID, true);
     const text = [current.reply, contractContext(current.state.contract, current.state.delegation,
-      'active', current.state.directiveWarning)].filter(Boolean).join('\n');
+      'active', current.state.directiveWarning, current.state.storageError)].filter(Boolean).join('\n');
     event.system.push({ type: 'text', text: `Stop That Shit context:\n${current.state.directiveError
       ? directiveErrorText(current.state.directiveError) + '\n' : ''}${text}` });
   }));

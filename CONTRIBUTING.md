@@ -20,7 +20,10 @@ unnecessary or necessary action, and the reason it should be stopped or kept.
 | --- | --- |
 | Agent guidance or the Stop Ladder | `skills/stop-that-shit/SKILL.md` |
 | Hook discovery and lifecycle events | `hooks/` |
-| Task contracts and decisions | `src/` |
+| Task directives and contract parsing | `src/contracts.cjs`, `test/contracts.test.cjs` |
+| Authorization decisions | `src/decision.cjs`, `test/decision.test.cjs` |
+| Saved-state validation and migration | `src/state-schema.cjs`, `test/state.test.cjs` |
+| State I/O and process locks | `src/state.cjs`, `test/session-lock.test.cjs` |
 | Codex event translation | `src/adapters/` |
 | Runtime evidence queries and JSONL reads | `src/runtime-audit.cjs`, `src/runtime-annotations.cjs`, `src/runtime-storage.cjs`, `test/runtime-audit.test.cjs`, `test/runtime-storage.test.cjs` |
 | A reader-facing case explanation | `cases/README.md` and `cases/README_CN.md` |
@@ -31,6 +34,35 @@ unnecessary or necessary action, and the reason it should be stopped or kept.
 User-facing setup belongs in `README.md`, `README_EN.md`, `INSTALL.md`, or
 `INSTALL_FOR_AGENTS.md`. Keep raw sessions, private repositories, and launch
 material out of this repository.
+
+## Run the checks
+
+Run the affected tests while editing. For example:
+
+```powershell
+node --test test/contracts.test.cjs test/delegation-state.test.cjs
+```
+
+Add executable suites directly under `test/`, named `*.test.cjs` or
+`*.test.mjs`. `npm test` discovers them automatically. Other files and nested
+fixture directories are not test entrypoints. Filter tests by name with
+`npm test -- --test-name-pattern=pattern`.
+
+After changing the shared core, Hermes adapter, or package metadata, regenerate
+the Hermes bundle with `npm run hermes:build`. After changing the CaseBundle
+schema, regenerate its validator with `npm run schema:build`. Commit generated
+files with their sources; verification checks do not rebuild them.
+
+Before opening a pull request, run the same checks as CI:
+
+```powershell
+npm run check
+git diff --check
+```
+
+`check` runs `npm test`, `npm run eval`, and `npm run release:check` in order,
+stopping on failure. These commands remain available separately. Optional host
+smoke tests keep their existing opt-in settings.
 
 ## Before opening a pull request
 
