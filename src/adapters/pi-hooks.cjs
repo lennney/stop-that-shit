@@ -63,6 +63,7 @@ function toActionEvent(input, context = {}) {
 }
 
 function toActionAfterEvent(input, context = {}) {
+  if (String(input && input.toolName || '').toLowerCase() !== 'subagent') return null;
   const actionId = optionalIdentifier(input && input.toolCallId, input && input.tool_call_id);
   if (!actionId) return null;
   const action = { id: actionId };

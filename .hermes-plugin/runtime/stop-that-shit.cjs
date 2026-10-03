@@ -68,6 +68,7 @@ function toControlEvent(input) {
   }
 
   if (kind === 'action.after') {
+    if (input.tool_name !== 'delegate_task') return null;
     const actionId = optionalIdentifier(input.tool_call_id, extra.tool_call_id);
     if (!actionId) return null;
     event.action = { id: String(actionId) };
@@ -2147,12 +2148,9 @@ module.exports = { decodeState, freshState, recoveryState };
 const { manifestEditDependencyIntent, manifestDependencyIntent, patchDependencyIntent } = __require("src/manifest-dependencies.cjs");
 
 const nodePath = require('node:path');
-const {
-  analyzeCodexTool,
-  classifyShell,
-  detectDependencyIntent: detectCodexDependencyIntent,
-  detectHashIntent: detectCodexHashIntent
-} = __require("src/adapters/codex-tool-classifier.cjs");
+const { analyzeShellInput, classifyShell } = __require("src/shell-analysis.cjs");
+const { detectDependencyIntent: detectCodexDependencyIntent } = __require("src/adapters/codex-tool-classifier.cjs");
+const { detectHashIntent: detectToolHashIntent } = __require("src/hash-intent.cjs");
 
 const READ_TOOLS = new Set([
   'read_file',
@@ -2263,6 +2261,7 @@ function codexToolName(toolName, toolInput) {
 }
 
 function detectDependencyIntent(toolName, toolInput) {
+  if (toolName === 'terminal') return analyzeShellInput(codexIntentInput(toolName, toolInput)).dependencyIntent;
   const name = codexToolName(toolName, toolInput);
   const input = codexIntentInput(toolName, toolInput);
   if (toolName === 'patch' && name === 'Write') return manifestEditDependencyIntent(input.path, toolInput.old_string, input.content);
@@ -2272,12 +2271,13 @@ function detectDependencyIntent(toolName, toolInput) {
 }
 
 function detectHashIntent(toolName, toolInput) {
-  return detectCodexHashIntent(codexToolName(toolName, toolInput), codexIntentInput(toolName, toolInput));
+  if (toolName === 'terminal') return analyzeShellInput(codexIntentInput(toolName, toolInput)).hashIntent;
+  return detectToolHashIntent(codexToolName(toolName, toolInput), codexIntentInput(toolName, toolInput));
 }
 
 function analyzeHermesTool(toolName, toolInput, cwd) {
   const analysis = toolName === 'terminal'
-    ? analyzeCodexTool('exec_command', codexIntentInput(toolName, toolInput), cwd)
+    ? analyzeShellInput(codexIntentInput(toolName, toolInput))
     : {
       mutability: classifyHermesTool(toolName, toolInput),
       hashIntent: detectHashIntent(toolName, toolInput),
@@ -2448,90 +2448,11 @@ function patchDependencyIntent(patch) {
 module.exports = { manifestDependencyIntent, manifestEditDependencyIntent, patchDependencyIntent };
 
 },
-"src/adapters/codex-tool-classifier.cjs": function(module, exports, __require) {
+"src/shell-analysis.cjs": function(module, exports, __require) {
 'use strict';
 
-const nodePath = require('node:path');
-const { patchDependencyIntent } = __require("src/manifest-dependencies.cjs");
-
-const WRITE_NAME = /(?:^|__|_)(?:add|append|apply|archive|close|commit|copy|create|delete|deploy|edit|install|merge|move|patch|post|publish|push|remove|rename|send|set|submit|update|upload|write)(?:$|__|_)/i;
-const READ_NAME = /(?:^|__|_)(?:cat|check|diff|fetch|find|get|inspect|list|load|open|read|review|search|show|status|view)(?:$|__|_)/i;
-const CONTROL_TOOLS = new Set(['update_plan', 'request_user_input', 'wait', 'wait_agent', 'interrupt_agent', 'close_agent']);
-// Match the host's known flattened namespaces exactly; do not strip arbitrary
-// prefixes from MCP or third-party tool names.
-const CODEX_TOOL_NAMES = new Map([
-  ...['send_input', 'resume_agent', 'wait_agent', 'close_agent']
-    .map(name => [`multi_agent_v1${name}`, name]),
-  ...['spawn_agent', 'followup_task', 'send_message', 'list_agents', 'wait_agent', 'interrupt_agent']
-    .map(name => [`collaboration${name}`, name])
-]);
-const CODE_PATH = /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|cs|php|rb|c|cc|cpp|h|hpp)$/i;
 const HASH_COMMAND = /\b(?:Get-FileHash|md5sum|sha(?:1|224|256|384|512)sum|shasum|b2sum)\b|\bcertutil\b[^\r\n]*\s-hashfile\b|\bopenssl\s+dgst\b/i;
-const HASH_API = /\b(?:createHash|createHmac)\s*\(|\bcrypto\.subtle\.digest\s*\(|\bhashlib\.(?:md5|sha1|sha224|sha256|sha384|sha512|blake2[bs])\s*\(|\bMessageDigest\.getInstance\s*\(|\bDigestUtils\.[A-Za-z0-9_]+\s*\(|\bsha(?:1|256|512)\.(?:New|Sum\w*)\s*\(|\b(?:bcrypt|argon2)\.hash\s*\(|\bpassword_hash\s*\(|\bPasswordHasher\s*\(/i;
 const DEPENDENCY_COMMAND = /\b(?:npm|pnpm|yarn)\s+(?:add|install)\b|\bpip(?:3)?\s+install\b|\bcargo\s+add\b|\bdotnet\s+add\b[^\r\n]*\bpackage\b|\bgo\s+get\b|\bcomposer\s+require\b|\bbundle\s+add\b/i;
-
-function inputText(toolInput) {
-  if (typeof toolInput === 'string') return toolInput;
-  if (!toolInput || typeof toolInput !== 'object') return '';
-  return String(toolInput.command || toolInput.patch || toolInput.content || toolInput.new_string || '');
-}
-
-function detectHashIntent(toolName, toolInput) {
-  const name = String(toolName || '');
-  const text = inputText(toolInput);
-  if (!text) return false;
-
-  if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
-    return analyzeShell(text).hashIntent;
-  }
-
-  if (name === 'apply_patch') {
-    const added = text.split(/\r?\n/).filter((line) => /^\+(?!\+\+)/.test(line)).join('\n');
-    return HASH_API.test(added);
-  }
-
-  if (name === 'Edit' || name === 'Write') {
-    const filePath = String(toolInput && (toolInput.file_path || toolInput.path) || '');
-    return CODE_PATH.test(filePath) && HASH_API.test(text);
-  }
-
-  return false;
-}
-
-function normalizePath(value, cwd) {
-  let normalized = String(value || '').trim().replace(/^['"]|['"]$/g, '').replace(/\\/g, '/');
-  if (cwd && nodePath.isAbsolute(normalized)) {
-    normalized = nodePath.relative(String(cwd), normalized).replace(/\\/g, '/');
-  }
-  return normalized.replace(/^\.\//, '');
-}
-
-function extractAffectedPaths(toolName, toolInput, cwd) {
-  const name = String(toolName || '');
-  if (name === 'Edit' || name === 'Write') {
-    const filePath = normalizePath(toolInput && (toolInput.file_path || toolInput.path), cwd);
-    return filePath ? [filePath] : [];
-  }
-  if (name !== 'apply_patch') return [];
-
-  const paths = [];
-  for (const line of inputText(toolInput).split(/\r?\n/)) {
-    const match = /^\*\*\* (?:Add|Update|Delete) File:\s*(.+?)\s*$/.exec(line)
-      || /^\*\*\* Move to:\s*(.+?)\s*$/.exec(line);
-    if (match) paths.push(normalizePath(match[1], cwd));
-  }
-  return [...new Set(paths.filter(Boolean))];
-}
-
-function detectDependencyIntent(toolName, toolInput) {
-  const name = String(toolName || '');
-  const text = inputText(toolInput);
-  if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
-    return analyzeShell(text).dependencyIntent;
-  }
-  if (name === 'apply_patch') return patchDependencyIntent(text);
-  return false;
-}
 
 function classifyGitBranchArguments(args) {
   let listing = false, positional = false;
@@ -2800,6 +2721,86 @@ function classifyShell(command) {
   return analyzeShell(command).mutability;
 }
 
+// Some installed hook payloads lack command but carry intent text in a legacy
+// field. Keep their mutability unproven while retaining hash/dependency facts.
+function analyzeShellInput(toolInput) {
+  const command = toolInput && toolInput.command;
+  const text = typeof toolInput === 'string' ? toolInput
+    : toolInput && typeof toolInput === 'object'
+      ? String(toolInput.command || toolInput.patch || toolInput.content || toolInput.new_string || '') : '';
+  const analysis = analyzeShell(command);
+  if (text !== String(command || '')) {
+    const intents = analyzeShell(text);
+    analysis.hashIntent = intents.hashIntent;
+    analysis.dependencyIntent = intents.dependencyIntent;
+  }
+  return analysis;
+}
+
+module.exports = { analyzeShell, analyzeShellInput, classifyShell };
+
+},
+"src/adapters/codex-tool-classifier.cjs": function(module, exports, __require) {
+'use strict';
+
+const nodePath = require('node:path');
+const { analyzeShell, analyzeShellInput, classifyShell } = __require("src/shell-analysis.cjs");
+const { patchDependencyIntent } = __require("src/manifest-dependencies.cjs");
+const { detectHashIntent } = __require("src/hash-intent.cjs");
+
+const WRITE_NAME = /(?:^|__|_)(?:add|append|apply|archive|close|commit|copy|create|delete|deploy|edit|install|merge|move|patch|post|publish|push|remove|rename|send|set|submit|update|upload|write)(?:$|__|_)/i;
+const READ_NAME = /(?:^|__|_)(?:cat|check|diff|fetch|find|get|inspect|list|load|open|read|review|search|show|status|view)(?:$|__|_)/i;
+const CONTROL_TOOLS = new Set(['update_plan', 'request_user_input', 'wait', 'wait_agent', 'interrupt_agent', 'close_agent']);
+// Match the host's known flattened namespaces exactly; do not strip arbitrary
+// prefixes from MCP or third-party tool names.
+const CODEX_TOOL_NAMES = new Map([
+  ...['send_input', 'resume_agent', 'wait_agent', 'close_agent']
+    .map(name => [`multi_agent_v1${name}`, name]),
+  ...['spawn_agent', 'followup_task', 'send_message', 'list_agents', 'wait_agent', 'interrupt_agent']
+    .map(name => [`collaboration${name}`, name])
+]);
+
+function inputText(toolInput) {
+  if (typeof toolInput === 'string') return toolInput;
+  if (!toolInput || typeof toolInput !== 'object') return '';
+  return String(toolInput.command || toolInput.patch || toolInput.content || toolInput.new_string || '');
+}
+
+function normalizePath(value, cwd) {
+  let normalized = String(value || '').trim().replace(/^['"]|['"]$/g, '').replace(/\\/g, '/');
+  if (cwd && nodePath.isAbsolute(normalized)) {
+    normalized = nodePath.relative(String(cwd), normalized).replace(/\\/g, '/');
+  }
+  return normalized.replace(/^\.\//, '');
+}
+
+function extractAffectedPaths(toolName, toolInput, cwd) {
+  const name = String(toolName || '');
+  if (name === 'Edit' || name === 'Write') {
+    const filePath = normalizePath(toolInput && (toolInput.file_path || toolInput.path), cwd);
+    return filePath ? [filePath] : [];
+  }
+  if (name !== 'apply_patch') return [];
+
+  const paths = [];
+  for (const line of inputText(toolInput).split(/\r?\n/)) {
+    const match = /^\*\*\* (?:Add|Update|Delete) File:\s*(.+?)\s*$/.exec(line)
+      || /^\*\*\* Move to:\s*(.+?)\s*$/.exec(line);
+    if (match) paths.push(normalizePath(match[1], cwd));
+  }
+  return [...new Set(paths.filter(Boolean))];
+}
+
+function detectDependencyIntent(toolName, toolInput) {
+  const name = String(toolName || '');
+  const text = inputText(toolInput);
+  if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
+    return analyzeShell(text).dependencyIntent;
+  }
+  if (name === 'apply_patch') return patchDependencyIntent(text);
+  return false;
+}
+
 function canonicalCodexToolName(toolName) {
   const name = String(toolName || '');
   return CODEX_TOOL_NAMES.get(name) || name;
@@ -2822,16 +2823,7 @@ function analyzeCodexTool(toolName, toolInput, cwd) {
   const name = canonicalCodexToolName(toolName);
   let analysis;
   if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
-    const command = toolInput && toolInput.command;
-    analysis = analyzeShell(command);
-    // Preserve the legacy intent fallback for inputs without a command field.
-    // Normal shell inputs share the same analysis for all three decisions.
-    const text = inputText(toolInput);
-    if (text !== String(command || '')) {
-      const intents = analyzeShell(text);
-      analysis.hashIntent = intents.hashIntent;
-      analysis.dependencyIntent = intents.dependencyIntent;
-    }
+    analysis = analyzeShellInput(toolInput);
   } else {
     analysis = {
       mutability: classifyCodexTool(name, toolInput),
@@ -2843,6 +2835,50 @@ function analyzeCodexTool(toolName, toolInput, cwd) {
 }
 
 module.exports = { analyzeCodexTool, analyzeShell, canonicalCodexToolName, classifyCodexTool, classifyShell, detectDependencyIntent, detectHashIntent, extractAffectedPaths };
+
+},
+"src/hash-intent.cjs": function(module, exports, __require) {
+'use strict';
+
+const { analyzeShell } = __require("src/shell-analysis.cjs");
+
+const CODE_PATH = /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|cs|php|rb|c|cc|cpp|h|hpp)$/i;
+const HASH_API = /\b(?:createHash|createHmac)\s*\(|\bcrypto\.subtle\.digest\s*\(|\bhashlib\.(?:md5|sha1|sha224|sha256|sha384|sha512|blake2[bs])\s*\(|\bMessageDigest\.getInstance\s*\(|\bDigestUtils\.[A-Za-z0-9_]+\s*\(|\bsha(?:1|256|512)\.(?:New|Sum\w*)\s*\(|\b(?:bcrypt|argon2)\.hash\s*\(|\bpassword_hash\s*\(|\bPasswordHasher\s*\(/i;
+
+function containsHashApi(text) {
+  return HASH_API.test(String(text || ''));
+}
+
+function fileHashIntent(filePath, content) {
+  return CODE_PATH.test(String(filePath || '')) && containsHashApi(content);
+}
+
+function patchHashIntent(patch) {
+  const added = String(patch || '').split(/\r?\n/)
+    .filter((line) => /^\+(?!\+\+)/.test(line)).join('\n');
+  return containsHashApi(added);
+}
+
+// Preserve the original tool-input API for callers using these common shapes.
+// Native adapters can pass file content or patches directly to the helpers.
+function detectHashIntent(toolName, toolInput) {
+  const name = String(toolName || '');
+  const text = typeof toolInput === 'string' ? toolInput
+    : toolInput && typeof toolInput === 'object'
+      ? String(toolInput.command || toolInput.patch || toolInput.content || toolInput.new_string || '')
+      : '';
+  if (!text) return false;
+  if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
+    return analyzeShell(text).hashIntent;
+  }
+  if (name === 'apply_patch') return patchHashIntent(text);
+  if (name === 'Edit' || name === 'Write') {
+    return fileHashIntent(toolInput && (toolInput.file_path || toolInput.path), text);
+  }
+  return false;
+}
+
+module.exports = { containsHashApi, fileHashIntent, patchHashIntent, detectHashIntent };
 
 },
 "src/adapters/lifecycle-fields.cjs": function(module, exports, __require) {

@@ -101,8 +101,9 @@ export const openCodeV2Effect = (ctx) => Effect.gen(function* () {
 
   yield* ctx.tool.hook('execute.after', (event) => Effect.gen(function* () {
     const { session, root } = yield* resolveSession(event.sessionID);
-    handleControlEvent(toV2ActionAfterEvent(event,
-      { controlSessionID: root.id, directory: session.location.directory }), { dataDir });
+    const completion = toV2ActionAfterEvent(event,
+      { controlSessionID: root.id, directory: session.location.directory });
+    if (completion) handleControlEvent(completion, { dataDir });
     const text = pendingContext.get(callKey(event));
     pendingContext.delete(callKey(event));
     if (text && event.status === 'completed') {

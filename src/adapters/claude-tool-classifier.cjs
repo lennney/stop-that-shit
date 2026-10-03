@@ -3,13 +3,9 @@
 const { manifestEditDependencyIntent, manifestDependencyIntent } = require('../manifest-dependencies.cjs');
 
 const nodePath = require('node:path');
-const {
-  analyzeCodexTool,
-  classifyCodexTool,
-  classifyShell,
-  detectDependencyIntent: detectCodexDependencyIntent,
-  detectHashIntent: detectCodexHashIntent
-} = require('./codex-tool-classifier.cjs');
+const { analyzeShellInput, classifyShell } = require('../shell-analysis.cjs');
+const { classifyCodexTool } = require('./codex-tool-classifier.cjs');
+const { containsHashApi, detectHashIntent: detectToolHashIntent } = require('../hash-intent.cjs');
 
 const CLAUDE_READ_TOOLS = new Set([
   'Read',
@@ -47,8 +43,6 @@ const CLAUDE_CONTROL_TOOLS = new Set([
   'ToolSearch',
   'WaitForMcpServers'
 ]);
-
-const HASH_API = /\b(?:createHash|createHmac)\s*\(|\bcrypto\.subtle\.digest\s*\(|\bhashlib\.(?:md5|sha1|sha224|sha256|sha384|sha512|blake2[bs])\s*\(|\bMessageDigest\.getInstance\s*\(|\bDigestUtils\.[A-Za-z0-9_]+\s*\(|\bsha(?:1|256|512)\.(?:New|Sum\w*)\s*\(|\b(?:bcrypt|argon2)\.hash\s*\(|\bpassword_hash\s*\(|\bPasswordHasher\s*\(/i;
 
 function isWindowsAbsolute(value) {
   return /^[A-Za-z]:[\\/]/.test(String(value || '')) || /^\\\\[^\\]+\\[^\\]+/.test(String(value || ''));
@@ -127,22 +121,19 @@ function extractAffectedPaths(toolName, toolInput, cwd, mutability) {
 
 function detectHashIntent(toolName, toolInput) {
   const name = String(toolName || '');
-  if (name === 'PowerShell' || name === 'Monitor') {
-    return detectCodexHashIntent('Bash', toolInput);
+  if (name === 'Bash' || name === 'PowerShell' || name === 'Monitor') {
+    return analyzeShellInput(toolInput).hashIntent;
   }
   if (name === 'NotebookEdit') {
-    return HASH_API.test(inputText(toolInput));
+    return containsHashApi(inputText(toolInput));
   }
-  return detectCodexHashIntent(name, toolInput);
+  return detectToolHashIntent(name, toolInput);
 }
 
 function detectDependencyIntent(toolName, toolInput, cwd) {
   const name = String(toolName || '');
-  if (name === 'PowerShell' || name === 'Monitor') {
-    return detectCodexDependencyIntent('Bash', toolInput);
-  }
-  if (name === 'Bash') {
-    return detectCodexDependencyIntent(name, toolInput);
+  if (name === 'Bash' || name === 'PowerShell' || name === 'Monitor') {
+    return analyzeShellInput(toolInput).dependencyIntent;
   }
   if (name !== 'Write' && name !== 'Edit') return false;
 
@@ -156,7 +147,7 @@ function analyzeClaudeTool(toolName, toolInput, cwd) {
   const name = String(toolName || '');
   let analysis;
   if (name === 'Bash' || name === 'PowerShell' || name === 'Monitor') {
-    analysis = analyzeCodexTool('Bash', toolInput, cwd);
+    analysis = analyzeShellInput(toolInput);
     if (name === 'Monitor' && toolInput && toolInput.ws && !toolInput.command) {
       analysis.mutability = 'read';
       delete analysis.analysisReason;

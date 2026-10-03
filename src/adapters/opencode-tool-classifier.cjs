@@ -1,15 +1,11 @@
 'use strict';
 
-const { manifestEditDependencyIntent, manifestDependencyIntent } = require('../manifest-dependencies.cjs');
+const { manifestEditDependencyIntent, manifestDependencyIntent, patchDependencyIntent } = require('../manifest-dependencies.cjs');
+const { analyzeShell, classifyShell } = require('../shell-analysis.cjs');
 
 const path = require('node:path');
-const {
-  analyzeShell,
-  classifyCodexTool,
-  classifyShell,
-  detectDependencyIntent: detectCodexDependencyIntent,
-  detectHashIntent: detectCodexHashIntent
-} = require('./codex-tool-classifier.cjs');
+const { classifyCodexTool } = require('./codex-tool-classifier.cjs');
+const { fileHashIntent, patchHashIntent } = require('../hash-intent.cjs');
 
 const WRITE_TOOLS = new Set(['apply_patch', 'edit', 'write']);
 const READ_TOOLS = new Set(['glob', 'grep', 'lsp', 'read', 'webfetch', 'websearch']);
@@ -71,10 +67,10 @@ function extractAffectedPaths(toolName, args, cwd, mutability) {
 function detectDependencyIntent(toolName, args) {
   const name = String(toolName || '').toLowerCase();
   if (name === 'bash') {
-    return detectCodexDependencyIntent('Bash', { command: args && args.command });
+    return analyzeShell(args && args.command).dependencyIntent;
   }
   if (name === 'apply_patch') {
-    return detectCodexDependencyIntent('apply_patch', { patch: patchText(args) });
+    return patchDependencyIntent(patchText(args));
   }
   if (name === 'edit' || name === 'write') {
     const file = normalizePath(args && args.filePath);
@@ -88,22 +84,16 @@ function detectDependencyIntent(toolName, args) {
 function detectHashIntent(toolName, args) {
   const name = String(toolName || '').toLowerCase();
   if (name === 'bash') {
-    return detectCodexHashIntent('Bash', { command: args && args.command });
+    return analyzeShell(args && args.command).hashIntent;
   }
   if (name === 'apply_patch') {
-    return detectCodexHashIntent('apply_patch', { patch: patchText(args) });
+    return patchHashIntent(patchText(args));
   }
   if (name === 'edit') {
-    return detectCodexHashIntent('Edit', {
-      file_path: args && args.filePath,
-      new_string: args && args.newString
-    });
+    return fileHashIntent(args && args.filePath, args && args.newString);
   }
   if (name === 'write') {
-    return detectCodexHashIntent('Write', {
-      file_path: args && args.filePath,
-      content: args && args.content
-    });
+    return fileHashIntent(args && args.filePath, args && args.content);
   }
   return false;
 }

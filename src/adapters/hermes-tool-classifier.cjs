@@ -3,12 +3,9 @@
 const { manifestEditDependencyIntent, manifestDependencyIntent, patchDependencyIntent } = require('../manifest-dependencies.cjs');
 
 const nodePath = require('node:path');
-const {
-  analyzeCodexTool,
-  classifyShell,
-  detectDependencyIntent: detectCodexDependencyIntent,
-  detectHashIntent: detectCodexHashIntent
-} = require('./codex-tool-classifier.cjs');
+const { analyzeShellInput, classifyShell } = require('../shell-analysis.cjs');
+const { detectDependencyIntent: detectCodexDependencyIntent } = require('./codex-tool-classifier.cjs');
+const { detectHashIntent: detectToolHashIntent } = require('../hash-intent.cjs');
 
 const READ_TOOLS = new Set([
   'read_file',
@@ -119,6 +116,7 @@ function codexToolName(toolName, toolInput) {
 }
 
 function detectDependencyIntent(toolName, toolInput) {
+  if (toolName === 'terminal') return analyzeShellInput(codexIntentInput(toolName, toolInput)).dependencyIntent;
   const name = codexToolName(toolName, toolInput);
   const input = codexIntentInput(toolName, toolInput);
   if (toolName === 'patch' && name === 'Write') return manifestEditDependencyIntent(input.path, toolInput.old_string, input.content);
@@ -128,12 +126,13 @@ function detectDependencyIntent(toolName, toolInput) {
 }
 
 function detectHashIntent(toolName, toolInput) {
-  return detectCodexHashIntent(codexToolName(toolName, toolInput), codexIntentInput(toolName, toolInput));
+  if (toolName === 'terminal') return analyzeShellInput(codexIntentInput(toolName, toolInput)).hashIntent;
+  return detectToolHashIntent(codexToolName(toolName, toolInput), codexIntentInput(toolName, toolInput));
 }
 
 function analyzeHermesTool(toolName, toolInput, cwd) {
   const analysis = toolName === 'terminal'
-    ? analyzeCodexTool('exec_command', codexIntentInput(toolName, toolInput), cwd)
+    ? analyzeShellInput(codexIntentInput(toolName, toolInput))
     : {
       mutability: classifyHermesTool(toolName, toolInput),
       hashIntent: detectHashIntent(toolName, toolInput),

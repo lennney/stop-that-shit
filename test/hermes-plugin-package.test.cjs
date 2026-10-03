@@ -160,6 +160,38 @@ print('fail-open-ok')
   assert.equal(result.stdout.trim(), 'fail-open-ok');
 });
 
+test('native post-tool hook starts the runtime only for delegation results', () => {
+  const script = `
+import importlib.util, json, os
+from types import SimpleNamespace
+spec = importlib.util.spec_from_file_location('sts_plugin', os.environ['STS_PLUGIN_ENTRY'])
+mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+calls = []
+def run(*args, **kwargs):
+    calls.append(json.loads(kwargs['input']))
+    return SimpleNamespace(returncode=0, stdout='')
+mod.subprocess.run = run
+for tool in ['read_file', 'write_file', 'terminal', None]:
+    assert mod._post_tool(tool_name=tool, result='ok', session_id='native-session') is None
+assert calls == [], calls
+result = {'status': 'completed', 'agent_id': 'child'}
+assert mod._post_tool(tool_name='delegate_task', tool_call_id='call-1', args={'task': 'inspect'},
+                      result=result, session_id='native-session', async_launched=True) is None
+assert len(calls) == 1
+assert calls[0]['hook_event_name'] == 'post_tool_call'
+assert calls[0]['tool_call_id'] == 'call-1'
+assert calls[0]['tool_input'] == {'task': 'inspect'}
+assert calls[0]['extra']['result'] == result
+assert calls[0]['extra']['async_launched'] is True
+print('post-tool-ok')
+`;
+  const result = spawnSync(pythonCommand, ['-B', '-c', script], {
+    encoding: 'utf8', env: pythonPluginEnv(), timeout: 10000
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), 'post-tool-ok');
+});
+
 test('native pre_llm_call returns context and pre_tool_call returns block or no-op', () => {
   const script = path.join(os.tmpdir(), `sts-plugin-hooks-${process.pid}.py`);
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-plugin-home-'));

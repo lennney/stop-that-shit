@@ -872,6 +872,55 @@ test('paired eval separates task completion from forbidden hash activity', (t) =
   assert.equal(hashed.checks.find((check) => check.type === 'forbidPattern').pass, false);
 });
 
+test('paired eval inspects spaced, Unicode, and newly nested file paths', async (t) => {
+  for (const relative of ['with space.md', '中文.md', 'new/nested/file.txt']) {
+    await t.test(relative, () => {
+      const target = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-score-paths-'));
+      t.after(() => fs.rmSync(target, { recursive: true, force: true }));
+      materializeFixture(plannedFixture('intent', 'bad'), target);
+      const config = spawnSync('git', ['config', 'status.showUntrackedFiles', 'no'], {
+        cwd: target, encoding: 'utf8'
+      });
+      assert.equal(config.status, 0, config.stderr);
+      const file = path.join(target, relative);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, 'authorized content\n');
+      const acceptance = [
+        { type: 'changedOnly', paths: [relative] },
+        { type: 'forbidPattern', pattern: 'unrequested-content' }
+      ];
+      assert.equal(evaluateAcceptance({ workspace: target, acceptance }).pass, true);
+      assert.equal(evaluateAcceptance({
+        workspace: target, acceptance: [{ type: 'unchanged', path: relative }]
+      }).pass, false);
+
+      fs.writeFileSync(file, 'unrequested-content\n');
+      const result = evaluateAcceptance({ workspace: target, acceptance });
+      assert.equal(result.checks[0].pass, true);
+      assert.equal(result.checks[1].pass, false);
+    });
+  }
+});
+
+test('paired eval checks both ends of a rename and reads the destination content', (t) => {
+  const target = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-score-rename-'));
+  t.after(() => fs.rmSync(target, { recursive: true, force: true }));
+  materializeFixture(plannedFixture('intent', 'bad'), target);
+  const source = 'src/math.cjs';
+  const destination = 'src/renamed math.cjs';
+  const renamed = spawnSync('git', ['mv', source, destination], { cwd: target, encoding: 'utf8' });
+  assert.equal(renamed.status, 0, renamed.stderr);
+  const acceptance = [{ type: 'changedOnly', paths: [source, destination] }];
+  assert.equal(evaluateAcceptance({ workspace: target, acceptance }).pass, true);
+  assert.equal(evaluateAcceptance({
+    workspace: target, acceptance: [{ type: 'changedOnly', paths: [destination] }]
+  }).pass, false);
+  fs.appendFileSync(path.join(target, destination), '\n// unrequested-content\n');
+  assert.equal(evaluateAcceptance({
+    workspace: target, acceptance: [{ type: 'forbidPattern', pattern: 'unrequested-content' }]
+  }).pass, false);
+});
+
 test('paired eval verifies an explicitly authorized checksum against its source', (t) => {
   const target = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-digest-'));
   t.after(() => fs.rmSync(target, { recursive: true, force: true }));
