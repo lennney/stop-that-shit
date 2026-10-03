@@ -1,9 +1,9 @@
 # Host Adapter Contract
 
-Stop That Shit has six implemented host adapters in this candidate: Codex,
-Claude Code, OpenCode, Hermes Agent CLI, Pi, and Oh My Pi. Each adapter translates
-host input into the same `ControlEvent v2` and reuses the same contract parser,
-controller, decisions, state, and runtime evidence.
+Stop That Shit has seven implemented host adapters in this candidate: Codex,
+Claude Code, DeepSeek Harness, OpenCode, Hermes Agent CLI, Pi, and Oh My Pi.
+Each adapter translates host input into the same `ControlEvent v2` and reuses
+the same contract parser, controller, decisions, state, and runtime evidence.
 
 An Adapter may reuse the decision module only if its host exposes:
 
@@ -385,6 +385,226 @@ including provider rejection or invalid final output. Unknown result shapes and
 session-end notifications retain capacity.
 No fabricated `reservation_id` is required or accepted from Hermes lifecycle
 hooks. The generated runtime ships together with the adapter.
+
+## DeepSeek Harness
+
+The DeepSeek Harness adapter is implemented in `src/adapters/dsh-hooks.cjs` and
+classifies tools in `src/adapters/dsh-tool-classifier.cjs`. Harness is an
+event-emitter plugin host rather than a hook-file host, so there is no
+`hooks.json` to read: a listener calls `handleDshHook(point, payload)` with the
+harness extension point name and that point's own payload. The mapped surface is:
+
+```text
+Harness session/created    -> session.start
+Harness session/disposed   -> session.end
+Harness agent/pre-step     -> prompt.submit
+Harness tools/pre-execute  -> action.before
+Harness tools/post-execute -> action.after
+Harness subagent/start     -> subagent.start
+Harness subagent/end       -> subagent.stop
+```
+
+`tools/execute` and the other waterfall points are deliberately not mapped. The
+adapter ignores an unrecognized point instead of guessing a kind.
+
+### The required native-to-adapter bridge
+
+`handleDshHook` does NOT accept the native event payloads. The harness hands a
+listener the host object itself:
+
+| Point | Native payload |
+| --- | --- |
+| `session/created`, `session/disposed` | the `Session` |
+| `agent/pre-step` | `{ agent, messages, turn, step, signal }` |
+| `tools/pre-execute` | a `ToolExecution`; the session is on `exec.agent.session` |
+| `tools/post-execute` | `(exec, result)` |
+| `subagent/start`, `subagent/end` | the child lifecycle info |
+
+None of these carries a `session`, `prompt`, or `exec` field, so passing one
+directly produces no event at all. A consuming plugin must normalize first.
+
+`fromNativeEvent(hookPoint, native, context)` performs exactly that
+transformation and is the supported bridge. It returns the normalized payload,
+or null for an unmapped point, so every listener can pass through the same call.
+
+`context` carries what the native signature cannot deliver in one argument:
+
+```js
+// Tools waterfall: (exec, next)
+ctx.on('tools/pre-execute', async (exec, next) => {
+  const payload = fromNativeEvent('tools/pre-execute', exec)
+  if (!payload) return next()
+  return applyDshDecision('tools/pre-execute', handleDshHook('tools/pre-execute', payload, options), next)
+})
+
+// Tools waterfall: (exec, result, next) — the result is a separate argument.
+ctx.on('tools/post-execute', async (exec, result, next) => {
+  const payload = fromNativeEvent('tools/post-execute', exec, { result })
+  if (payload) handleDshHook('tools/post-execute', payload, options)
+  return next()
+})
+
+// Subagent lifecycle: the run info is flat { runId, provider, id, local } and
+// carries no parent session, so the caller supplies it.
+ctx.on('subagent/start', (info) => {
+  handleDshHook('subagent/start', fromNativeEvent('subagent/start', info, { sessionId: parentSessionId })!, options)
+})
+```
+
+Without `context.result` the post-dispatch fact carries no result, and without
+`context.sessionId` a subagent fact is not translated at all: filing it under
+the child id would create an orphan contract key the parent ledger never sees.
+
+The run info's `runId` is the only start/end correlator the harness provides,
+and the child `id` repeats across runs of the same agent. It is carried on the
+normalized payload so a consumer never has to fall back to arrival order, which
+this contract forbids. `ControlEvent` has no field for it, so it does not reach
+the event today: the adapter emits no completion facts and capacity stays
+reserved.
+
+The normalized shape is `{ session: { id }, prompt, turnId }` for the pre-step
+point and `{ session: { id }, exec: { name, arguments, callId }, cwd }` for the
+tool gate. `messageText` flattens the admitted messages into the prompt string,
+because `agent/pre-step` delivers message content blocks rather than text.
+
+The session id for a tool call comes from `exec.agent.session`. The agent loop
+sets `agent` on every root call, and the PTC transport threads it down to each
+nested dispatch, so a model-initiated read or write always carries one. A call
+made by calling `ctx.tools.execute()` directly, with no `agent`, has no session
+identity: it is not translated, and therefore not gated. A deployment that
+grants programmatic tool execution should pass the calling agent so the guard
+applies to those calls too.
+
+`session/created` and `session/disposed` carry the session object, so its `id`
+becomes `sessionId`. A payload without a session identity is not translated,
+because an empty key would merge unrelated contracts.
+
+### The returned result is intermediate
+
+`handleDshHook` returns an adapter result, never a harness decision. None of
+`null`, `{ kind: 'deny', reason }`, `{ kind: 'reject', reason }`, or
+`{ kind: 'context', text }` is a `PreToolDecision` or a `PreStepDecision`.
+Returning one unchanged is a defect: a bare `{ kind: 'context' }` returned from
+`agent/pre-step` leaves `messages` undefined, which the agent loop reads.
+
+| Adapter result | `tools/pre-execute` | `agent/pre-step` |
+| --- | --- | --- |
+| `null` | `next()` | `next()` |
+| `{ kind: 'deny', reason }` | return it as the `PreToolDecision` | not produced here |
+| `{ kind: 'reject', reason }` | not produced here | return `{ kind: 'reject' }` and surface the reason separately |
+| `{ kind: 'context', text }` | `await next()`, then attach through the plugin's own channel | `await next()`, then fold into the returned `messages` |
+
+`applyDshDecision(hookPoint, result, next, onContext)` implements that
+translation and calls `next` exactly once unless it returns a blocking decision.
+A plugin that omits `onContext` gets the downstream decision unchanged, which is
+the safe default at the tool gate.
+
+`agent/pre-step` has no reason field: `PreStepDecision` is
+`{ kind: 'reject' } | { kind: 'enter', messages }`, and the loop ends the turn as
+`blocked` without reporting further. The message therefore reaches the plugin
+through `onContext` with `kind: 'reason'`, never through the decision. For the
+same reason `applyDshDecision` never returns a `deny` at the pre-step gate: it
+degrades to `{ kind: 'reject' }` and routes the reason to `onContext`.
+
+The harness counts turns numerically. `ControlEvent.turnId` is an identifier, so
+a numeric turn is coerced to a string during translation rather than being
+dropped for failing a string check.
+
+`tools/pre-execute` maps the pending `exec` to `action.before`: `exec.name`,
+`exec.arguments`, `exec.callId`, and the session workspace `cwd`. The harness
+call id becomes `action.id`. A delegated call without a call id is not
+translated, because the controller cannot correlate it.
+
+`tools/post-execute` maps the settled outcome to `action.after`. A `deny` or
+`cancel` decision reports `not_started`, since the tool body never ran. An
+explicit asynchronous launch reports `running`. Every other outcome reports
+`unknown`, including an accepted result: the harness reports no child completion
+for a delegated call, so an accepted call is not evidence that its subagents
+finished. This is stricter than the Claude adapter and keeps capacity reserved.
+
+The harness registers tools under lowercase snake_case names. `write` and `edit`
+are writes; `bash` and `pwsh` are classified from the parsed command rather than
+the tool name; `subagent`, `subagent_fork`, `spawn_teammate`, and `workflow` are
+delegations; `terminal_list` and `terminal_read` are reads while `terminal_send`,
+`terminal_signal`, and `terminal_close` mutate a live terminal. `lsp` is a read
+because every documented operation is a navigation query, `send_message` is a
+control operation because delivering a message writes nothing to the workspace,
+and `ralph` is a delegation because each round opens a fresh child. Unknown
+names fall back to the host-neutral heuristics, which also cover MCP names such
+as `mcp__server__create_item`.
+
+`plugin_manager` is classified by its `action`, not by its name. A `list_*`
+action only observes. `install_bundle` can execute build scripts and every set
+action persists across the profile, so those classify as writes.
+
+An unrecognized or missing action defaults to `write`, which is the stricter
+direction: outside a change contract a write is refused, while `unknown` would
+only request approval. Under a bare change contract with no `files=` boundary
+the core admits any write with no affected path, for every adapter alike, so
+this default does not change that behavior.
+
+Tool names are matched case-insensitively. A tool's registered name is
+configurable — `tool-subagent` selects its own at load time — so exact-case
+matching would let a renamed delegation tool fall out of the explicit sets and
+stop reserving capacity.
+
+The experimental `stagehand_*` browser tools are deliberately unmapped and stay
+`unknown`. Their actions are not verified against a shipped schema here, and an
+unknown mutability is refused or requires approval rather than passing, so the
+default fails closed.
+
+`subagent_fork` is the shipped alias of the `subagent` package, selected by a
+config-driven tool name. It must reserve delegation capacity identically, or a
+finite `agents=N` is bypassed by calling the same tool under its alias.
+
+The shared `Write`/`Edit` analyzers match those names exactly, so the adapter
+maps the harness lowercase names onto them instead of forking the rules. Hash
+intent and manifest dependency intent therefore behave the same for DSH file
+tools as they do for the Claude surface.
+
+### The file editor
+
+`str_replace_editor` selects one command per call, so it classifies by command
+rather than by tool name. `view` is a read and contributes no affected path;
+`create`, `str_replace`, and `insert` are writes. Its content fields are
+`file_text`, `new_str`, and `old_str`, which are translated into the shared
+manifest analysis so a dependency added through the editor is caught exactly as
+it would be through `write`.
+
+### The PTC transport
+
+`run_code` is a transport, not an analyzed action. It carries `description` and
+`code` rather than a shell `command`, so it is classified `control`: it owns no
+workspace effect of its own. The program receives exactly one global binding,
+`tools`, and each call through it is scheduled through the registry and
+traverses `tools/pre-execute` on its own, so a nested read or write is
+classified and gated under its real name, and a nested denial surfaces inside
+the program as a binding rejection. Classifying the transport as `unknown` would
+refuse a read-only program before its reads are ever examined.
+
+This does not cover a program that reaches the filesystem through its own
+runtime rather than through `tools.*`. A sandbox policy is optional for a PTC
+runtime, so a deployment that runs programs unsandboxed has no STS gate on that
+path. Enforcing it is the host's responsibility under the ownership table
+above, not the adapter's; a deployment that needs the guarantee should require
+the sandbox rather than rely on this classification.
+
+`send_message` sets `delegationLifecycleUnproven` because it can wake a
+teammate that already stopped, and `subagent/end` carries no run identity that
+separates that new run from a delayed report about the previous one. `workflow`
+is reported as unbounded delegation because the harness exposes no bounded
+fan-out argument.
+
+Context is offered at `session/created`, `agent/pre-step`, and
+`tools/pre-execute`. It is not offered at `tools/post-execute`,
+`subagent/end`, or `session/disposed`, where there is no way to fold text back
+into the settled result without replacing tool output.
+
+DeepSeek Harness publishes no concurrency setting comparable to Codex's
+`agents.max_concurrent_threads_per_session`. `agents=N` is therefore counted
+from STS reservations alone, and delegation under a finite limit is
+conservative: capacity is released only by a correlated completion fact, which
+this adapter does not currently produce.
 
 ### Explicit Hermes tool coverage
 
