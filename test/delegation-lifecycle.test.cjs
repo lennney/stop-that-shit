@@ -24,6 +24,9 @@ test('Windows state replacement retries a transient EPERM without overwriting th
   const before = fs.readFileSync(file, 'utf8');
   const rename = fs.renameSync;
   let attempts = 0;
+  // Exercise one transient failure independently of process scheduling.
+  const started = Date.now();
+  t.mock.method(Date, 'now', () => started + attempts * 10);
   t.mock.method(fs, 'renameSync', (source, destination) => {
     assert.equal(fs.readFileSync(destination, 'utf8'), before);
     if (++attempts === 1) throw Object.assign(new Error('sharing race'), { code: 'EPERM' });
