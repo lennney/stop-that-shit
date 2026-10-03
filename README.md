@@ -250,7 +250,7 @@ Guard 不会看到 `cache`、`retry` 或 `migration` 就替你断定它们多余
 
 ## 可选：Stop That Shit Slop（别再废话）
 
-Agent 活干完了，嘴还没停。STSS 删掉无用辩护、收紧重复犹豫，保留影响决定的条件。这是固定离线案例中的一组：
+Agent 活干完了，嘴还没停。STSS 删掉无用辩护、收紧重复犹豫，保留影响理解与决定的条件。它也用于文章和图注，处理起草时附加的防御性说明。这是固定离线案例中的一组：
 
 ```text
 输入：我们也许大概有可能在六到八周内完成迁移，具体取决于访问审批。
@@ -274,7 +274,7 @@ npx skills add ./skills/stss --global
 | Claude Code 单独 Skill | `/stss rewrite -- ...` | `/stss audit -- ...` |
 | Pi | `/skill:stss rewrite -- ...` | `/skill:stss audit -- ...` |
 
-完整方法见 [STSS Skill](skills/stss/SKILL.md)，六组案例和必须保留的反例见 [STSS examples](skills/stss/references/examples.md)。
+完整方法见 [STSS Skill](skills/stss/SKILL.md)，成对案例和必须保留的反例见 [STSS examples](skills/stss/references/examples.md)。
 
 ## FAQ
 

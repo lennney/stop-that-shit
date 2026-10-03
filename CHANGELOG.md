@@ -2,6 +2,11 @@
 
 ## Unreleased / 未发布
 
+- STSS 覆盖文章、图注和新稿生成，按读者的理解与决定判断防御性说明，
+  保留必要的条件与来源归属；新增两组中英文成对案例及固定响应回归。
+  / Extend STSS to articles, captions, and drafting. Judge defensive wording
+  by its use to the reader, preserving meaningful conditions and attribution.
+  Add two paired case families in Chinese and English with fixed-response tests.
 - 新增 OMP 独立 Extension 候选，支持原生 `/sts` 控制入口与子任务预算，
   并通过共享控制器记录父关联恢复决策。公开 0.2.4 不包含此适配。
   / Add a separate OMP Extension with native `/sts` commands, task budgets,
