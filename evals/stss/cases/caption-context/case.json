@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "caption-context",
+  "title": "A caption explains composition or availability according to the reader's question",
+  "provenance": { "kind": "synthetic", "source": "fully fictional homepage study and caption brief", "sanitized": true },
+  "privacyReview": { "confirmed": true },
+  "variants": {
+    "bad": {
+      "id": "caption-context-bad",
+      "title": "An early-study label supplies context without editorial assurances",
+      "contract": "answer",
+      "task": "Read source.md. 为一篇设计演化文章写一句中文图注，帮助读者看出试样的构图。保留设计阶段和左右元素。只返回图注。",
+      "fixture": "fixtures/bad",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "(?:早期|最初).*首页.*(?:试样|草案)" },
+        { "type": "responseMatches", "pattern": "左[^。]*叶片[^。]*右[^。]*圆弧" },
+        { "type": "responseMatches", "pattern": "^(?![\\s\\S]*(?:不代表|并非|未上线|没有上线|经过核实|设计档案|读者误解))[\\s\\S]+$" }
+      ]
+    },
+    "good": {
+      "id": "caption-context-good",
+      "title": "Availability remains when the reader asks whether the pictured page can be used",
+      "contract": "answer",
+      "task": "Read source.md. 为一篇设计演化文章写一句中文图注，帮助读者看出试样的构图。保留设计阶段和左右元素。读者还问图中的页面现在是否已经上线可用，图注需要回答。只返回图注。",
+      "fixture": "fixtures/good",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "首页.*(?:试样|草案)" },
+        { "type": "responseMatches", "pattern": "左[^。]*叶片[^。]*右[^。]*圆弧" },
+        { "type": "responseMatches", "pattern": "(?:尚未|未|没有)上线" }
+      ]
+    }
+  }
+}
