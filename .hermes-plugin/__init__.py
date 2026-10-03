@@ -77,6 +77,8 @@ def _tool(**kwargs: Any) -> dict[str, Any] | None:
 
 
 def _post_tool(**kwargs: Any) -> None:
+    if kwargs.get("tool_name") != "delegate_task":
+        return
     _invoke({
         "hook_event_name": "post_tool_call",
         "session_id": kwargs.get("session_id", ""),

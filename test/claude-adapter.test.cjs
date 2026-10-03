@@ -296,6 +296,7 @@ test('Claude ignores PostToolUse events without a valid action identifier', () =
     const input = {
       session_id: 'malformed-after',
       hook_event_name: 'PostToolUse',
+      tool_name: 'Agent',
       tool_use_id: identifier
     };
     assert.equal(toControlEvent(input), null);
@@ -305,6 +306,7 @@ test('Claude ignores PostToolUse events without a valid action identifier', () =
   const fallback = toControlEvent({
     session_id: 'fallback-after',
     hook_event_name: 'PostToolUse',
+    tool_name: 'Agent',
     tool_use_id: 42,
     tool_call_id: 'fallback-call'
   });

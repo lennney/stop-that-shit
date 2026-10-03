@@ -21,7 +21,7 @@ unnecessary or necessary action, and the reason it should be stopped or kept.
 | Agent guidance or the Stop Ladder | `skills/stop-that-shit/SKILL.md` |
 | Hook discovery and lifecycle events | `hooks/` |
 | Task contracts and decisions | `src/` |
-| Codex event translation | `src/adapters/` |
+| Host event translation | `src/adapters/`, `HOST-ADAPTER-CONTRACT.md` |
 | A reader-facing case explanation | `cases/README.md` and `cases/README_CN.md` |
 | An executable Bad/Good policy pair | `cases/0.0.1/` |
 | Reproducible model evaluation | `evals/codex-paired/cases/<family>/` |
