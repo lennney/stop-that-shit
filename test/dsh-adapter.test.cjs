@@ -555,3 +555,115 @@ test('Regression: read-only navigation and the Ralph loop classify correctly', (
   assert.equal(loop.kind, 'deny');
   assert.match(loop.reason, /AGENT_BUDGET_EXHAUSTED/);
 });
+
+// --- Coverage for the independent review findings. ---
+
+test('The post-execute bridge accepts the waterfall\'s (exec, result) pair', () => {
+  // The harness hands post-dispatch listeners (exec, result, next). The result
+  // is a separate argument, so reading it off the execution silently yields an
+  // empty action.after fact.
+  const exec = { name: 'write', arguments: {}, callId: 'c1', agent: { session: { id: 's1' } } };
+  const payload = fromNativeEvent('tools/post-execute', exec, { result: { kind: 'deny' } });
+  assert.equal(payload.session.id, 's1');
+  assert.equal(payload.exec.callId, 'c1');
+  assert.deepEqual(payload.result, { kind: 'deny' });
+
+  const event = toControlEvent('tools/post-execute', payload);
+  assert.equal(event.kind, 'action.after');
+  assert.equal(event.action.id, 'c1');
+  // A denied call never reached the tool body.
+  assert.equal(event.action.lifecycle, 'not_started');
+});
+
+test('The subagent bridge files against the parent session and keeps the child id', () => {
+  // The native run info is flat { runId, provider, id, local } and carries no
+  // parent session, so the parent must be supplied by the caller.
+  const info = { runId: 'r1', provider: 'in-process', id: 'child-1', local: true };
+  const payload = fromNativeEvent('subagent/start', info, { sessionId: 'parent-1' });
+  assert.equal(payload.session.id, 'parent-1');
+  assert.equal(payload.agentId, 'child-1');
+
+  const event = toControlEvent('subagent/start', payload);
+  assert.equal(event.kind, 'subagent.start');
+  assert.equal(event.sessionId, 'parent-1');
+  assert.equal(event.agentId, 'child-1');
+});
+
+test('A subagent fact without a parent session is not translated', () => {
+  // Filing it under the child id would create an orphan contract key that the
+  // parent ledger never sees.
+  const info = { runId: 'r1', id: 'child-1' };
+  const payload = fromNativeEvent('subagent/start', info);
+  assert.equal(toControlEvent('subagent/start', payload), null);
+});
+
+test('A numeric harness turn survives translation', () => {
+  // The harness counts turns numerically; a number must not silently become
+  // null on the way through the identifier helper.
+  const payload = fromNativeEvent('agent/pre-step', {
+    agent: { session: { id: 's1' } },
+    messages: [{ content: [{ type: 'text', text: 'hello' }] }],
+    turn: 4
+  });
+  assert.equal(toControlEvent('agent/pre-step', payload).turnId, '4');
+});
+
+test('A renamed tool cannot fall out of the explicit sets', () => {
+  // The registered name is configurable, so matching must not be case-sensitive
+  // or a renamed delegation tool would stop reserving capacity.
+  for (const name of ['SUBAGENT', 'Subagent_Fork', 'Ralph', 'WORKFLOW', 'Spawn_Teammate']) {
+    assert.equal(classifyDshTool(name, {}), 'delegate', name);
+  }
+  assert.equal(classifyDshTool('Run_Code', { description: 'x', code: 'y' }), 'control');
+  assert.equal(classifyDshTool('LSP', { operation: 'hover' }), 'read');
+});
+
+test('plugin_manager is classified by its action, not its name', (t) => {
+  const options = workspace(t);
+  const session = 'dsh-plugin-manager';
+  start(session, options);
+
+  // A list action only observes.
+  handleDshHook('agent/pre-step', prompt(session, '$stop-that-shit review -- inspect the profile'), options);
+  const listed = handleDshHook(
+    'tools/pre-execute',
+    pre(session, 'plugin_manager', { action: 'list_plugins' }, 'call-1'),
+    options
+  );
+  assert.equal(listed, null);
+
+  // Installing executes build scripts and persists across sessions, so it is a
+  // mutation and must not pass a read-only contract.
+  const installed = handleDshHook(
+    'tools/pre-execute',
+    pre(session, 'plugin_manager', { action: 'install_bundle', target: 'some-bundle' }, 'call-2'),
+    options
+  );
+  assert.equal(installed.kind, 'deny');
+
+  // An unrecognized action fails closed rather than reading as a list.
+  const unknown = handleDshHook(
+    'tools/pre-execute',
+    pre(session, 'plugin_manager', {}, 'call-3'),
+    options
+  );
+  assert.ok(unknown === null || unknown.kind === 'deny' || unknown.kind === 'require_user_approval');
+});
+
+test('applyDshDecision never returns a deny at the pre-step gate', async () => {
+  // PreStepDecision is reject | enter; a deny forwarded here would be invalid.
+  const seen = [];
+  const decision = await applyDshDecision(
+    'agent/pre-step',
+    { kind: 'deny', reason: 'out of scope' },
+    async () => ({ kind: 'enter', messages: [] }),
+    (info) => { seen.push(info); }
+  );
+  assert.deepEqual(decision, { kind: 'reject' });
+  assert.equal(seen[0].kind, 'reason');
+  assert.match(seen[0].text, /out of scope/);
+});
+
+test('get_goal is classified once, as a read', () => {
+  assert.equal(classifyDshTool('get_goal', {}), 'read');
+});

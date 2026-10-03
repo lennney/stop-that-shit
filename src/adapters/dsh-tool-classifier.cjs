@@ -47,12 +47,10 @@ const DSH_CONTROL_TOOLS = new Set([
   'cordis_inspect_query',
   'create_goal',
   'exit_plan_mode',
-  'get_goal',
   'interrupt_agent',
   'job_kill',
   'job_list',
   'job_output',
-  'plugin_manager',
   'present',
   'schedule_create',
   // Delivering a message to an agent writes nothing to the workspace. The
@@ -121,6 +119,30 @@ const DSH_TO_SHARED_NAME = new Map([
 const RUN_CODE_NAME = 'run_code';
 const SHELL_TOOLS = new Set(['bash', 'pwsh']);
 
+// DSH registers lowercase snake_case names, but a tool's registered name can be
+// configured (`tool-subagent` selects its own at load time). Matching is
+// case-insensitive so a renamed tool cannot fall out of the explicit sets and
+// become an unknown that reads as permitted work.
+function normalizeToolName(toolName) {
+  return String(toolName || '').toLowerCase();
+}
+
+// `plugin_manager` mixes observation with mutation behind one name: a list
+// action only reads, while install and set actions execute build scripts and
+// persist across sessions. Classifying the whole tool as control would let an
+// install pass every contract.
+const PLUGIN_MANAGER_READ_ACTIONS = new Set([
+  'list_plugins',
+  'list_bundles',
+  'list_version_exemptions'
+]);
+
+function classifyPluginManager(toolInput) {
+  const action = String((toolInput && toolInput.action) || '');
+  if (!action) return 'unknown';
+  return PLUGIN_MANAGER_READ_ACTIONS.has(action) ? 'read' : 'write';
+}
+
 function isShellTool(name) {
   return SHELL_TOOLS.has(name);
 }
@@ -180,7 +202,9 @@ function editorCommand(toolInput) {
 }
 
 function classifyDshTool(toolName, toolInput) {
-  const name = String(toolName || '');
+  const name = normalizeToolName(toolName);
+
+  if (name === 'plugin_manager') return classifyPluginManager(toolInput);
 
   if (isEditorTool(name)) {
     // `view` only observes the file. Every other editor command writes.
@@ -207,7 +231,7 @@ function classifyDshTool(toolName, toolInput) {
 }
 
 function extractAffectedPaths(toolName, toolInput, cwd, mutability) {
-  const name = String(toolName || '');
+  const name = normalizeToolName(toolName);
   let value = '';
 
   if (isEditorTool(name)) {
@@ -229,7 +253,7 @@ function extractAffectedPaths(toolName, toolInput, cwd, mutability) {
 }
 
 function detectHashIntent(toolName, toolInput) {
-  const name = String(toolName || '');
+  const name = normalizeToolName(toolName);
   if (isShellTool(name)) {
     return detectCodexHashIntent('Bash', toolInput);
   }
@@ -262,7 +286,7 @@ function editorManifestIntent(toolInput, cwd) {
 }
 
 function detectDependencyIntent(toolName, toolInput, cwd) {
-  const name = String(toolName || '');
+  const name = normalizeToolName(toolName);
   if (isShellTool(name)) {
     return detectCodexDependencyIntent('Bash', toolInput);
   }
@@ -281,7 +305,7 @@ function detectDependencyIntent(toolName, toolInput, cwd) {
 }
 
 function analyzeDshTool(toolName, toolInput, cwd) {
-  const name = String(toolName || '');
+  const name = normalizeToolName(toolName);
   let analysis;
   if (isShellTool(name)) {
     analysis = analyzeCodexTool('Bash', toolInput, cwd);
@@ -307,6 +331,6 @@ module.exports = {
   extractAffectedPaths,
   // The harness `workflow` tool has no bounded fan-out argument, so a directive
   // that caps delegation cannot be proven for it.
-  isUnboundedDelegation: (toolName) => String(toolName || '') === 'workflow',
+  isUnboundedDelegation: (toolName) => normalizeToolName(toolName) === 'workflow',
   normalizePath
 };

@@ -423,17 +423,37 @@ listener the host object itself:
 None of these carries a `session`, `prompt`, or `exec` field, so passing one
 directly produces no event at all. A consuming plugin must normalize first.
 
-`fromNativeEvent(hookPoint, native)` performs exactly that transformation and is
-the supported bridge. It returns the normalized payload, or null for an unmapped
-point, so every listener can pass through the same call:
+`fromNativeEvent(hookPoint, native, context)` performs exactly that
+transformation and is the supported bridge. It returns the normalized payload,
+or null for an unmapped point, so every listener can pass through the same call.
+
+`context` carries what the native signature cannot deliver in one argument:
 
 ```js
+// Tools waterfall: (exec, next)
 ctx.on('tools/pre-execute', async (exec, next) => {
   const payload = fromNativeEvent('tools/pre-execute', exec)
   if (!payload) return next()
   return applyDshDecision('tools/pre-execute', handleDshHook('tools/pre-execute', payload, options), next)
 })
+
+// Tools waterfall: (exec, result, next) — the result is a separate argument.
+ctx.on('tools/post-execute', async (exec, result, next) => {
+  const payload = fromNativeEvent('tools/post-execute', exec, { result })
+  if (payload) handleDshHook('tools/post-execute', payload, options)
+  return next()
+})
+
+// Subagent lifecycle: the run info is flat { runId, provider, id, local } and
+// carries no parent session, so the caller supplies it.
+ctx.on('subagent/start', (info) => {
+  handleDshHook('subagent/start', fromNativeEvent('subagent/start', info, { sessionId: parentSessionId })!, options)
+})
 ```
+
+Without `context.result` the post-dispatch fact carries no result, and without
+`context.sessionId` a subagent fact is not translated at all: filing it under
+the child id would create an orphan contract key the parent ledger never sees.
 
 The normalized shape is `{ session: { id }, prompt, turnId }` for the pre-step
 point and `{ session: { id }, exec: { name, arguments, callId }, cwd }` for the
@@ -475,7 +495,13 @@ the safe default at the tool gate.
 `agent/pre-step` has no reason field: `PreStepDecision` is
 `{ kind: 'reject' } | { kind: 'enter', messages }`, and the loop ends the turn as
 `blocked` without reporting further. The message therefore reaches the plugin
-through `onContext` with `kind: 'reason'`, never through the decision.
+through `onContext` with `kind: 'reason'`, never through the decision. For the
+same reason `applyDshDecision` never returns a `deny` at the pre-step gate: it
+degrades to `{ kind: 'reject' }` and routes the reason to `onContext`.
+
+The harness counts turns numerically. `ControlEvent.turnId` is an identifier, so
+a numeric turn is coerced to a string during translation rather than being
+dropped for failing a string check.
 
 `tools/pre-execute` maps the pending `exec` to `action.before`: `exec.name`,
 `exec.arguments`, `exec.callId`, and the session workspace `cwd`. The harness
@@ -499,6 +525,16 @@ control operation because delivering a message writes nothing to the workspace,
 and `ralph` is a delegation because each round opens a fresh child. Unknown
 names fall back to the host-neutral heuristics, which also cover MCP names such
 as `mcp__server__create_item`.
+
+`plugin_manager` is classified by its `action`, not by its name. A `list_*`
+action only observes. `install_bundle` can execute build scripts and every set
+action persists across the profile, so those classify as writes and a missing
+or unrecognized action stays `unknown`.
+
+Tool names are matched case-insensitively. A tool's registered name is
+configurable — `tool-subagent` selects its own at load time — so exact-case
+matching would let a renamed delegation tool fall out of the explicit sets and
+stop reserving capacity.
 
 The experimental `stagehand_*` browser tools are deliberately unmapped and stay
 `unknown`. Their actions are not verified against a shipped schema here, and an

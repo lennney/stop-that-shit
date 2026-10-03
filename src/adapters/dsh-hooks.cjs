@@ -64,9 +64,18 @@ function nativeToolSessionId(exec) {
  *
  * Returns null for an unmapped point, so a caller can pass every listener
  * through the same bridge without pre-filtering.
+ *
+ * `context` carries what the native signature cannot deliver in one argument:
+ *   - `tools/post-execute` receives `(exec, result, next)`, so the result is a
+ *     separate listener argument. Pass it as `context.result`.
+ *   - `subagent/start` and `subagent/end` receive a run info that carries the
+ *     CHILD id but no parent session. Pass the parent as `context.sessionId`,
+ *     or the fact would be filed against the child and never reach the parent
+ *     contract.
  */
-function fromNativeEvent(hookPoint, native) {
+function fromNativeEvent(hookPoint, native, context) {
   if (!Object.prototype.hasOwnProperty.call(EVENT_KIND, hookPoint)) return null;
+  const extra = context || {};
 
   if (hookPoint === 'agent/pre-step') {
     const payload = native || {};
@@ -87,17 +96,25 @@ function fromNativeEvent(hookPoint, native) {
   }
 
   if (hookPoint === 'tools/post-execute') {
-    const exec = (native && native.exec) || {};
+    // The waterfall hands (exec, result, next). `result` is not a property of
+    // the execution, so it must arrive separately.
+    const exec = (native && native.exec) || native || {};
     return {
       session: { id: nativeToolSessionId(exec) },
       exec: { callId: exec.callId },
-      result: native && native.result
+      result: extra.result !== undefined ? extra.result : (native && native.result)
     };
   }
 
   if (hookPoint === 'subagent/start' || hookPoint === 'subagent/end') {
-    const child = (native && (native.child || native.agent)) || {};
-    return { session: { id: nativeSessionId(native) }, agentId: child.id };
+    // The run info is flat: { runId, provider, id, local }. `id` is the child.
+    // The parent session is not on it and must be supplied by the caller.
+    const info = native || {};
+    const parent = String(extra.sessionId || (extra.session && extra.session.id) || '');
+    return {
+      session: { id: parent },
+      agentId: optionalIdentifier(info.id, info.agentId) || undefined
+    };
   }
 
   // Session lifecycle points already receive the Session.
@@ -111,7 +128,11 @@ function dshSessionId(payload) {
 }
 
 function dshTurnId(payload) {
-  return optionalIdentifier(payload && payload.turnId, payload && payload.turn);
+  // The harness counts turns numerically, and `optionalIdentifier` accepts only
+  // non-blank strings, so a number would silently become null.
+  const raw = payload && payload.turnId !== undefined ? payload.turnId : payload && payload.turn;
+  if (typeof raw === 'number' && Number.isFinite(raw)) return String(raw);
+  return optionalIdentifier(raw);
 }
 
 // The harness reports the caller agent on a tool execution. Subagent-scoped
@@ -295,7 +316,13 @@ async function applyDshDecision(hookPoint, result, next, onContext) {
   if (!result) return next();
 
   if (result.kind === 'deny') {
-    // PreToolDecision carries the reason straight to the model.
+    // A `deny` is only a valid PreToolDecision. Handing one to the pre-step
+    // waterfall would be an invalid PreStepDecision, so it degrades to a
+    // rejection and the reason is surfaced through the context sink.
+    if (hookPoint === 'agent/pre-step') {
+      if (typeof onContext === 'function') await onContext({ kind: 'reason', text: result.reason });
+      return { kind: 'reject' };
+    }
     return { kind: 'deny', reason: result.reason };
   }
 
