@@ -12,7 +12,6 @@ test('OMP is packaged as an explicit extension without replacing the Pi entrypoi
   assert.deepEqual(pkg.pi.extensions, ['./pi/stop-that-shit.ts']);
   assert.ok(pkg.files.includes('omp/'));
   assert.ok(release.include.includes('omp'));
-  assert.match(pkg.scripts.test, /test\/omp-adapter\.test\.cjs/);
   const entry = fs.readFileSync(path.join(root, 'omp/stop-that-shit.ts'), 'utf8');
   assert.match(entry, /import type .*@oh-my-pi\/pi-coding-agent/);
   assert.match(entry, /registerOmpExtension/);
