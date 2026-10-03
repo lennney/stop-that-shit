@@ -407,18 +407,75 @@ Harness subagent/end       -> subagent.stop
 `tools/execute` and the other waterfall points are deliberately not mapped. The
 adapter ignores an unrecognized point instead of guessing a kind.
 
+### The required native-to-adapter bridge
+
+`handleDshHook` does NOT accept the native event payloads. The harness hands a
+listener the host object itself:
+
+| Point | Native payload |
+| --- | --- |
+| `session/created`, `session/disposed` | the `Session` |
+| `agent/pre-step` | `{ agent, messages, turn, step, signal }` |
+| `tools/pre-execute` | a `ToolExecution`; the session is on `exec.agent.session` |
+| `tools/post-execute` | `(exec, result)` |
+| `subagent/start`, `subagent/end` | the child lifecycle info |
+
+None of these carries a `session`, `prompt`, or `exec` field, so passing one
+directly produces no event at all. A consuming plugin must normalize first.
+
+`fromNativeEvent(hookPoint, native)` performs exactly that transformation and is
+the supported bridge. It returns the normalized payload, or null for an unmapped
+point, so every listener can pass through the same call:
+
+```js
+ctx.on('tools/pre-execute', async (exec, next) => {
+  const payload = fromNativeEvent('tools/pre-execute', exec)
+  if (!payload) return next()
+  return applyDshDecision('tools/pre-execute', handleDshHook('tools/pre-execute', payload, options), next)
+})
+```
+
+The normalized shape is `{ session: { id }, prompt, turnId }` for the pre-step
+point and `{ session: { id }, exec: { name, arguments, callId }, cwd }` for the
+tool gate. `messageText` flattens the admitted messages into the prompt string,
+because `agent/pre-step` delivers message content blocks rather than text.
+
+The session id for a tool call comes from `exec.agent.session`. The agent loop
+sets `agent` on every root call, and the PTC transport threads it down to each
+nested dispatch, so a model-initiated read or write always carries one. A call
+made by calling `ctx.tools.execute()` directly, with no `agent`, has no session
+identity: it is not translated, and therefore not gated. A deployment that
+grants programmatic tool execution should pass the calling agent so the guard
+applies to those calls too.
+
 `session/created` and `session/disposed` carry the session object, so its `id`
 becomes `sessionId`. A payload without a session identity is not translated,
 because an empty key would merge unrelated contracts.
 
-`agent/pre-step` maps the prompt text to `prompt` and the turn identifier to
-`turnId`. Its decision type is not the tool gate's: `PreStepDecision` is
-`{ kind: 'reject' } | { kind: 'enter', messages }`, so a rejection has no reason
-field. A `prompt-error` result is therefore returned as
-`{ kind: 'reject', reason }`, keeping the message for the calling plugin, which
-must surface it itself. The agent loop discards the reason: a rejection ends the
-turn as `blocked` and reports nothing further. Callers that want the model to
-read the message must log it or attach it through another channel.
+### The returned result is intermediate
+
+`handleDshHook` returns an adapter result, never a harness decision. None of
+`null`, `{ kind: 'deny', reason }`, `{ kind: 'reject', reason }`, or
+`{ kind: 'context', text }` is a `PreToolDecision` or a `PreStepDecision`.
+Returning one unchanged is a defect: a bare `{ kind: 'context' }` returned from
+`agent/pre-step` leaves `messages` undefined, which the agent loop reads.
+
+| Adapter result | `tools/pre-execute` | `agent/pre-step` |
+| --- | --- | --- |
+| `null` | `next()` | `next()` |
+| `{ kind: 'deny', reason }` | return it as the `PreToolDecision` | not produced here |
+| `{ kind: 'reject', reason }` | not produced here | return `{ kind: 'reject' }` and surface the reason separately |
+| `{ kind: 'context', text }` | `await next()`, then attach through the plugin's own channel | `await next()`, then fold into the returned `messages` |
+
+`applyDshDecision(hookPoint, result, next, onContext)` implements that
+translation and calls `next` exactly once unless it returns a blocking decision.
+A plugin that omits `onContext` gets the downstream decision unchanged, which is
+the safe default at the tool gate.
+
+`agent/pre-step` has no reason field: `PreStepDecision` is
+`{ kind: 'reject' } | { kind: 'enter', messages }`, and the loop ends the turn as
+`blocked` without reporting further. The message therefore reaches the plugin
+through `onContext` with `kind: 'reason'`, never through the decision.
 
 `tools/pre-execute` maps the pending `exec` to `action.before`: `exec.name`,
 `exec.arguments`, `exec.callId`, and the session workspace `cwd`. The harness
@@ -432,14 +489,41 @@ explicit asynchronous launch reports `running`. Every other outcome reports
 for a delegated call, so an accepted call is not evidence that its subagents
 finished. This is stricter than the Claude adapter and keeps capacity reserved.
 
-The harness registers tools under lowercase snake_case names. `write`, `edit`,
-and `str_replace_editor` are writes; `bash`, `pwsh`, and `run_code` are
-classified from the parsed command rather than the tool name; `subagent`,
-`spawn_teammate`, and `workflow` are delegations; `terminal_list` and
-`terminal_read` are reads while `terminal_send`, `terminal_signal`, and
-`terminal_close` mutate a live terminal. Unknown names fall back to the
-host-neutral heuristics, which also cover MCP names such as
+The harness registers tools under lowercase snake_case names. `write` and `edit`
+are writes; `bash` and `pwsh` are classified from the parsed command rather than
+the tool name; `subagent`, `subagent_fork`, `spawn_teammate`, and `workflow` are
+delegations; `terminal_list` and `terminal_read` are reads while `terminal_send`,
+`terminal_signal`, and `terminal_close` mutate a live terminal. Unknown names
+fall back to the host-neutral heuristics, which also cover MCP names such as
 `mcp__server__create_item`.
+
+`subagent_fork` is the shipped alias of the `subagent` package, selected by a
+config-driven tool name. It must reserve delegation capacity identically, or a
+finite `agents=N` is bypassed by calling the same tool under its alias.
+
+The shared `Write`/`Edit` analyzers match those names exactly, so the adapter
+maps the harness lowercase names onto them instead of forking the rules. Hash
+intent and manifest dependency intent therefore behave the same for DSH file
+tools as they do for the Claude surface.
+
+### The file editor
+
+`str_replace_editor` selects one command per call, so it classifies by command
+rather than by tool name. `view` is a read and contributes no affected path;
+`create`, `str_replace`, and `insert` are writes. Its content fields are
+`file_text`, `new_str`, and `old_str`, which are translated into the shared
+manifest analysis so a dependency added through the editor is caught exactly as
+it would be through `write`.
+
+### The PTC transport
+
+`run_code` is a transport, not an analyzed action. It carries `description` and
+`code` rather than a shell `command`, so it is classified `control`: it owns no
+workspace effect of its own. Each tool called inside the program is scheduled
+through the registry and traverses `tools/pre-execute` on its own, so a nested
+read or write is classified and gated under its real name, and a nested denial
+surfaces inside the program as a binding rejection. Classifying the transport as
+`unknown` would refuse a read-only program before its reads are ever examined.
 
 `send_message` sets `delegationLifecycleUnproven` because it can wake a
 teammate that already stopped, and `subagent/end` carries no run identity that

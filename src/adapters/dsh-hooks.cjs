@@ -7,8 +7,19 @@ const { optionalIdentifier, readAsyncLaunched } = require('./lifecycle-fields.cj
 
 // DeepSeek Harness is an event-emitter plugin host rather than a hook-file
 // host, so this adapter is called directly from listeners instead of reading a
-// `hooks.json`. The caller names the DSH extension point and passes the
-// payload that point exposes.
+// `hooks.json`.
+//
+// It does NOT accept the native event payloads. The harness hands a listener the
+// host object itself: `session/created` receives a `Session`, `agent/pre-step`
+// receives `{ agent, messages, turn, step, signal }`, and `tools/pre-execute`
+// receives a `ToolExecution`. Those shapes carry no `session`, `prompt`, or
+// `exec` field, so passing one straight through yields no event at all.
+//
+// A consuming plugin normalizes first and calls this adapter with the
+// normalized payload documented below. `fromNativeEvent` performs exactly that
+// transformation and is the supported bridge; `toControlEvent` accepts only its
+// output. A plugin that already has the normalized shape may call
+// `handleDshHook` directly.
 
 const EVENT_KIND = {
   'session/created': 'session.start',
@@ -19,6 +30,80 @@ const EVENT_KIND = {
   'subagent/start': 'subagent.start',
   'subagent/end': 'subagent.stop'
 };
+
+// `agent/pre-step` carries admitted messages rather than a prompt string.
+function messageText(messages) {
+  if (typeof messages === 'string') return messages;
+  if (!Array.isArray(messages)) return '';
+  return messages
+    .map((message) => {
+      if (typeof message === 'string') return message;
+      const content = message && message.content;
+      if (typeof content === 'string') return content;
+      if (!Array.isArray(content)) return '';
+      return content.map((block) => (block && typeof block.text === 'string' ? block.text : '')).join(' ');
+    })
+    .join('\n');
+}
+
+function nativeSessionId(native) {
+  const session = native && (native.session || native);
+  return String((session && session.id) || (native && native.sessionId) || '');
+}
+
+// The session id a tool execution belongs to. The harness exposes the session
+// through the calling agent rather than on the execution itself.
+function nativeToolSessionId(exec) {
+  const agent = exec && exec.agent;
+  const session = agent && agent.session;
+  return String((session && (session.id || session.sessionId)) || '');
+}
+
+/**
+ * Normalize one native DSH event into the payload this adapter accepts.
+ *
+ * Returns null for an unmapped point, so a caller can pass every listener
+ * through the same bridge without pre-filtering.
+ */
+function fromNativeEvent(hookPoint, native) {
+  if (!Object.prototype.hasOwnProperty.call(EVENT_KIND, hookPoint)) return null;
+
+  if (hookPoint === 'agent/pre-step') {
+    const payload = native || {};
+    return {
+      session: { id: nativeSessionId({ session: payload.agent && payload.agent.session }) },
+      prompt: messageText(payload.messages),
+      turnId: payload.turn
+    };
+  }
+
+  if (hookPoint === 'tools/pre-execute') {
+    const exec = native || {};
+    return {
+      session: { id: nativeToolSessionId(exec) },
+      exec: { name: exec.name, arguments: exec.arguments, callId: exec.callId },
+      cwd: exec.cwd
+    };
+  }
+
+  if (hookPoint === 'tools/post-execute') {
+    const exec = (native && native.exec) || {};
+    return {
+      session: { id: nativeToolSessionId(exec) },
+      exec: { callId: exec.callId },
+      result: native && native.result
+    };
+  }
+
+  if (hookPoint === 'subagent/start' || hookPoint === 'subagent/end') {
+    const child = (native && (native.child || native.agent)) || {};
+    return { session: { id: nativeSessionId(native) }, agentId: child.id };
+  }
+
+  // Session lifecycle points already receive the Session.
+  const session = native || {};
+  return { session: { id: session.id || session.sessionId } };
+}
 
 function dshSessionId(payload) {
   const session = payload && payload.session;
@@ -145,16 +230,30 @@ function toControlEvent(hookPoint, payload) {
   return event;
 }
 
-// The two pre-dispatch points cannot carry a denial the same way.
+// The returned object is an INTERMEDIATE adapter result, not a harness
+// waterfall decision. None of the three shapes is a `PreToolDecision` or a
+// `PreStepDecision`, and returning one directly is a defect: a bare
+// `{ kind: 'context' }` returned from `agent/pre-step` leaves `messages`
+// undefined, which the agent loop reads.
 //
-// `tools/pre-execute` returns a typed PreToolDecision, so a denial is
-// `{ kind: 'deny', reason }` and the model is told why.
+// The consuming plugin owns the translation:
 //
-// `agent/pre-step` returns a PreStepDecision, which is only
-// `{ kind: 'reject' } | { kind: 'enter', messages }`. A rejection ends the turn
-// as `blocked` and carries no reason field, so returning the reason here would
-// silently discard it. The caller receives `{ kind: 'reject', reason }` and
-// decides how to surface the text — the loop itself cannot.
+//   tools/pre-execute
+//     null                  -> return next() unchanged
+//     { kind: 'deny' }      -> return it as the PreToolDecision
+//     { kind: 'context' }   -> await next(), then attach the text through the
+//                              plugin's own channel; the tool gate has no
+//                              context field
+//
+//   agent/pre-step
+//     null                  -> return next() unchanged
+//     { kind: 'reject' }    -> return `{ kind: 'reject' }`; the reason must be
+//                              surfaced by the plugin, the loop drops it
+//     { kind: 'context' }   -> await next(), then fold the text into the
+//                              returned `messages`, or deliver it another way
+//
+// `applyDshDecision` implements that translation for the two pre-dispatch
+// points so a plugin does not have to re-derive it.
 function fromControlResult(hookPoint, result) {
   if (!result || result.kind === 'none') return null;
 
@@ -185,10 +284,43 @@ function handleDshHook(hookPoint, payload, options = {}) {
   return fromControlResult(hookPoint, result);
 }
 
+/**
+ * Translate an intermediate adapter result into a native harness decision.
+ *
+ * `next` is the waterfall's delegate and MUST be called exactly once, except
+ * when this function returns a blocking decision. `onContext` receives context
+ * text and may return a replacement message list for `agent/pre-step`.
+ */
+async function applyDshDecision(hookPoint, result, next, onContext) {
+  if (!result) return next();
+
+  if (result.kind === 'deny') {
+    // PreToolDecision carries the reason straight to the model.
+    return { kind: 'deny', reason: result.reason };
+  }
+
+  if (result.kind === 'reject') {
+    // PreStepDecision has no reason field; the plugin surfaces it separately.
+    if (typeof onContext === 'function') await onContext({ kind: 'reason', text: result.reason });
+    return { kind: 'reject' };
+  }
+
+  if (result.kind === 'context') {
+    const downstream = await next();
+    if (typeof onContext !== 'function') return downstream;
+    return onContext({ kind: 'context', text: result.text, downstream });
+  }
+
+  return next();
+}
+
 module.exports = {
   EVENT_KIND,
+  applyDshDecision,
   fromControlResult,
+  fromNativeEvent,
   handleDshHook,
+  messageText,
   resultLifecycle,
   toControlEvent
 };

@@ -69,15 +69,54 @@ const DSH_CONTROL_TOOLS = new Set([
   'wait_agent'
 ]);
 
-// The harness exposes delegation under three surfaces. `subagent` runs one
-// scoped child, `spawn_teammate` creates a durable teammate, and `workflow`
-// fans out a pipeline. All three reserve task capacity.
-const DSH_DELEGATE_TOOLS = new Set(['subagent', 'spawn_teammate', 'workflow']);
+// The harness exposes delegation under four names. `subagent` runs one scoped
+// child; `subagent_fork` is the shipped alias of that same package, selected by
+// a config-driven tool name, so it must reserve capacity identically.
+// `spawn_teammate` creates a durable teammate and `workflow` fans out a
+// pipeline. All four reserve task capacity.
+const DSH_DELEGATE_TOOLS = new Set(['subagent', 'subagent_fork', 'spawn_teammate', 'workflow']);
 
 // Terminal calls mutate an interactive session rather than the workspace
 // directly, so they classify by what the harness documents: open/read/list are
 // observations, while send/signal/close can change remote state.
 const DSH_TERMINAL_READ_TOOLS = new Set(['terminal_list', 'terminal_read']);
+
+// The file editor selects one of four commands per call. Only `view` observes;
+// the other three create or rewrite file content and are writes.
+const DSH_EDITOR_READ_COMMANDS = new Set(['view']);
+
+// The shared analyzers key off the Claude tool names `Write` and `Edit`. DSH
+// registers lowercase names, so the name is normalized before delegating rather
+// than duplicating the shared rules.
+const DSH_TO_SHARED_NAME = new Map([
+  ['write', 'Write'],
+  ['edit', 'Edit']
+]);
+
+// `run_code` is the PTC transport, not an analyzed action. It carries
+// `description` and `code` rather than a shell `command`, so the shared Bash
+// analyzer cannot read it, and its program body is not a shell script.
+//
+// Each tool called inside the program is scheduled through the registry and
+// traverses `tools/pre-execute` on its own, so the real read or write is
+// classified and gated under its own name. A nested denial surfaces inside the
+// program as a binding rejection. The transport is therefore `control`: it owns
+// no workspace effect of its own, and treating it as `unknown` would deny
+// read-only programs before their reads are ever examined.
+const RUN_CODE_NAME = 'run_code';
+const SHELL_TOOLS = new Set(['bash', 'pwsh']);
+
+function isShellTool(name) {
+  return SHELL_TOOLS.has(name);
+}
+
+function isEditorTool(name) {
+  return name === 'str_replace_editor';
+}
+
+function isRunCode(name) {
+  return name === RUN_CODE_NAME;
+}
 
 const HASH_API = /\b(?:createHash|createHmac)\s*\(|\bcrypto\.subtle\.digest\s*\(|\bhashlib\.(?:md5|sha1|sha224|sha256|sha384|sha512|blake2[bs])\s*\(|\bMessageDigest\.getInstance\s*\(|\bDigestUtils\.[A-Za-z0-9_]+\s*\(|\bsha(?:1|256|512)\.(?:New|Sum\w*)\s*\(|\b(?:bcrypt|argon2)\.hash\s*\(|\bpassword_hash\s*\(|\bPasswordHasher\s*\(/i;
 
@@ -115,16 +154,31 @@ function inputText(toolInput) {
       || toolInput.patch
       || toolInput.content
       || toolInput.new_string
+      || toolInput.file_text
+      || toolInput.new_str
       || ''
   );
+}
+
+function editorCommand(toolInput) {
+  return String((toolInput && toolInput.command) || '');
 }
 
 function classifyDshTool(toolName, toolInput) {
   const name = String(toolName || '');
 
-  if (name === 'write' || name === 'edit' || name === 'str_replace_editor') return 'write';
-  if (name === 'bash' || name === 'pwsh' || name === 'run_code') {
+  if (isEditorTool(name)) {
+    // `view` only observes the file. Every other editor command writes.
+    return DSH_EDITOR_READ_COMMANDS.has(editorCommand(toolInput)) ? 'read' : 'write';
+  }
+  if (name === 'write' || name === 'edit') return 'write';
+  if (isShellTool(name)) {
     return classifyShell(toolInput && toolInput.command);
+  }
+  if (isRunCode(name)) {
+    // The transport owns no workspace effect. Its nested calls are classified
+    // and gated individually when the registry schedules them.
+    return 'control';
   }
   if (DSH_DELEGATE_TOOLS.has(name)) return 'delegate';
   if (DSH_TERMINAL_READ_TOOLS.has(name)) return 'read';
@@ -141,10 +195,12 @@ function extractAffectedPaths(toolName, toolInput, cwd, mutability) {
   const name = String(toolName || '');
   let value = '';
 
-  if (name === 'write' || name === 'edit') {
-    value = toolInput && (toolInput.file_path || toolInput.path);
-  } else if (name === 'str_replace_editor') {
+  if (isEditorTool(name)) {
+    // A read-only `view` does not participate in the write boundary.
+    if (DSH_EDITOR_READ_COMMANDS.has(editorCommand(toolInput))) return [];
     value = toolInput && (toolInput.path || toolInput.file_path);
+  } else if (name === 'write' || name === 'edit') {
+    value = toolInput && (toolInput.file_path || toolInput.path);
   } else if (toolInput && typeof toolInput === 'object' && (mutability ?? classifyCodexTool(name, toolInput)) === 'write') {
     // For third-party/MCP mutating tools, only trust an explicit single path
     // field. Read-only tools do not participate in the write boundary. If a
@@ -159,24 +215,52 @@ function extractAffectedPaths(toolName, toolInput, cwd, mutability) {
 
 function detectHashIntent(toolName, toolInput) {
   const name = String(toolName || '');
-  if (name === 'bash' || name === 'pwsh' || name === 'run_code') {
+  if (isShellTool(name)) {
     return detectCodexHashIntent('Bash', toolInput);
   }
-  if (name === 'str_replace_editor') {
+  if (isEditorTool(name)) {
+    // The editor's content fields are `file_text`, `new_str`, and `insert_text`.
+    // Only the text a command writes can introduce hashing.
+    if (DSH_EDITOR_READ_COMMANDS.has(editorCommand(toolInput))) return false;
     return HASH_API.test(inputText(toolInput));
   }
-  return detectCodexHashIntent(name, toolInput);
+  if (isRunCode(name)) return false;
+  // The shared detector matches the `Write`/`Edit` names exactly, so map the
+  // harness lowercase names onto them instead of forking the rule.
+  return detectCodexHashIntent(DSH_TO_SHARED_NAME.get(name) || name, toolInput);
+}
+
+function editorManifestIntent(toolInput, cwd) {
+  const command = editorCommand(toolInput);
+  if (DSH_EDITOR_READ_COMMANDS.has(command)) return false;
+  const filePath = normalizePath(toolInput && toolInput.path, cwd);
+  if (command === 'create') {
+    return manifestDependencyIntent(filePath, toolInput && toolInput.file_text);
+  }
+  // `str_replace` and `insert` both rewrite an existing file through `new_str`,
+  // so the shared edit rule applies to either.
+  return manifestEditDependencyIntent(
+    filePath,
+    toolInput && toolInput.old_str,
+    toolInput && toolInput.new_str
+  );
 }
 
 function detectDependencyIntent(toolName, toolInput, cwd) {
   const name = String(toolName || '');
-  if (name === 'bash' || name === 'pwsh' || name === 'run_code') {
-    return detectCodexDependencyIntent(name === 'run_code' ? 'Bash' : name, toolInput);
+  if (isShellTool(name)) {
+    return detectCodexDependencyIntent('Bash', toolInput);
   }
-  if (name !== 'write' && name !== 'edit') return false;
+  if (isEditorTool(name)) {
+    return editorManifestIntent(toolInput, cwd);
+  }
+  if (isRunCode(name)) return false;
+
+  const shared = DSH_TO_SHARED_NAME.get(name);
+  if (!shared) return false;
 
   const filePath = normalizePath(toolInput && (toolInput.file_path || toolInput.path), cwd);
-  return name === 'write'
+  return shared === 'Write'
     ? manifestDependencyIntent(filePath, toolInput && toolInput.content)
     : manifestEditDependencyIntent(filePath, toolInput && toolInput.old_string, toolInput && toolInput.new_string);
 }
@@ -184,7 +268,7 @@ function detectDependencyIntent(toolName, toolInput, cwd) {
 function analyzeDshTool(toolName, toolInput, cwd) {
   const name = String(toolName || '');
   let analysis;
-  if (name === 'bash' || name === 'pwsh' || name === 'run_code') {
+  if (isShellTool(name)) {
     analysis = analyzeCodexTool('Bash', toolInput, cwd);
   } else {
     analysis = {
@@ -193,7 +277,7 @@ function analyzeDshTool(toolName, toolInput, cwd) {
       dependencyIntent: detectDependencyIntent(name, toolInput, cwd)
     };
   }
-  const pathMutability = name === 'bash' || name === 'pwsh' || name === 'run_code' ? analysis.mutability : undefined;
+  const pathMutability = isShellTool(name) ? analysis.mutability : undefined;
   return { ...analysis, affectedPaths: extractAffectedPaths(name, toolInput, cwd, pathMutability) };
 }
 

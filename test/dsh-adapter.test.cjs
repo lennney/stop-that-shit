@@ -5,7 +5,14 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { fromControlResult, handleDshHook, resultLifecycle, toControlEvent } = require('../src/adapters/dsh-hooks.cjs');
+const {
+  applyDshDecision,
+  fromControlResult,
+  fromNativeEvent,
+  handleDshHook,
+  resultLifecycle,
+  toControlEvent
+} = require('../src/adapters/dsh-hooks.cjs');
 const { analyzeDshTool, classifyDshTool, extractAffectedPaths, normalizePath } = require('../src/adapters/dsh-tool-classifier.cjs');
 const { readState } = require('../src/state.cjs');
 
@@ -41,12 +48,21 @@ test('DSH tool names map onto the shared mutability vocabulary', () => {
   assert.equal(classifyDshTool('web_fetch', { url: 'https://example.com' }), 'read');
   assert.equal(classifyDshTool('write', { file_path: 'a.txt', content: 'x' }), 'write');
   assert.equal(classifyDshTool('edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b' }), 'write');
-  assert.equal(classifyDshTool('str_replace_editor', { path: 'a.txt', command: 'view' }), 'write');
+  // The file editor classifies by its command: `view` observes, the rest write.
+  assert.equal(classifyDshTool('str_replace_editor', { path: 'a.txt', command: 'view' }), 'read');
+  assert.equal(classifyDshTool('str_replace_editor', { path: 'a.txt', command: 'create', file_text: 'x' }), 'write');
+  assert.equal(classifyDshTool('str_replace_editor', { path: 'a.txt', command: 'str_replace', old_str: 'a', new_str: 'b' }), 'write');
+  assert.equal(classifyDshTool('str_replace_editor', { path: 'a.txt', command: 'insert', insert_line: 1, new_str: 'b' }), 'write');
   assert.equal(classifyDshTool('todo_write', { todos: [] }), 'control');
   assert.equal(classifyDshTool('ask_user_question', {}), 'control');
   assert.equal(classifyDshTool('subagent', {}), 'delegate');
+  // `subagent_fork` is the shipped alias of the same package.
+  assert.equal(classifyDshTool('subagent_fork', {}), 'delegate');
   assert.equal(classifyDshTool('spawn_teammate', { name: 'x' }), 'delegate');
   assert.equal(classifyDshTool('workflow', {}), 'delegate');
+  // `run_code` is the PTC transport: no workspace effect of its own, and its
+  // nested calls are gated individually when the registry schedules them.
+  assert.equal(classifyDshTool('run_code', { description: 'Read', code: 'return await tools.read({});' }), 'control');
   // Terminal observation is a read; sending into a live terminal mutates it.
   assert.equal(classifyDshTool('terminal_read', { terminal_id: 't1' }), 'read');
   assert.equal(classifyDshTool('terminal_list', {}), 'read');
@@ -63,7 +79,15 @@ test('DSH file paths normalize against the session workspace', () => {
   assert.deepEqual(extractAffectedPaths('write', { file_path: 'src/a.js' }, root, 'write'), ['src/a.js']);
   assert.deepEqual(extractAffectedPaths('edit', { file_path: 'src/a.js' }, root, 'write'), ['src/a.js']);
   assert.deepEqual(extractAffectedPaths('read', { file_path: 'src/a.js' }, root, 'read'), []);
-  assert.deepEqual(extractAffectedPaths('str_replace_editor', { path: 'src/a.js' }, root, 'write'), ['src/a.js']);
+  assert.deepEqual(
+    extractAffectedPaths('str_replace_editor', { path: 'src/a.js', command: 'create', file_text: 'x' }, root, 'write'),
+    ['src/a.js']
+  );
+  // A read-only `view` is not in the write boundary.
+  assert.deepEqual(
+    extractAffectedPaths('str_replace_editor', { path: 'src/a.js', command: 'view' }, root, 'read'),
+    []
+  );
 });
 
 test('DSH dependency and hash intent follow the shared manifest rules', () => {
@@ -229,4 +253,259 @@ test('A prompt denial is shaped by the point it is returned to', () => {
     fromControlResult('agent/pre-step', { kind: 'prompt-error', message: 'bad directive' }),
     { kind: 'reject', reason: 'bad directive' }
   );
+});
+
+// --- Regression coverage for the reviewed classification findings. ---
+
+test('Regression: subagent_fork reserves capacity like subagent', (t) => {
+  const options = workspace(t);
+  const session = 'dsh-fork-alias';
+  start(session, options);
+  handleDshHook('agent/pre-step', prompt(session, '$stop-that-shit change agents=0 -- delegate the work'), options);
+  const viaCanonical = handleDshHook('tools/pre-execute', pre(session, 'subagent', {}, 'call-1'), options);
+  const viaAlias = handleDshHook('tools/pre-execute', pre(session, 'subagent_fork', {}, 'call-2'), options);
+  assert.equal(viaCanonical.kind, 'deny');
+  assert.match(viaCanonical.reason, /AGENT_BUDGET_EXHAUSTED/);
+  // The alias is the same package under a config-driven name, so it must not
+  // slip past the budget the canonical name is held to.
+  assert.equal(viaAlias.kind, 'deny');
+  assert.match(viaAlias.reason, /AGENT_BUDGET_EXHAUSTED/);
+});
+
+test('Regression: the alias still proceeds when capacity is available', (t) => {
+  const options = workspace(t);
+  const session = 'dsh-fork-allowed';
+  start(session, options);
+  handleDshHook('agent/pre-step', prompt(session, '$stop-that-shit change agents=2 -- delegate the work'), options);
+  const decision = handleDshHook('tools/pre-execute', pre(session, 'subagent_fork', {}, 'call-1'), options);
+  assert.equal(decision, null);
+});
+
+test('Regression: hash-bearing file writes are caught, ordinary ones are not', (t) => {
+  const options = workspace(t);
+  const session = 'dsh-hash-names';
+  start(session, options);
+  handleDshHook('agent/pre-step', prompt(session, '$stop-that-shit change hash=deny -- update the source'), options);
+
+  const shell = handleDshHook('tools/pre-execute', pre(session, 'bash', { command: 'sha256sum dist/a' }, 'call-1'), options);
+  assert.equal(shell.kind, 'deny');
+
+  const written = handleDshHook(
+    'tools/pre-execute',
+    pre(session, 'write', { file_path: 'src/hash.js', content: "const h = require('node:crypto').createHash('sha256');" }, 'call-2'),
+    options
+  );
+  assert.equal(written.kind, 'deny');
+  assert.match(written.reason, /HASH/);
+
+  const edited = handleDshHook(
+    'tools/pre-execute',
+    pre(session, 'edit', { file_path: 'src/hash.js', old_string: 'const h = 1', new_string: "const h = require('node:crypto').createHash('sha256');" }, 'call-3'),
+    options
+  );
+  assert.equal(edited.kind, 'deny');
+
+  // An ordinary source change under the same contract still proceeds.
+  const ordinary = handleDshHook(
+    'tools/pre-execute',
+    pre(session, 'write', { file_path: 'src/plain.js', content: 'export const a = 1;' }, 'call-4'),
+    options
+  );
+  assert.equal(ordinary, null);
+});
+
+test('Regression: editor dependency additions are caught, metadata edits are not', (t) => {
+  const options = workspace(t);
+  const session = 'dsh-editor-deps';
+  start(session, options);
+  handleDshHook('agent/pre-step', prompt(session, '$stop-that-shit change deps=deny -- keep the existing stack'), options);
+
+  const baseline = handleDshHook(
+    'tools/pre-execute',
+    pre(session, 'write', { file_path: 'package.json', content: '{"dependencies":{"left-pad":"1.3.0"}}' }, 'call-1'),
+    options
+  );
+  assert.equal(baseline.kind, 'deny');
+
+  const created = handleDshHook(
+    'tools/pre-execute',
+    pre(session, 'str_replace_editor', { command: 'create', path: 'package.json', file_text: '{"dependencies":{"left-pad":"1.3.0"}}' }, 'call-2'),
+    options
+  );
+  assert.equal(created.kind, 'deny');
+  assert.match(created.reason, /DEPENDENCY_NOT_AUTHORIZED/);
+
+  // An editor mutation that is not a dependency continues.
+  const rename = handleDshHook(
+    'tools/pre-execute',
+    pre(session, 'str_replace_editor', { command: 'str_replace', path: 'package.json', old_str: '"name": "old"', new_str: '"name": "new"' }, 'call-3'),
+    options
+  );
+  assert.equal(rename, null);
+});
+
+test('Regression: the editor view command is permitted under review', (t) => {
+  const options = workspace(t);
+  const session = 'dsh-editor-view';
+  start(session, options);
+  handleDshHook('agent/pre-step', prompt(session, '$stop-that-shit review -- inspect the documentation'), options);
+
+  const baseline = handleDshHook('tools/pre-execute', pre(session, 'read', { file_path: 'README.md' }, 'call-1'), options);
+  assert.equal(baseline, null, 'the equivalent read is permitted');
+
+  const viewed = handleDshHook(
+    'tools/pre-execute',
+    pre(session, 'str_replace_editor', { command: 'view', path: 'README.md' }, 'call-2'),
+    options
+  );
+  assert.equal(viewed, null, 'viewing a file is an observation, not a mutation');
+
+  // A real editor mutation is still refused in review mode.
+  const mutated = handleDshHook(
+    'tools/pre-execute',
+    pre(session, 'str_replace_editor', { command: 'str_replace', path: 'README.md', old_str: 'a', new_str: 'b' }, 'call-3'),
+    options
+  );
+  assert.equal(mutated.kind, 'deny');
+});
+
+test('Regression: run_code does not block a read-only program before it runs', (t) => {
+  const options = workspace(t);
+  const session = 'dsh-run-code';
+  start(session, options);
+  handleDshHook('agent/pre-step', prompt(session, '$stop-that-shit review -- inspect the readme'), options);
+
+  const transport = handleDshHook(
+    'tools/pre-execute',
+    pre(session, 'run_code', { description: 'Read README', code: 'return await tools.read({ file_path: "README.md" });' }, 'call-1'),
+    options
+  );
+  assert.equal(transport, null, 'the transport is not refused before its nested read is examined');
+
+  // The nested mutation is refused at its own gate, under its real tool name.
+  const nested = handleDshHook(
+    'tools/pre-execute',
+    pre(session, 'write', { file_path: 'README.md', content: 'x' }, 'call-2'),
+    options
+  );
+  assert.equal(nested.kind, 'deny');
+});
+
+// --- The native-to-adapter bridge required by the reviewed contract. ---
+
+test('A native DSH event is normalized into the adapter payload', () => {
+  // session/created hands the listener the Session itself.
+  assert.deepEqual(fromNativeEvent('session/created', { id: 's1' }), { session: { id: 's1' } });
+  assert.deepEqual(fromNativeEvent('session/disposed', { id: 's1' }), { session: { id: 's1' } });
+
+  // agent/pre-step hands { agent, messages, turn, step, signal }.
+  const preStep = fromNativeEvent('agent/pre-step', {
+    agent: { session: { id: 's1' } },
+    messages: [{ content: [{ type: 'text', text: 'hello' }] }],
+    turn: 4,
+    step: 1,
+    signal: new AbortController().signal
+  });
+  assert.deepEqual(preStep, { session: { id: 's1' }, prompt: 'hello', turnId: 4 });
+
+  // tools/pre-execute hands a ToolExecution with the session on its agent.
+  const preExec = fromNativeEvent('tools/pre-execute', {
+    name: 'write',
+    arguments: { file_path: 'src/a.ts', content: 'x' },
+    callId: 'call-1',
+    agent: { session: { id: 's1' } }
+  });
+  assert.deepEqual(preExec.exec.name, 'write');
+  assert.equal(preExec.exec.callId, 'call-1');
+  assert.equal(preExec.session.id, 's1');
+
+  // An unmapped point is ignored rather than half-translated.
+  assert.equal(fromNativeEvent('tools/execute', { name: 'write' }), null);
+  assert.equal(fromNativeEvent('made/up', {}), null);
+});
+
+test('The normalized native event drives the same decision as the raw payload', (t) => {
+  const options = workspace(t);
+  const session = 'dsh-native-bridge';
+  start(session, options);
+
+  const normalized = fromNativeEvent('agent/pre-step', {
+    agent: { session: { id: session } },
+    messages: [{ content: [{ type: 'text', text: '$stop-that-shit change files=src/** -- implement' }] }],
+    turn: 1
+  });
+  handleDshHook('agent/pre-step', normalized, options);
+  assert.equal(readState(session, options.dataDir).contract.mode, 'change');
+
+  const denied = handleDshHook(
+    'tools/pre-execute',
+    fromNativeEvent('tools/pre-execute', {
+      name: 'write',
+      arguments: { file_path: 'docs/other.md', content: 'x' },
+      callId: 'call-1',
+      agent: { session: { id: session } }
+    }),
+    options
+  );
+  assert.equal(denied.kind, 'deny');
+});
+
+test('A raw native payload is not silently accepted', () => {
+  // Passing the host object straight through yields nothing, which is why the
+  // bridge exists. This guards against a future "just accept both" shortcut
+  // that would treat a missing prompt as an empty one.
+  assert.equal(toControlEvent('agent/pre-step', { agent: { session: { id: 's1' } }, messages: [], turn: 1 }), null);
+});
+
+test('An intermediate result is translated into the native decision', async () => {
+  let delegated = 0;
+  const next = async () => { delegated += 1; return { kind: 'enter', messages: [] }; };
+
+  // null delegates unchanged.
+  assert.deepEqual(await applyDshDecision('tools/pre-execute', null, next), { kind: 'enter', messages: [] });
+  assert.equal(delegated, 1);
+
+  // A tool denial becomes the typed PreToolDecision.
+  const denial = await applyDshDecision('tools/pre-execute', { kind: 'deny', reason: 'out of scope' }, next);
+  assert.deepEqual(denial, { kind: 'deny', reason: 'out of scope' });
+  assert.equal(delegated, 1, 'a blocking decision must not delegate');
+
+  // A prompt rejection becomes the bare PreStepDecision, and the reason is
+  // handed to the plugin because the loop cannot carry it.
+  const seen = [];
+  const rejected = await applyDshDecision(
+    'agent/pre-step',
+    { kind: 'reject', reason: 'Unknown directive field' },
+    next,
+    (info) => { seen.push(info); }
+  );
+  assert.deepEqual(rejected, { kind: 'reject' });
+  assert.equal(seen[0].kind, 'reason');
+  assert.match(seen[0].text, /Unknown directive field/);
+
+  // Context preserves the downstream decision instead of replacing it.
+  const downstream = { kind: 'enter', messages: ['kept'] };
+  const withContext = await applyDshDecision(
+    'agent/pre-step',
+    { kind: 'context', text: 'reminder' },
+    async () => downstream,
+    (info) => (info.kind === 'context' ? { ...downstream, messages: [...info.downstream.messages, info.text] } : downstream)
+  );
+  assert.deepEqual(withContext.messages, ['kept', 'reminder']);
+
+  // Without a context sink the downstream decision passes through unchanged.
+  assert.deepEqual(
+    await applyDshDecision('agent/pre-step', { kind: 'context', text: 'reminder' }, async () => downstream),
+    downstream
+  );
+});
+
+test('A tool call with no calling agent is not translated', () => {
+  // The loop always sets `agent` on a root call and the PTC transport threads
+  // it down, so a model-initiated call always has a session. A direct
+  // ctx.tools.execute() without one has no session identity and is not gated;
+  // the contract records this so a deployment does not assume otherwise.
+  const payload = fromNativeEvent('tools/pre-execute', { name: 'write', arguments: { file_path: 'a' }, callId: 'c1' });
+  assert.equal(payload.session.id, '');
+  assert.equal(toControlEvent('tools/pre-execute', payload), null);
 });
