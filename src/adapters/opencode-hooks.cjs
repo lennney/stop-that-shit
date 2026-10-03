@@ -3,7 +3,8 @@
 const { PROTOCOL_VERSION } = require('../control-protocol.cjs');
 const { handleControlEvent } = require('../controller.cjs');
 const {
-  analyzeOpenCodeTool
+  analyzeOpenCodeTool,
+  classifyOpenCodeTool
 } = require('./opencode-tool-classifier.cjs');
 const { optionalIdentifier } = require('./lifecycle-fields.cjs');
 
@@ -63,6 +64,8 @@ function toActionEvent(input, output, context = {}) {
 }
 
 function toActionAfterEvent(input, context = {}, output) {
+  // Resumed tasks also need their terminal facts to clear unresolved activity.
+  if (classifyOpenCodeTool(input && input.tool) !== 'delegate') return null;
   const actionId = optionalIdentifier(input && input.callID, input && input.callId);
   if (!actionId) return null;
   const action = { id: actionId };

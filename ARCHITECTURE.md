@@ -112,7 +112,7 @@ Hermes native Plugin maps the following lifecycle events:
 ```text
 pre_llm_call  -> prompt.submit  -> {"context":"..."} when context is returned
 pre_tool_call -> action.before  -> {"action":"block","message":"..."} on denial
-post_tool_call -> action.after
+post_tool_call -> action.after (delegate_task results only)
 subagent_start/subagent_stop -> subagent.start/subagent.stop
 on_session_end -> session.end
 ```

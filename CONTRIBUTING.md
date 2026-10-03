@@ -26,7 +26,7 @@ unnecessary or necessary action, and the reason it should be stopped or kept.
 | Hash API detection in source edits | `src/hash-intent.cjs`, `test/hash-intent.test.cjs` |
 | Saved-state validation and migration | `src/state-schema.cjs`, `test/state.test.cjs` |
 | State I/O and process locks | `src/state.cjs`, `test/session-lock.test.cjs` |
-| Codex event translation | `src/adapters/` |
+| Host event translation | `src/adapters/`, `HOST-ADAPTER-CONTRACT.md` |
 | A reader-facing case explanation | `cases/README.md` and `cases/README_CN.md` |
 | An executable Bad/Good policy pair | `cases/0.0.1/` |
 | Reproducible model evaluation | `evals/codex-paired/cases/<family>/` |
