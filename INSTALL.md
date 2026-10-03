@@ -147,6 +147,27 @@ session if that activity cannot be resolved. Valid legacy budgets, including
 `0`, survive schema migration. See the [adapter contract](HOST-ADAPTER-CONTRACT.md)
 for the host-specific evidence and lifecycle rules.
 
+### Recover a damaged legacy session lock
+
+`STS_LOCK_DAMAGED` means an old lock file has no valid owner PID. The Guard
+preserves that file and the saved session state. Read-only recovery remains
+available, but new directives cannot be saved while the lock is damaged.
+
+Prefer a new host session and submit the required `$stop-that-shit` directive
+again. To recover the original session:
+
+1. Stop every host process and child process that shares the STS data directory.
+2. Find the exact `.json.lock` filename shown in the error under that data
+   directory's `sessions/` folder. Move only that damaged file aside and keep it
+   for inspection. Preserve the matching `.json` file, which holds the contract
+   and delegation records.
+3. Restart the host and submit the required directive again. Confirm its response
+   before continuing the task.
+
+These steps apply only to the damaged legacy lock file named in the error.
+Do not force-unlock a lock directory or a file with a valid, live owner PID.
+File age alone does not prove that its owner has stopped.
+
 ## Run a smoke test
 
 ### Claude Code
