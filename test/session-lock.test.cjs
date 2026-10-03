@@ -7,6 +7,50 @@ const path = require('node:path');
 const test = require('node:test');
 const { acquireSessionLock, statePath } = require('../src/state.cjs');
 
+test('stale legacy locks without a valid owner report damage and remain intact', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-legacy-lock-damage-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  for (const [index, content] of ['', '123', '0:partial', '99999999999999999999:partial'].entries()) {
+    const id = `damaged-${index}`;
+    const file = `${statePath(id, dir)}.lock`;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, content);
+    const old = new Date(Date.now() - 20000);
+    fs.utimesSync(file, old, old);
+    assert.throws(() => acquireSessionLock(id, dir, { timeoutMs: 30 }), error => {
+      assert.equal(error.code, 'STS_LOCK_DAMAGED');
+      assert.ok(error.message.includes(path.basename(file)));
+      assert.match(error.message, /stop every host process/i);
+      return true;
+    });
+    assert.equal(fs.readFileSync(file, 'utf8'), content);
+  }
+});
+
+test('a recent incomplete legacy lock remains busy while its owner may be initializing', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-legacy-lock-initializing-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = `${statePath('initializing', dir)}.lock`;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '');
+  assert.throws(() => acquireSessionLock('initializing', dir, { timeoutMs: 20 }), { code: 'STS_LOCK_TIMEOUT' });
+  assert.equal(require('../src/state.cjs').readState('initializing', dir).storageError, undefined);
+  assert.equal(fs.readFileSync(file, 'utf8'), '');
+});
+
+test('an updater error is never retried as damaged-lock recovery', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-lock-updater-error-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const failure = Object.assign(new Error('callback failure'), { code: 'STS_LOCK_DAMAGED' });
+  let calls = 0;
+  assert.throws(() => require('../src/state.cjs').updateSession('callback', dir, () => {
+    calls += 1;
+    throw failure;
+  }), error => error === failure);
+  assert.equal(calls, 1);
+  assert.equal(fs.existsSync(`${statePath('callback', dir)}.lock`), false);
+});
+
 test('stale lock recovery removes exited owners but preserves a live contender', (t) => {
   const { spawnSync } = require('node:child_process');
   const { randomUUID } = require('node:crypto');

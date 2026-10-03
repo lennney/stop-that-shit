@@ -6,6 +6,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { decodeState, freshState, recoveryState } = require('./state-schema.cjs');
 
+const LOCK_STALE_MS = 10000;
+
 function dataRoot(override) {
   return override || process.env.PLUGIN_DATA || process.env.CLAUDE_PLUGIN_DATA || path.join(os.tmpdir(), 'stop-that-shit-dev');
 }
@@ -20,6 +22,17 @@ function statePath(sessionId, override) {
 
 function readState(sessionId, override) {
   const file = statePath(sessionId, override);
+  // Ordinary tool checks do not acquire the session lock. They must still
+  // see a failed legacy lock migration instead of trusting stale authority.
+  try {
+    const lock = `${file}.lock`;
+    const stat = fs.statSync(lock, { throwIfNoEntry: false });
+    if (stat?.isFile() && Date.now() - stat.mtimeMs > LOCK_STALE_MS) legacyLockOwner(lock);
+  } catch (error) {
+    if (error.code === 'STS_LOCK_DAMAGED') return recoveryState({ code: error.code, message: error.message });
+    // A completed migration may remove the old file or replace it with a directory.
+    if (!['ENOENT', 'EISDIR'].includes(error.code)) throw error;
+  }
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
     // Reads may run without the session lock. Normalize in memory only;
@@ -71,6 +84,20 @@ function ownerHasExited(pid) {
   catch (error) { return error.code === 'ESRCH'; }
 }
 
+function legacyLockOwner(file) {
+  const match = /^(\d+):/.exec(fs.readFileSync(file, 'utf8'));
+  const pid = match && Number(match[1]);
+  if (Number.isSafeInteger(pid) && pid > 0) return pid;
+  const error = new Error(`The legacy session lock "${path.basename(file)}" has no valid owner. `
+    + 'Read-only recovery is active; the lock and saved state are preserved. '
+    + 'Start a new host session and submit a new contract, or stop every host process using this data directory '
+    + 'before moving only this lock file aside. Keep the saved state and delegation records. '
+    + 'See INSTALL.md#recover-a-damaged-legacy-session-lock.');
+  error.name = 'STS_LOCK_DAMAGED';
+  error.code = 'STS_LOCK_DAMAGED';
+  throw error;
+}
+
 function removeEmptyLock(directory) {
   // Remove only an empty container. A contender may already have published
   // its own nonempty lock directory at this path.
@@ -108,8 +135,7 @@ function reclaimSessionLock(file, staleMs) {
     } else {
       // Previous releases used a file containing "pid:uuid timestamp".
       // A replacement directory cannot be removed by unlinkSync.
-      const match = /^(\d+):/.exec(fs.readFileSync(file, 'utf8'));
-      if (match && ownerHasExited(Number(match[1]))) fs.unlinkSync(file);
+      if (ownerHasExited(legacyLockOwner(file))) fs.unlinkSync(file);
     }
   } catch (error) {
     if (['ENOENT', 'ENOTDIR', 'EISDIR'].includes(error.code)) return;
@@ -121,7 +147,7 @@ function reclaimSessionLock(file, staleMs) {
 function acquireSessionLock(sessionId, override, options = {}) {
   const file = lockPath(sessionId, override);
   const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 1500;
-  const staleMs = Number.isFinite(options.staleMs) ? options.staleMs : 10000;
+  const staleMs = Number.isFinite(options.staleMs) ? options.staleMs : LOCK_STALE_MS;
   const started = Date.now();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const owner = `${process.pid}-${crypto.randomUUID()}`;
@@ -168,13 +194,22 @@ function withSessionLock(sessionId, override, fn, options) {
 }
 
 function updateSession(sessionId, override, update) {
-  return withSessionLock(sessionId, override, () => {
+  let release;
+  try {
+    release = acquireSessionLock(sessionId, override);
+  } catch (error) {
+    if (error.code !== 'STS_LOCK_DAMAGED') throw error;
+    return update(recoveryState({ code: error.code, message: error.message }));
+  }
+  try {
     const state = readState(sessionId, override);
     const damaged = Boolean(state.storageError);
     const result = update(state);
     if (!damaged) writeState(sessionId, state, override);
     return result;
-  });
+  } finally {
+    release();
+  }
 }
 
 module.exports = {

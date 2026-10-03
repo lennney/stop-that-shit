@@ -58,6 +58,12 @@ OMP Extension         ----> OMP Adapter ----------/
   age alone does not invalidate a live lock. Empty directories can be reclaimed,
   and delayed initializers must verify ownership again. Failed state writes
   remove their temporary file and leave the previous saved state intact.
+  A stale legacy file lock without a valid owner is preserved and reported as
+  `STS_LOCK_DAMAGED`. Both ordinary reads and locked updates enter in-memory
+  read-only recovery, so an unsaved prompt cannot leave old write authority
+  active. Recovery never persists a replacement contract or clears the ledger.
+  See INSTALL.md for restarting with a new session or isolating the damaged
+  lock after all processes that share its data directory have stopped.
 - `src/delegation-state.cjs` owns pure reservation transitions. `action.before`
   reserves active units; only a confirmed completion result releases
   them. Unknown results retain capacity; only confirmed bound-child completion
