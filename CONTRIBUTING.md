@@ -1,13 +1,14 @@
 # Contributing to Stop That Shit
 
-Stop That Shit is built from real Codex behavior, paired counterexamples, and
+Stop That Shit is built from real agent behavior, paired counterexamples, and
 small verifiable controls. You do not need to write Hook code to contribute.
 The smallest useful contribution is one sanitized issue with the request, the
 unnecessary or necessary action, and the reason it should be stopped or kept.
+Include the host name and version so maintainers can identify its adapter.
 
 ## Fastest ways to help
 
-1. Submit a **Bad Case** where Codex left the authorized task.
+1. Submit a **Bad Case** where the agent left the authorized task.
 2. Submit a **Good Case** where a seemingly extra action was actually necessary.
 3. Pair an existing case labeled `needs-counterexample`.
 4. Turn a sanitized case into a reproducible fixture.
@@ -92,7 +93,7 @@ escape, and unknown assertion types are rejected.
 
 ## Case labels
 
-- `case:bad` — Codex crossed the requested boundary;
+- `case:bad` — the agent crossed the requested boundary;
 - `case:good` — the action was necessary and must remain allowed;
 - `needs-counterexample` — the case still needs its nearest opposite;
 - `good first issue` — a small contribution with enough context to start.

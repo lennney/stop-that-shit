@@ -15,7 +15,7 @@ body:
   - type: textarea
     id: action
     attributes:
-      label: One material Codex action that must proceed
+      label: One material agent action that must proceed
     validations:
       required: true
   - type: textarea
@@ -33,7 +33,7 @@ body:
   - type: textarea
     id: environment
     attributes:
-      label: Codex surface, version, model, reasoning, and plugin revision (optional)
+      label: Host name, surface, version, model, reasoning, and plugin revision (optional)
   - type: textarea
     id: reproduction
     attributes:
