@@ -3,6 +3,8 @@
 const pi = require('./pi-tool-classifier.cjs');
 const { normalizePath } = require('./opencode-tool-classifier.cjs');
 const codex = require('./codex-tool-classifier.cjs');
+const { analyzeShell } = require('../shell-analysis.cjs');
+const { fileHashIntent } = require('../hash-intent.cjs');
 const { manifestDependencyIntent, manifestEditDependencyIntent, patchDependencyIntent } = require('../manifest-dependencies.cjs');
 const HUB_READ = new Set(['wait', 'inbox', 'list', 'jobs', 'ps', 'logs', 'describe']);
 
@@ -74,7 +76,8 @@ function classifyOmpAction(name, input, cwd) {
   const batch = Array.isArray(input.tasks) && input.tasks.length > 0;
   const validTask = batch ? input.tasks.every(item => typeof item?.task === 'string' && item.task.trim())
     : typeof input.task === 'string' && input.task.trim();
-  let mutability = pi.classifyPiTool(name, input);
+  const shell = name === 'bash' || name === 'powershell' ? analyzeShell(input.command) : null;
+  let mutability = shell ? shell.mutability : pi.classifyPiTool(name, input);
   if (task) mutability = 'delegate';
   if (name === 'subagent') mutability = 'unknown';
   if (['glob', 'web_search'].includes(name)) mutability = 'read';
@@ -112,12 +115,12 @@ function classifyOmpAction(name, input, cwd) {
     delegationLifecycleUnproven,
     dependencyIntent: name === 'edit'
       ? editDependencyIntent(input, anchored)
-      : pi.detectDependencyIntent(name, params),
+      : shell ? shell.dependencyIntent : pi.detectDependencyIntent(name, params),
     hashIntent: anchored
-      ? anchored.some(edit => pi.detectHashIntent('edit', { path: edit.path, newText: edit.addedText }))
+      ? anchored.some(edit => fileHashIntent(edit.path, edit.addedText))
       : name === 'edit'
-      ? affectedPaths.some(target => pi.detectHashIntent('edit', { ...params, path: target }))
-      : pi.detectHashIntent(name, params)
+      ? affectedPaths.some(target => fileHashIntent(target, params.newText))
+      : shell ? shell.hashIntent : pi.detectHashIntent(name, params)
   };
 }
 

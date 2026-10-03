@@ -4,6 +4,7 @@ const { PROTOCOL_VERSION } = require('../control-protocol.cjs');
 const { handleControlEvent } = require('../controller.cjs');
 const {
   analyzeClaudeTool,
+  classifyClaudeTool,
   isUnboundedDelegation
 } = require('./claude-tool-classifier.cjs');
 const { optionalIdentifier } = require('./lifecycle-fields.cjs');
@@ -76,6 +77,9 @@ function toControlEvent(input) {
   }
 
   if (kind === 'action.after') {
+    // Only delegation and agent wakeups can have an outstanding reservation.
+    if (input.tool_name !== 'SendMessage'
+        && classifyClaudeTool(input.tool_name, input.tool_input) !== 'delegate') return null;
     const actionId = optionalIdentifier(input.tool_use_id, input.tool_call_id);
     if (!actionId) return null;
     event.action = {

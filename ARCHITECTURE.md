@@ -29,6 +29,14 @@ OMP Extension         ----> OMP Adapter ----------/
 - `src/contracts.cjs` owns contract values, defaults, legacy budget conversion,
   and prompt parsing. Saved-state loading reuses its contract normalization.
 - `src/controller.cjs` stores the current contract and applies decisions.
+- `src/shell-analysis.cjs` owns the shared static shell analysis: mutability,
+  hash intent, dependency intent, and analysis reason codes. Host classifiers
+  reuse it without translating shell calls into Codex tool names. Legacy shell
+  payloads retain their intent checks when the command field is missing.
+- `src/hash-intent.cjs` owns hash API recognition in source content and added
+  patch lines. Adapters supply native content fields; notebooks can inspect
+  source without a file extension. The original tool-input API remains
+  available for compatible callers. Shell hash intent stays in shell analysis.
 - `src/adapters/codex-*.cjs` classify Codex events and render Codex responses.
 - `src/adapters/claude-*.cjs` classify Claude Code events and render Claude Hook
   responses.
@@ -104,7 +112,7 @@ Hermes native Plugin maps the following lifecycle events:
 ```text
 pre_llm_call  -> prompt.submit  -> {"context":"..."} when context is returned
 pre_tool_call -> action.before  -> {"action":"block","message":"..."} on denial
-post_tool_call -> action.after
+post_tool_call -> action.after (delegate_task results only)
 subagent_start/subagent_stop -> subagent.start/subagent.stop
 on_session_end -> session.end
 ```

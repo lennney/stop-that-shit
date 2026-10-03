@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { handleControlEvent } = require('../src/controller.cjs');
-const { acquireSessionLock, readState } = require('../src/state.cjs');
+const { acquireSessionLock, readState, statePath } = require('../src/state.cjs');
 
 for (const level of ['guard', 'watch', 'off']) {
   test(`invalid directive residue respects ${level} during later delegation`, t => {
@@ -39,6 +39,71 @@ function session(t) {
     before: (id, extra = {}) => send('action.before', { action: { id, name: 'Agent', mutability: 'delegate', ...extra } }),
     after: (id, lifecycle, extra = {}) => send('action.after', { action: { id, lifecycle, ...extra } }) };
 }
+
+const ordinaryResults = {
+  Claude: dataDir => require('../src/adapters/claude-hooks.cjs').handleClaudeHook({
+    hook_event_name: 'PostToolUse', session_id: 'parent', tool_name: 'Read',
+    tool_use_id: 'read-1', tool_response: 'read complete'
+  }, { dataDir }),
+  Hermes: dataDir => require('../src/adapters/hermes-hooks.cjs').handleHermesHook({
+    hook_event_name: 'post_tool_call', session_id: 'parent', tool_name: 'read_file',
+    tool_call_id: 'read-1', extra: { result: 'read complete' }
+  }, { dataDir }),
+  Pi: dataDir => require('../src/adapters/pi-hooks.cjs').handlePiToolAfter({
+    type: 'tool_result', toolName: 'read', toolCallId: 'read-1', content: [], isError: false
+  }, { sessionId: 'parent' }, { dataDir }),
+  OpenCode: dataDir => require('../src/adapters/opencode-hooks.cjs').handleOpenCodeToolAfter({
+    tool: 'read', sessionID: 'parent', callID: 'read-1'
+  }, { output: 'read complete' }, {}, { dataDir })
+};
+
+for (const [host, afterRead] of Object.entries(ordinaryResults)) {
+  test(`${host} ordinary results neither create state nor wait for a session writer`, t => {
+    const s = session(t);
+    afterRead(s.dataDir);
+    assert.deepEqual(fs.readdirSync(s.dataDir), []);
+    s.prompt('guard agents=1');
+    s.before('active-delegation');
+    const file = statePath('parent', s.dataDir);
+    const before = fs.readFileSync(file, 'utf8');
+    const release = acquireSessionLock('parent', s.dataDir);
+    try {
+      assert.doesNotThrow(() => afterRead(s.dataDir));
+      assert.equal(fs.readFileSync(file, 'utf8'), before);
+    } finally {
+      release();
+    }
+    assert.equal(s.before('blocked').decision.reasonCode, 'AGENT_BUDGET_EXHAUSTED');
+    s.after('active-delegation', 'joined');
+    assert.equal(s.before('allowed').kind, 'none');
+  });
+}
+
+for (const toolName of ['Workflow', 'SendMessage']) {
+  test(`Claude ${toolName} completion still clears permitted unresolved activity`, t => {
+    const s = session(t);
+    const { handleClaudeHook } = require('../src/adapters/claude-hooks.cjs');
+    s.prompt('watch agents=1');
+    const call = { session_id: 'parent', tool_name: toolName, tool_use_id: 'unresolved-call', tool_input: {} };
+    handleClaudeHook({ ...call, hook_event_name: 'PreToolUse' }, { dataDir: s.dataDir });
+    assert.notDeepEqual(readState('parent', s.dataDir).delegation.unresolved, {});
+    handleClaudeHook({ ...call, hook_event_name: 'PostToolUse', tool_response: { status: 'completed' } }, { dataDir: s.dataDir });
+    s.prompt('guard agents=1');
+    assert.equal(s.before('next').kind, 'none');
+  });
+}
+
+test('OpenCode resumed task completion still clears permitted unresolved activity', t => {
+  const s = session(t);
+  const { handleOpenCodeTool, handleOpenCodeToolAfter } = require('../src/adapters/opencode-hooks.cjs');
+  s.prompt('watch agents=1');
+  const call = { tool: 'task', sessionID: 'parent', callID: 'resume' };
+  handleOpenCodeTool(call, { args: { task_id: 'child', prompt: 'continue' } }, {}, { dataDir: s.dataDir });
+  assert.notDeepEqual(readState('parent', s.dataDir).delegation.unresolved, {});
+  handleOpenCodeToolAfter(call, { output: 'done', metadata: { sessionId: 'child' } }, {}, { dataDir: s.dataDir });
+  s.prompt('guard agents=1');
+  assert.equal(s.before('next').kind, 'none');
+});
 
 for (const level of ['watch', 'off']) {
   test(`reused execution ids permitted under ${level} retain uncertainty after ambiguous completion`, t => {
