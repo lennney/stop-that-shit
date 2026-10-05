@@ -430,16 +430,18 @@ or null for an unmapped point, so every listener can pass through the same call.
 `context` carries what the native signature cannot deliver in one argument:
 
 ```js
-// Tools waterfall: (exec, next)
+// Tools waterfall: (exec, next). `rootSessionId` is REQUIRED whenever the
+// calling session has a `parentSession`; without it the call is refused, because
+// the header names only the immediate parent and one hop is not the root.
 ctx.on('tools/pre-execute', async (exec, next) => {
-  const payload = fromNativeEvent('tools/pre-execute', exec)
+  const payload = fromNativeEvent('tools/pre-execute', exec, { rootSessionId: rootOf(exec) })
   if (!payload) return next()
   return applyDshDecision('tools/pre-execute', handleDshHook('tools/pre-execute', payload, options), next)
 })
 
 // Tools waterfall: (exec, result, next) — the result is a separate argument.
 ctx.on('tools/post-execute', async (exec, result, next) => {
-  const payload = fromNativeEvent('tools/post-execute', exec, { result })
+  const payload = fromNativeEvent('tools/post-execute', exec, { result, rootSessionId: rootOf(exec) })
   if (payload) handleDshHook('tools/post-execute', payload, options)
   return next()
 })
@@ -450,6 +452,11 @@ ctx.on('subagent/start', (info) => {
   handleDshHook('subagent/start', fromNativeEvent('subagent/start', info, { sessionId: parentSessionId })!, options)
 })
 ```
+
+Without `context.rootSessionId` a delegated tool call is refused outright, with a
+reason naming the missing field. That is deliberate: the session header exposes
+only the immediate parent, and the intermediate child in a deeper delegation
+holds no contract, so guessing a parent would restore the bypass.
 
 Without `context.result` the post-dispatch fact carries no result, and without
 `context.sessionId` a subagent fact is not translated at all: filing it under
@@ -594,20 +601,18 @@ it would be through `write`.
 ### The PTC transport
 
 `run_code` is a transport, not an analyzed action. It carries `description` and
-`code` rather than a shell `command`, so it is classified `control`: it owns no
-workspace effect of its own. The program receives exactly one global binding,
+`code` rather than a shell `command`. The program is handed one global binding,
 `tools`, and each call through it is scheduled through the registry and
-traverses `tools/pre-execute` on its own, so a nested read or write is
-classified and gated under its real name, and a nested denial surfaces inside
-the program as a binding rejection. Classifying the transport as `unknown` would
-refuse a read-only program before its reads are ever examined.
+traverses `tools/pre-execute` under its real name, so a nested read or write is
+classified and gated, and a nested denial surfaces inside the program as a
+binding rejection. That binding is the only tool surface, not the only way to
+cause an effect.
 
-This does not cover a program that reaches the filesystem through its own
-runtime rather than through `tools.*`. A sandbox policy is optional for a PTC
-runtime, so a deployment that runs programs unsandboxed has no STS gate on that
-path. Enforcing it is the host's responsibility under the ownership table
-above, not the adapter's; a deployment that needs the guarantee should require
-the sandbox rather than rely on this classification.
+A program that reaches the filesystem through its own runtime is not covered,
+and the classification must not imply otherwise. A sandbox policy is optional
+for a PTC runtime, so a deployment that runs programs without OS confinement has
+no STS gate on that path. Enforcing it belongs to the host under the ownership
+table above, which is why the default here is the side that fails closed.
 
 `send_message` sets `delegationLifecycleUnproven` because it can wake a
 teammate that already stopped, and `subagent/end` carries no run identity that

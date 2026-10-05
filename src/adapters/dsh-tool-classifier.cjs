@@ -110,12 +110,14 @@ const DSH_TO_SHARED_NAME = new Map([
 // `description` and `code` rather than a shell `command`, so the shared Bash
 // analyzer cannot read it, and its program body is not a shell script.
 //
-// Each tool called inside the program is scheduled through the registry and
-// traverses `tools/pre-execute` on its own, so the real read or write is
-// classified and gated under its own name. A nested denial surfaces inside the
-// program as a binding rejection. The transport is therefore `control`: it owns
-// no workspace effect of its own, and treating it as `unknown` would deny
-// read-only programs before their reads are ever examined.
+// Nested `tools.*` calls are gated: each one is scheduled through the registry
+// and traverses `tools/pre-execute` under its own tool name. That is NOT the
+// only path to an effect, though. The Node evaluator runs the program as a bare
+// async function with the full runtime in scope, so a body can
+// `await import('node:fs/promises')` and write the workspace with no binding at
+// all. The transport is therefore `unknown` by default and only becomes `control`
+// when a deployment asserts a runtime it can prove cannot do that — see
+// classifyDshTool and setRunCodeBindingOnly.
 const RUN_CODE_NAME = 'run_code';
 const SHELL_TOOLS = new Set(['bash', 'pwsh']);
 

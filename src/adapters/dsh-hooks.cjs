@@ -71,16 +71,26 @@ function nativeToolSessionId(exec) {
   return String((session && (session.id || session.sessionId)) || '');
 }
 
-// A delegated child runs in its own session, so keying its tool calls by the
-// child's id would read an unconfirmed contract and admit work the parent never
-// authorized. The child's header names the session it was forked from, so the
-// caller can walk that chain and hand the root id in as `context.rootSessionId`.
-// A child with no parent is a root session and is its own authority.
-function nativeRootSessionId(exec) {
+function hasParentSession(exec) {
   const session = exec && exec.agent && exec.agent.session;
   const header = session && session.header;
-  const parent = header && header.parentSession;
-  return String(parent || nativeToolSessionId(exec));
+  return Boolean(header && header.parentSession);
+}
+
+// A delegated call runs in its own session, so keying it by the caller's own id
+// would read an unconfirmed contract and admit work nobody authorized.
+//
+// The header names only the IMMEDIATE parent, so a grandchild's parentSession
+// points at the child, not the root. There is no way to reach the root from the
+// session object alone, and one hop is not enough: the intermediate child never
+// holds a contract, because a delegated prompt is not translated. So when a
+// parent session is present the root must come from the caller as
+// `context.rootSessionId`, and its absence is unverifiable rather than safe.
+function rootSessionKey(exec, context) {
+  const supplied = String((context && context.rootSessionId) || '');
+  if (supplied) return { id: supplied };
+  if (hasParentSession(exec)) return null;
+  return { id: nativeToolSessionId(exec) };
 }
 
 // The workspace the session runs in. `ToolExecution` carries no `cwd`; the
@@ -130,10 +140,12 @@ function fromNativeEvent(hookPoint, native, context) {
 
   if (hookPoint === 'tools/pre-execute') {
     const exec = native || {};
+    const key = rootSessionKey(exec, extra);
     return {
-      // The contract is keyed by the root session so a delegated child's calls
-      // are checked against the authority the parent actually holds.
-      session: { id: String(extra.rootSessionId || nativeRootSessionId(exec)) },
+      session: key || { id: '' },
+      // A delegated call whose root cannot be verified is refused rather than
+      // silently keyed by the child.
+      requiresVerifiedRoot: key === null,
       exec: { name: exec.name, arguments: exec.arguments, callId: exec.callId },
       cwd: exec.cwd !== undefined ? exec.cwd : nativeSessionCwd(exec)
     };
@@ -143,8 +155,10 @@ function fromNativeEvent(hookPoint, native, context) {
     // The waterfall hands (exec, result, next). `result` is not a property of
     // the execution, so it must arrive separately.
     const exec = (native && native.exec) || native || {};
+    const key = rootSessionKey(exec, extra);
     return {
-      session: { id: String(extra.rootSessionId || nativeRootSessionId(exec)) },
+      session: key || { id: '' },
+      requiresVerifiedRoot: key === null,
       exec: { callId: exec.callId },
       result: extra.result !== undefined ? extra.result : (native && native.result)
     };
@@ -353,6 +367,17 @@ function fromControlResult(hookPoint, result) {
 }
 
 function handleDshHook(hookPoint, payload, options = {}) {
+  // Fail closed: a delegated call whose root session the caller did not supply
+  // cannot be checked against any real contract, so it is refused with a reason
+  // that names the missing field.
+  if (payload && payload.requiresVerifiedRoot === true) {
+    return {
+      kind: 'deny',
+      reason: 'Delegated tool call has no verified root session. '
+        + 'Pass context.rootSessionId from the parent session; the session header '
+        + 'names only the immediate parent, so one hop is not enough to reach the root.'
+    };
+  }
   const event = toControlEvent(hookPoint, payload);
   if (!event) return null;
   const result = handleControlEvent(event, options);

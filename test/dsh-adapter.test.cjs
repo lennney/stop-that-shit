@@ -735,11 +735,27 @@ test('Regression: a child tool call is checked against the parent contract', (t)
     agent: { session: { id: 'child', header: { parentSession: 'parent' } } }
   });
 
-  const denied = handleDshHook('tools/pre-execute', fromNativeEvent('tools/pre-execute', child('write', { file_path: 'docs/other.md', content: 'x' }, 'c1')), options);
-  assert.equal(denied.kind, 'deny', 'the child must not run under an unconfirmed contract of its own');
+  // With the root supplied, the child is checked against the parent's contract.
+  const denied = handleDshHook(
+    'tools/pre-execute',
+    fromNativeEvent('tools/pre-execute', child('write', { file_path: 'docs/other.md', content: 'x' }, 'c1'), { rootSessionId: 'parent' }),
+    options
+  );
+  // The parent is in review, so a write is refused before the path boundary.
+  assert.equal(denied.kind, 'deny');
+  assert.match(denied.reason, /MODE_FORBIDS_MUTATION/);
 
   // The nearest permitted action still continues.
-  assert.equal(handleDshHook('tools/pre-execute', fromNativeEvent('tools/pre-execute', child('read', { file_path: 'src/ok.js' }, 'c2')), options), null);
+  assert.equal(handleDshHook(
+    'tools/pre-execute',
+    fromNativeEvent('tools/pre-execute', child('read', { file_path: 'src/ok.js' }, 'c2'), { rootSessionId: 'parent' }),
+    options
+  ), null);
+
+  // Without a verified root the call is refused rather than keyed by the child.
+  const unverified = handleDshHook('tools/pre-execute', fromNativeEvent('tools/pre-execute', child('write', { file_path: 'docs/other.md', content: 'x' }, 'c3')), options);
+  assert.equal(unverified.kind, 'deny');
+  assert.match(unverified.reason, /verified root session/);
 });
 
 test('Regression: a delegated prompt grants no task authority', () => {
@@ -840,4 +856,55 @@ test('Regression: the bridge carries the session workspace directory', (t) => {
     agent: { session: { id: 'cwd-session', header: { cwd: '/w' } } }
   }), options);
   assert.equal(outside.kind, 'deny');
+});
+
+test('Regression: a delegation deeper than one hop cannot bypass the root contract', (t) => {
+  const options = workspace(t);
+  start('root', options);
+  handleDshHook('agent/pre-step', fromNativeEvent('agent/pre-step', {
+    agent: { session: { id: 'root' } },
+    messages: [{ role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '$stop-that-shit review files=src/** -- look' }] }],
+    turn: 1
+  }), options);
+
+  const outOfScope = { file_path: 'docs/other.md', content: 'x' };
+
+  // A grandchild's header names its immediate parent, which holds no contract.
+  // Falling back to that id would read an unconfirmed contract, so the call is
+  // refused until the caller supplies a verified root.
+  const grandchild = { id: 'grandchild', header: { parentSession: 'child' } };
+  const unverified = handleDshHook(
+    'tools/pre-execute',
+    fromNativeEvent('tools/pre-execute', {
+      name: 'write', arguments: outOfScope, callId: 'g1', agent: { session: grandchild }
+    }),
+    options
+  );
+  assert.equal(unverified.kind, 'deny');
+  assert.match(unverified.reason, /verified root session/);
+
+  // With the root supplied, the grandchild is checked against the real contract.
+  const verified = handleDshHook(
+    'tools/pre-execute',
+    fromNativeEvent(
+      'tools/pre-execute',
+      { name: 'write', arguments: outOfScope, callId: 'g2', agent: { session: grandchild } },
+      { rootSessionId: 'root' }
+    ),
+    options
+  );
+  assert.equal(verified.kind, 'deny');
+  assert.match(verified.reason, /MODE_FORBIDS_MUTATION/);
+
+  // The nearest permitted action still continues through the same chain.
+  const read = handleDshHook(
+    'tools/pre-execute',
+    fromNativeEvent(
+      'tools/pre-execute',
+      { name: 'read', arguments: { file_path: 'src/ok.js' }, callId: 'g3', agent: { session: grandchild } },
+      { rootSessionId: 'root' }
+    ),
+    options
+  );
+  assert.equal(read, null);
 });
