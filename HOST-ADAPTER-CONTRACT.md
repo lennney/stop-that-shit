@@ -469,9 +469,29 @@ because `agent/pre-step` delivers message content blocks rather than text.
 
 The session id for a tool call comes from `exec.agent.session`. The agent loop
 sets `agent` on every root call, and the PTC transport threads it down to each
-nested dispatch, so a model-initiated read or write always carries one. A call
-made by calling `ctx.tools.execute()` directly, with no `agent`, has no session
-identity: it is not translated, and therefore not gated. A deployment that
+nested dispatch, so a model-initiated read or write always carries one.
+
+A delegated child runs in its own session, whose header names the one it was
+forked from. Keying a child's tool calls by the child's id would read an
+unconfirmed contract and admit work the parent never authorized, so the bridge
+resolves the root: `context.rootSessionId` when the caller supplies one, otherwise
+`exec.agent.session.header.parentSession`. Lifecycle facts keep using the source
+session, so correlation is unaffected. A child with no parent is a root session
+and is its own authority.
+
+A `prompt.submit` for a session with a `parentSession` is not translated at all.
+The child already inherits the contract governing its delegation, and a directive
+arriving there would arm a fresh contract that its own tool calls are then
+checked against.
+
+`ToolExecution` carries no `cwd`. The bridge reads the workspace from
+`exec.agent.session.header.cwd`, which is the same source the host's own hook
+payload helper uses. Without it an absolute path cannot be normalized against the
+declared file boundary, and a file the contract permits by relative path is
+rejected by the same file written as an absolute one.
+
+A call made by calling `ctx.tools.execute()` directly, with no `agent`, has no
+session identity: it is not translated, and therefore not gated. A deployment that
 grants programmatic tool execution should pass the calling agent so the guard
 applies to those calls too.
 

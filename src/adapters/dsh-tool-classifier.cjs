@@ -170,6 +170,21 @@ function isRunCode(name) {
   return name === RUN_CODE_NAME;
 }
 
+// Deployment assertion that a PTC program cannot reach the filesystem except
+// through a gated tool binding. Set it only with a confinement or binding-only
+// runtime that enforces the active task contract; the adapter cannot verify
+// it. Read from the process environment so a consuming plugin can assert it
+// once at mount time without threading it through every call.
+let RUN_CODE_BINDING_ONLY = false;
+
+function setRunCodeBindingOnly(value) {
+  RUN_CODE_BINDING_ONLY = value === true;
+}
+
+function runCodeBindingOnly() {
+  return RUN_CODE_BINDING_ONLY;
+}
+
 const HASH_API = /\b(?:createHash|createHmac)\s*\(|\bcrypto\.subtle\.digest\s*\(|\bhashlib\.(?:md5|sha1|sha224|sha256|sha384|sha512|blake2[bs])\s*\(|\bMessageDigest\.getInstance\s*\(|\bDigestUtils\.[A-Za-z0-9_]+\s*\(|\bsha(?:1|256|512)\.(?:New|Sum\w*)\s*\(|\b(?:bcrypt|argon2)\.hash\s*\(|\bpassword_hash\s*\(|\bPasswordHasher\s*\(/i;
 
 function isWindowsAbsolute(value) {
@@ -212,6 +227,18 @@ function inputText(toolInput) {
   );
 }
 
+// The file editor's `command` is a selector (`view`, `create`, `str_replace`,
+// `insert`), not content. Hash and dependency analysis must read the text the
+// command writes: `create` writes `file_text`, and `str_replace`/`insert` both
+// write `new_str`. A read-only `view` writes nothing.
+function editorContentText(toolInput) {
+  if (!toolInput || typeof toolInput !== 'object') return '';
+  const command = editorCommand(toolInput);
+  if (DSH_EDITOR_READ_COMMANDS.has(command)) return '';
+  if (command === 'create') return String(toolInput.file_text || '');
+  return String(toolInput.new_str || '');
+}
+
 function editorCommand(toolInput) {
   return String((toolInput && toolInput.command) || '');
 }
@@ -230,9 +257,19 @@ function classifyDshTool(toolName, toolInput) {
     return classifyShell(toolInput && toolInput.command);
   }
   if (isRunCode(name)) {
-    // The transport owns no workspace effect. Its nested calls are classified
-    // and gated individually when the registry schedules them.
-    return 'control';
+    // A PTC program is not a binding-only sandbox. The official Node evaluator
+    // runs the body as a bare async function with full runtime globals, so a
+    // program can `await import('node:fs/promises')` and write the workspace
+    // without ever reaching a tool binding. Nested `tools.*` calls are still
+    // gated, but that is not the only path to an effect.
+    //
+    // The `control` classification is therefore opt-in: a deployment may set
+    // `runCodeBindingOnly` only when it can actually prove confinement or a
+    // binding-only runtime that enforces the active task contract. Without
+    // that proof the transport stays `unknown`, which preserves the
+    // mutability-unproven approval path instead of asserting a guarantee the
+    // host does not provide.
+    return runCodeBindingOnly() ? 'control' : 'unknown';
   }
   if (DSH_DELEGATE_TOOLS.has(name)) return 'delegate';
   if (DSH_TERMINAL_READ_TOOLS.has(name)) return 'read';
@@ -273,10 +310,8 @@ function detectHashIntent(toolName, toolInput) {
     return detectCodexHashIntent('Bash', toolInput);
   }
   if (isEditorTool(name)) {
-    // The editor's content fields are `file_text`, `new_str`, and `insert_text`.
-    // Only the text a command writes can introduce hashing.
-    if (DSH_EDITOR_READ_COMMANDS.has(editorCommand(toolInput))) return false;
-    return HASH_API.test(inputText(toolInput));
+    // Inspect the text the command writes, never the selector.
+    return HASH_API.test(editorContentText(toolInput));
   }
   if (isRunCode(name)) return false;
   // The shared detector matches the `Write`/`Edit` names exactly, so map the
@@ -337,6 +372,7 @@ function analyzeDshTool(toolName, toolInput, cwd) {
 
 module.exports = {
   DSH_CONTROL_TOOLS,
+  setRunCodeBindingOnly,
   DSH_DELEGATE_TOOLS,
   DSH_READ_TOOLS,
   analyzeDshTool,

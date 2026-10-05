@@ -31,11 +31,23 @@ const EVENT_KIND = {
   'subagent/end': 'subagent.stop'
 };
 
+// A user-role message is only human input when its source says so. The harness
+// types the user source as `{ kind: 'user' }` and lets every other producer
+// (a hook, a bridged Codex config, a system-prompt section) put its own kind on
+// a `role: 'user'` message. Flattening those together would let injected
+// context parse a `$stop-that-shit` directive and arm a contract no human asked
+// for, so only verified user text carries task authority.
+function isVerifiedUserMessage(message) {
+  return Boolean(message && message.source && message.source.kind === 'user');
+}
+
 // `agent/pre-step` carries admitted messages rather than a prompt string.
-function messageText(messages) {
+function messageText(messages, options) {
+  const userOnly = !options || options.userOnly !== false;
   if (typeof messages === 'string') return messages;
   if (!Array.isArray(messages)) return '';
   return messages
+    .filter((message) => !userOnly || isVerifiedUserMessage(message))
     .map((message) => {
       if (typeof message === 'string') return message;
       const content = message && message.content;
@@ -59,6 +71,27 @@ function nativeToolSessionId(exec) {
   return String((session && (session.id || session.sessionId)) || '');
 }
 
+// A delegated child runs in its own session, so keying its tool calls by the
+// child's id would read an unconfirmed contract and admit work the parent never
+// authorized. The child's header names the session it was forked from, so the
+// caller can walk that chain and hand the root id in as `context.rootSessionId`.
+// A child with no parent is a root session and is its own authority.
+function nativeRootSessionId(exec) {
+  const session = exec && exec.agent && exec.agent.session;
+  const header = session && session.header;
+  const parent = header && header.parentSession;
+  return String(parent || nativeToolSessionId(exec));
+}
+
+// The workspace the session runs in. `ToolExecution` carries no `cwd`; the
+// harness reads it from the session header, and without it an absolute path
+// cannot be normalized against the declared file boundary.
+function nativeSessionCwd(exec) {
+  const session = exec && exec.agent && exec.agent.session;
+  const header = session && session.header;
+  return header && typeof header.cwd === 'string' ? header.cwd : undefined;
+}
+
 /**
  * Normalize one native DSH event into the payload this adapter accepts.
  *
@@ -79,9 +112,18 @@ function fromNativeEvent(hookPoint, native, context) {
 
   if (hookPoint === 'agent/pre-step') {
     const payload = native || {};
+    const session = payload.agent && payload.agent.session;
+    // A delegated child must never grant task authority: the parent already
+    // holds the contract governing the delegation, and a directive arriving in
+    // a child session would arm an unconfirmed contract that its tool calls are
+    // then checked against. The child's text still reaches the model; it simply
+    // is not offered to the contract parser.
+    if (session && session.header && session.header.parentSession) return null;
     return {
-      session: { id: nativeSessionId({ session: payload.agent && payload.agent.session }) },
-      prompt: messageText(payload.messages),
+      session: { id: nativeSessionId({ session }) },
+      // Only verified user text may arm a contract; producer-sourced messages
+      // are retained for the model but carry no task authority.
+      prompt: messageText(payload.messages, { userOnly: true }),
       turnId: payload.turn
     };
   }
@@ -89,9 +131,11 @@ function fromNativeEvent(hookPoint, native, context) {
   if (hookPoint === 'tools/pre-execute') {
     const exec = native || {};
     return {
-      session: { id: nativeToolSessionId(exec) },
+      // The contract is keyed by the root session so a delegated child's calls
+      // are checked against the authority the parent actually holds.
+      session: { id: String(extra.rootSessionId || nativeRootSessionId(exec)) },
       exec: { name: exec.name, arguments: exec.arguments, callId: exec.callId },
-      cwd: exec.cwd
+      cwd: exec.cwd !== undefined ? exec.cwd : nativeSessionCwd(exec)
     };
   }
 
@@ -100,7 +144,7 @@ function fromNativeEvent(hookPoint, native, context) {
     // the execution, so it must arrive separately.
     const exec = (native && native.exec) || native || {};
     return {
-      session: { id: nativeToolSessionId(exec) },
+      session: { id: String(extra.rootSessionId || nativeRootSessionId(exec)) },
       exec: { callId: exec.callId },
       result: extra.result !== undefined ? extra.result : (native && native.result)
     };
@@ -345,7 +389,11 @@ async function applyDshDecision(hookPoint, result, next, onContext) {
   if (result.kind === 'context') {
     const downstream = await next();
     if (typeof onContext !== 'function') return downstream;
-    return onContext({ kind: 'context', text: result.text, downstream });
+    // The sink may deliver the text through its own channel and return nothing.
+    // A downstream denial or rejection must survive that, so anything other
+    // than an explicit replacement keeps the native decision the loop produced.
+    const replacement = await onContext({ kind: 'context', text: result.text, downstream });
+    return replacement === undefined ? downstream : replacement;
   }
 
   return next();
