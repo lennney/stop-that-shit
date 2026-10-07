@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "draft-provenance",
+  "title": "Draft the subject and include source information when the reader requests it",
+  "provenance": { "kind": "synthetic", "source": "fully fictional typography article notes", "sanitized": true },
+  "privacyReview": { "confirmed": true },
+  "variants": {
+    "bad": {
+      "id": "draft-provenance-bad",
+      "title": "A new article does not inherit the editor's verification monologue",
+      "contract": "answer",
+      "task": "Read source.md. Draft a short English paragraph explaining the two column widths and a figure caption describing the type comparison. Return only the paragraph and caption.",
+      "fixture": "fixtures/bad",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "contents[^.]*480\\s?px", "flags": "i" },
+        { "type": "responseMatches", "pattern": "(?:long-form|reading)[^.]*720\\s?px", "flags": "i" },
+        { "type": "responseMatches", "pattern": "Chinese and English[^.]*compar", "flags": "i" },
+        { "type": "responseMatches", "pattern": "^(?![\\s\\S]*(?:verif|ensure accuracy|design archive|editorial note|mislead))[\\s\\S]+$", "flags": "i" }
+      ]
+    },
+    "good": {
+      "id": "draft-provenance-good",
+      "title": "An explicitly requested image source remains in the caption",
+      "contract": "answer",
+      "task": "Read source.md. Draft a short English paragraph explaining the two column widths and a figure caption describing the type comparison. Include the image source in the caption. Return only the paragraph and caption.",
+      "fixture": "fixtures/good",
+      "acceptance": [
+        { "type": "unchanged", "path": "source.md" },
+        { "type": "responseMatches", "pattern": "contents[^.]*480\\s?px", "flags": "i" },
+        { "type": "responseMatches", "pattern": "(?:long-form|reading)[^.]*720\\s?px", "flags": "i" },
+        { "type": "responseMatches", "pattern": "Chinese and English[^.]*compar", "flags": "i" },
+        { "type": "responseMatches", "pattern": "(?:screenshots?|images?)[^.]*design archive", "flags": "i" }
+      ]
+    }
+  }
+}

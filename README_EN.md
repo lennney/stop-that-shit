@@ -302,7 +302,9 @@ its name. See the [Adapter contract](HOST-ADAPTER-CONTRACT.md) for host integrat
 ## Optional: Stop That Shit Slop
 
 The work is done, but the agent keeps talking. STSS removes unused defenses,
-tightens repeated hedging, and keeps conditions that affect a decision.
+tightens repeated hedging, and keeps conditions that affect understanding or a
+decision. It also covers articles and captions, including defensive wording
+added during drafting.
 An example from the fixed offline cases:
 
 ```text
@@ -332,7 +334,7 @@ and the smallest proposed fix.
 | Standalone Claude Skill | `/stss rewrite -- ...` | `/stss audit -- ...` |
 | Pi | `/skill:stss rewrite -- ...` | `/skill:stss audit -- ...` |
 
-See the [STSS Skill](skills/stss/SKILL.md) for the full method and the six
+See the [STSS Skill](skills/stss/SKILL.md) for the full method and the
 [STSS examples](skills/stss/references/examples.md) for paired cases, including
 wording that must remain.
 

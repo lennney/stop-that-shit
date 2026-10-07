@@ -1,6 +1,6 @@
 # STSS examples
 
-These synthetic pairs show the boundary between defensive padding and a limit that changes the reader's decision. They are examples, not a banned-word list.
+These synthetic pairs show the boundary between defensive padding and context that changes the reader's understanding or decision. They are examples, not a banned-word list.
 
 ## 1. Proposal disclaimer — DROP unless requested
 
@@ -121,6 +121,56 @@ These synthetic pairs show the boundary between defensive padding and a limit th
 **Rewrite:** In the randomized comparison, automatic triage increased completion from 68% in the control group to 76%.
 
 **Boundary:** A randomized comparison can support the causal wording that an observational sequence cannot.
+
+## 7. Chinese caption — KEEP the stage, DROP the assurance
+
+### Bad Case
+
+**Request:** Draft a caption for a design-evolution article. Help the reader see the composition and preserve the design stage.
+
+**Material:** An early homepage study has a leaf on the left and an arc on the right. It has not launched. The editor's notes record where the image was found and checked.
+
+**Draft:** 早期首页试样：左侧叶片，右侧圆弧。
+
+**Why:** “早期首页试样” supplies the stage. A separate assurance about image verification or deployment would not help the reader see the composition.
+
+### Nearest Good Case
+
+**Changed condition:** The reader also asks whether the pictured page is live and available to use.
+
+**Draft:** 尚未上线的首页试样：左侧叶片，右侧圆弧。
+
+**Boundary:** Deployment status now answers the reader's question. Keep it beside the subject instead of treating all negative wording as padding.
+
+## 8. Fresh drafting — separate the subject from editorial checks
+
+### Bad Case
+
+**Request:** Turn notes into a short paragraph about column widths and a caption for the type comparison.
+
+**Material:** The contents column is 480px; the reading column is 720px. Chinese and English type are shown together. An editor-only note records that screenshots came from the design archive and were verified there.
+
+**Draft:**
+
+The contents use a 480px column; long-form reading uses 720px.
+
+Chinese and English type set together for comparison.
+
+**Why:** Verification belongs in the editor's working notes here. Do not add a process preface to a new draft and then wait for the reader to ask for its removal.
+
+### Nearest Good Case
+
+**Changed condition:** The same drafting request also asks for the image source in the caption.
+
+**Draft:**
+
+The contents use a 480px column; long-form reading uses 720px.
+
+Chinese and English type set together for comparison. Screenshots are from the design archive.
+
+**Boundary:** Requested attribution stays. The verification monologue still does not help the reader.
+
+**Claim Diff:** Both drafts preserve the two widths and the type comparison. Neither invents a design rationale, a personal reaction, or a published version.
 
 ## Already direct
 
