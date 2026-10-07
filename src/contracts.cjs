@@ -279,5 +279,6 @@ module.exports = {
   MODES,
   DEFAULT_AGENT_LIMIT,
   defaultContract,
+  normalizeContract,
   parseContractPrompt
 };

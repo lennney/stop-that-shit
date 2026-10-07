@@ -38,16 +38,18 @@ function normalizeWhitespace(value) {
   return value.replace(/\s+/g, ' ').trim();
 }
 
-test('STSS ships six validated Good/Bad CaseBundle families', () => {
+test('STSS ships eight validated Good/Bad CaseBundle families', () => {
   assert.deepEqual(bundles.map((bundle) => bundle.id), [
+    'caption-context',
     'causal-boundary',
     'diligence-narration',
+    'draft-provenance',
     'hedge-stack',
     'hollow-claim',
     'negative-scope',
     'proposal-disclaimer'
   ]);
-  assert.equal(bundles.flatMap((bundle) => bundle.cases).length, 12);
+  assert.equal(bundles.flatMap((bundle) => bundle.cases).length, 16);
   assert.equal(offline.schemaVersion, 1);
   assert.deepEqual(
     Object.keys(offline.responses).sort(),
@@ -81,6 +83,24 @@ test('STSS does not invent a number to repair a hollow claim', () => {
   assert.equal(accepts('hollow-claim-bad', response), false);
 });
 
+test('STSS rejects an added assurance in a composition caption', () => {
+  const response = `${offline.responses['caption-context-bad']} 图片经过核实，不代表实际已上线的页面。`;
+  assert.equal(accepts('caption-context-bad', response), false);
+});
+
+test('STSS keeps availability when the caption must answer that question', () => {
+  assert.equal(accepts('caption-context-good', offline.responses['caption-context-bad']), false);
+});
+
+test('STSS rejects editorial verification narration in a freshly drafted article', () => {
+  const response = `${offline.responses['draft-provenance-bad']} We verified the screenshots against the archive to ensure accuracy.`;
+  assert.equal(accepts('draft-provenance-bad', response), false);
+});
+
+test('STSS keeps image attribution when the drafting request includes it', () => {
+  assert.equal(accepts('draft-provenance-good', offline.responses['draft-provenance-bad']), false);
+});
+
 test('STSS metadata exposes the short invocation and examples', () => {
   const skill = fs.readFileSync(path.join(root, 'skills', 'stss', 'SKILL.md'), 'utf8');
   const metadata = fs.readFileSync(path.join(root, 'skills', 'stss', 'agents', 'openai.yaml'), 'utf8');
@@ -93,9 +113,9 @@ test('STSS metadata exposes the short invocation and examples', () => {
   assert.match(skill, /Do not classify text as AI-written/);
   assert.match(skill, /general style cleanup/);
   assert.match(metadata, /default_prompt: "Use \$stss /);
-  assert.equal((examples.match(/^## \d+\./gm) || []).length, 6);
-  assert.equal((examples.match(/^### Bad Case$/gm) || []).length, 6);
-  assert.equal((examples.match(/^### Nearest Good Case$/gm) || []).length, 6);
+  assert.equal((examples.match(/^## \d+\./gm) || []).length, 8);
+  assert.equal((examples.match(/^### Bad Case$/gm) || []).length, 8);
+  assert.equal((examples.match(/^### Nearest Good Case$/gm) || []).length, 8);
   for (const [id, responseText] of Object.entries(offline.responses)) {
     assert.ok(
       normalizeWhitespace(examples).includes(normalizeWhitespace(responseText)),

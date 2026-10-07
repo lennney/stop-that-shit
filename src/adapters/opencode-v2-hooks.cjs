@@ -22,6 +22,7 @@ function toV2ActionEvent(event, context) {
 function toV2ActionAfterEvent(event, context) {
   const mapped = legacyInput(event);
   const result = toActionAfterEvent(mapped.input, context);
+  if (!result) return null;
   const output = event.status === 'completed' && event.result?.output;
   if (event.tool === 'subagent' && output && typeof output.sessionID === 'string'
       && ['completed', 'running'].includes(output.status) && typeof output.output === 'string') {

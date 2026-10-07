@@ -12,6 +12,10 @@
     "hollow-claim-bad": "CALIBRATE — The claim supplies no mechanism or measured outcome. Replace it with the actual mechanism and evidence, or remove it.",
     "hollow-claim-good": "Matching request IDs reduced duplicate tickets by 14% in the pilot.",
     "causal-boundary-bad": "During the observational pilot, 24-hour completion rose from 68% to 76% after automatic triage was introduced.",
-    "causal-boundary-good": "In the randomized comparison, automatic triage increased completion from 68% in the control group to 76%."
+    "causal-boundary-good": "In the randomized comparison, automatic triage increased completion from 68% in the control group to 76%.",
+    "caption-context-bad": "早期首页试样：左侧叶片，右侧圆弧。",
+    "caption-context-good": "尚未上线的首页试样：左侧叶片，右侧圆弧。",
+    "draft-provenance-bad": "The contents use a 480px column; long-form reading uses 720px.\n\nChinese and English type set together for comparison.",
+    "draft-provenance-good": "The contents use a 480px column; long-form reading uses 720px.\n\nChinese and English type set together for comparison. Screenshots are from the design archive."
   }
 }

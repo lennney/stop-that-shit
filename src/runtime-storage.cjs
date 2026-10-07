@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { StringDecoder } = require('node:string_decoder');
 const { dataRoot } = require('./state.cjs');
 
 function runtimeRoot(options = {}) {
@@ -14,26 +15,56 @@ function appendJsonl(file, record) {
   fs.appendFileSync(file, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 });
 }
 
-function readJsonl(file) {
-  let text;
+function scanJsonl(file, onRecord) {
+  let descriptor;
   try {
-    text = fs.readFileSync(file, 'utf8');
+    descriptor = fs.openSync(file, 'r');
   } catch (error) {
-    if (error && error.code === 'ENOENT') return { records: [], damaged: 0 };
+    if (error && error.code === 'ENOENT') return { damaged: 0 };
     throw error;
   }
 
-  const records = [];
   let damaged = 0;
-  for (const line of text.split(/\r?\n/)) {
-    if (!line.trim()) continue;
+  function visitLine(line) {
+    if (!line.trim()) return;
+    let record;
     try {
-      records.push(JSON.parse(line));
+      record = JSON.parse(line);
     } catch {
       damaged += 1;
+      return;
     }
+    // Consumer failures are not malformed JSON and must reach the caller.
+    onRecord(record);
   }
+
+  try {
+    const buffer = Buffer.alloc(64 * 1024);
+    const decoder = new StringDecoder('utf8');
+    let pending = '';
+    let bytesRead;
+    do {
+      bytesRead = fs.readSync(descriptor, buffer, 0, buffer.length, null);
+      pending += bytesRead ? decoder.write(buffer.subarray(0, bytesRead)) : decoder.end();
+      let start = 0;
+      let end;
+      while ((end = pending.indexOf('\n', start)) !== -1) {
+        visitLine(pending.slice(start, end));
+        start = end + 1;
+      }
+      pending = pending.slice(start);
+    } while (bytesRead);
+    visitLine(pending);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+  return { damaged };
+}
+
+function readJsonl(file) {
+  const records = [];
+  const { damaged } = scanJsonl(file, record => records.push(record));
   return { records, damaged };
 }
 
-module.exports = { appendJsonl, readJsonl, runtimeRoot };
+module.exports = { appendJsonl, readJsonl, scanJsonl, runtimeRoot };

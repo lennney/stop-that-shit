@@ -27,8 +27,17 @@ OMP Extension         ----> OMP Adapter ----------/           |
 ```
 
 - `src/decision.cjs` contains host-independent decisions.
-- `src/contracts.cjs` parses the small prompt contract.
+- `src/contracts.cjs` owns contract values, defaults, legacy budget conversion,
+  and prompt parsing. Saved-state loading reuses its contract normalization.
 - `src/controller.cjs` stores the current contract and applies decisions.
+- `src/shell-analysis.cjs` owns the shared static shell analysis: mutability,
+  hash intent, dependency intent, and analysis reason codes. Host classifiers
+  reuse it without translating shell calls into Codex tool names. Legacy shell
+  payloads retain their intent checks when the command field is missing.
+- `src/hash-intent.cjs` owns hash API recognition in source content and added
+  patch lines. Adapters supply native content fields; notebooks can inspect
+  source without a file extension. The original tool-input API remains
+  available for compatible callers. Shell hash intent stays in shell analysis.
 - `src/adapters/codex-*.cjs` classify Codex events and render Codex responses.
 - `src/adapters/claude-*.cjs` classify Claude Code events and render Claude Hook
   responses.
@@ -45,11 +54,27 @@ OMP Extension         ----> OMP Adapter ----------/           |
 - `pi/stop-that-shit.ts` is the Pi package entrypoint.
 - `omp/stop-that-shit.ts` is the separate, unreleased Oh My Pi entrypoint.
   `src/adapters/omp-*.cjs` translate native events into the shared controller.
-- `src/state.cjs` stores schema-4 per-session contract state and serializes the
+- `src/state-schema.cjs` validates and migrates saved state in memory. It owns
+  the schema version, fresh state, and recovery defaults; it performs no I/O.
+  Storage validation runs before normalization, so damaged current state is
+  rejected instead of receiving permissive defaults.
+- `src/state.cjs` reads and writes per-session contract state and serializes the
   delegation ledger so concurrent Hook processes cannot oversubscribe the active
   agent limit. Contract updates share the reservation lock and cannot overwrite
   a concurrent launch. Watch-only delegations also reserve slots because the
-  host is allowed to run them.
+  host is allowed to run them. Each lock directory contains a unique owner
+  marker. Acquisition verifies exclusive ownership before entering the critical
+  section. Recovery checks each stale marker and removes it only after its
+  process has exited, including markers left by interrupted contenders;
+  age alone does not invalidate a live lock. Empty directories can be reclaimed,
+  and delayed initializers must verify ownership again. Failed state writes
+  remove their temporary file and leave the previous saved state intact.
+  A stale legacy file lock without a valid owner is preserved and reported as
+  `STS_LOCK_DAMAGED`. Both ordinary reads and locked updates enter in-memory
+  read-only recovery, so an unsaved prompt cannot leave old write authority
+  active. Recovery never persists a replacement contract or clears the ledger.
+  See INSTALL.md for restarting with a new session or isolating the damaged
+  lock after all processes that share its data directory have stopped.
 - `src/delegation-state.cjs` owns pure reservation transitions. `action.before`
   reserves active units; only a confirmed completion result releases
   them. Unknown results retain capacity; only confirmed bound-child completion
@@ -59,6 +84,11 @@ OMP Extension         ----> OMP Adapter ----------/           |
   active usage or runtime audit data.
 - `src/runtime-audit.cjs` appends and reads metadata-only decision events.
 - `src/runtime-annotations.cjs` appends independent human labels.
+- `src/runtime-storage.cjs` scans JSONL in chunks, preserving UTF-8 characters
+  across reads. Event and label readers validate each record before selecting
+  it, so filtered queries retain damage counts without retaining unrelated
+  records. Queries returning all events still retain those events for sorting
+  and output; scanning does not provide an index or change label precedence.
 
 ## Host event boundaries
 
@@ -90,7 +120,7 @@ Hermes native Plugin maps the following lifecycle events:
 ```text
 pre_llm_call  -> prompt.submit  -> {"context":"..."} when context is returned
 pre_tool_call -> action.before  -> {"action":"block","message":"..."} on denial
-post_tool_call -> action.after
+post_tool_call -> action.after (delegate_task results only)
 subagent_start/subagent_stop -> subagent.start/subagent.stop
 on_session_end -> session.end
 ```
@@ -118,6 +148,9 @@ documented hooks: `message.part.updated` and session events through `event`, plu
 the SDK `client.session.message` call, injects contract context with
 `client.session.prompt({ noReply: true })`, and maps child sessions to the root
 contract so a subagent cannot silently replace user authority.
+Within its bounded message cache, V1 keeps first-delivery order across retries:
+an earlier failed message cannot replace a newer processed root input. A retry
+in another root session remains independent.
 An embedded directive mention cannot arm the contract or trigger the plugin's
 implicit promotion from review to an editable host mode. Separate text parts
 are joined with newlines, so directive fields must stay in the first part's

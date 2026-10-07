@@ -62,6 +62,7 @@ function toControlEvent(input) {
   }
 
   if (kind === 'action.after') {
+    if (input.tool_name !== 'delegate_task') return null;
     const actionId = optionalIdentifier(input.tool_call_id, extra.tool_call_id);
     if (!actionId) return null;
     event.action = { id: String(actionId) };

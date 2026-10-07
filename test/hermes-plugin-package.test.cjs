@@ -160,6 +160,38 @@ print('fail-open-ok')
   assert.equal(result.stdout.trim(), 'fail-open-ok');
 });
 
+test('native post-tool hook starts the runtime only for delegation results', () => {
+  const script = `
+import importlib.util, json, os
+from types import SimpleNamespace
+spec = importlib.util.spec_from_file_location('sts_plugin', os.environ['STS_PLUGIN_ENTRY'])
+mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+calls = []
+def run(*args, **kwargs):
+    calls.append(json.loads(kwargs['input']))
+    return SimpleNamespace(returncode=0, stdout='')
+mod.subprocess.run = run
+for tool in ['read_file', 'write_file', 'terminal', None]:
+    assert mod._post_tool(tool_name=tool, result='ok', session_id='native-session') is None
+assert calls == [], calls
+result = {'status': 'completed', 'agent_id': 'child'}
+assert mod._post_tool(tool_name='delegate_task', tool_call_id='call-1', args={'task': 'inspect'},
+                      result=result, session_id='native-session', async_launched=True) is None
+assert len(calls) == 1
+assert calls[0]['hook_event_name'] == 'post_tool_call'
+assert calls[0]['tool_call_id'] == 'call-1'
+assert calls[0]['tool_input'] == {'task': 'inspect'}
+assert calls[0]['extra']['result'] == result
+assert calls[0]['extra']['async_launched'] is True
+print('post-tool-ok')
+`;
+  const result = spawnSync(pythonCommand, ['-B', '-c', script], {
+    encoding: 'utf8', env: pythonPluginEnv(), timeout: 10000
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), 'post-tool-ok');
+});
+
 test('native pre_llm_call returns context and pre_tool_call returns block or no-op', () => {
   const script = path.join(os.tmpdir(), `sts-plugin-hooks-${process.pid}.py`);
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-plugin-home-'));
@@ -193,4 +225,81 @@ print('behavior-ok')
   fs.rmSync(home, { recursive: true, force: true });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), 'behavior-ok');
+});
+
+test('packaged Hermes hooks preserve damaged legacy locks and enforce read-only recovery', (t) => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-hermes-lock-recovery-'));
+  t.after(() => fs.rmSync(temporary, { recursive: true, force: true }));
+  const copiedPlugin = path.join(temporary, 'plugin');
+  fs.mkdirSync(path.join(copiedPlugin, 'runtime'), { recursive: true });
+  fs.copyFileSync(path.join(pluginRoot, '__init__.py'), path.join(copiedPlugin, '__init__.py'));
+  fs.copyFileSync(runtimePath, path.join(copiedPlugin, 'runtime', 'stop-that-shit.cjs'));
+  const script = path.join(temporary, 'lock-recovery.py');
+  fs.writeFileSync(script, `
+import hashlib, importlib.util, json, os, time
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('sts_plugin', os.environ['STS_PLUGIN_ENTRY'])
+mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+class Ctx:
+    def __init__(self): self.hooks = {}
+    def register_hook(self, name, callback): self.hooks[name] = callback
+ctx = Ctx(); mod.register(ctx)
+for initial in ('change', 'off change'):
+    session = 'damaged-lock-' + initial.replace(' ', '-')
+    def prompt(text):
+        return ctx.hooks['pre_llm_call'](session_id=session, user_message=text)
+    def tool(name):
+        return ctx.hooks['pre_tool_call'](session_id=session, tool_name=name,
+            args={'path': 'scratch.txt', 'content': 'synthetic'})
+    assert 'context' in prompt('$stop-that-shit ' + initial + ' -- implement')
+    assert tool('write_file') is None
+    assert ctx.hooks['pre_tool_call'](session_id=session, tool_name='delegate_task',
+        tool_call_id='saved-delegation', args={'tasks': [{'task': 'inspect synthetic'}]}) is None
+    prompt('$stop-that-shit ' + initial + ' -- continue')
+    key = hashlib.sha256(session.encode()).hexdigest()[:24]
+    state = Path(os.environ['HERMES_HOME']) / 'stop-that-shit' / 'sessions' / (key + '.json')
+    saved = state.read_bytes()
+    assert json.loads(saved)['contract']['mode'] == 'change'
+    assert json.loads(saved)['delegation']['reservations']
+    lock = state.with_suffix('.json.lock')
+    lock.write_bytes(b'')
+    old = time.time() - 60
+    os.utime(lock, (old, old))
+    lock_mtime = lock.stat().st_mtime_ns
+    recovery = prompt('$stop-that-shit review -- inspect only')
+    assert 'STS_LOCK_DAMAGED' in recovery['context'], recovery
+    assert lock.name in recovery['context'], recovery
+    blocked = tool('write_file')
+    assert blocked is not None and blocked['action'] == 'block', blocked
+    assert 'STS_LOCK_DAMAGED' in blocked['message'], blocked
+    assert tool('read_file') is None
+    assert state.read_bytes() == saved
+    assert lock.read_bytes() == b''
+    assert lock.stat().st_mtime_ns == lock_mtime
+    # Every runtime process has exited. Preserve the lock as recovery evidence.
+    isolated = lock.with_suffix('.lock.saved')
+    lock.rename(isolated)
+    assert state.read_bytes() == saved
+    restored = prompt('$stop-that-shit guard review -- inspect only')
+    assert 'mode=review' in restored['context'], restored
+    assert 'MODE_FORBIDS_MUTATION' in tool('write_file')['message']
+    assert tool('read_file') is None
+    changed = prompt('$stop-that-shit guard change -- implement')
+    assert 'mode=change' in changed['context'], changed
+    assert tool('write_file') is None
+    assert json.loads(state.read_bytes())['delegation'] == json.loads(saved)['delegation']
+    assert not lock.exists()
+    assert isolated.read_bytes() == b''
+print('lock-recovery-ok')
+`);
+  const result = spawnSync(pythonCommand, [script], {
+    encoding: 'utf8',
+    env: pythonPluginEnv({
+      STS_PLUGIN_ENTRY: path.join(copiedPlugin, '__init__.py'),
+      HERMES_HOME: path.join(temporary, 'home')
+    }),
+    timeout: 20000
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), 'lock-recovery-ok');
 });

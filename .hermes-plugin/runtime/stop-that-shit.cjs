@@ -68,6 +68,7 @@ function toControlEvent(input) {
   }
 
   if (kind === 'action.after') {
+    if (input.tool_name !== 'delegate_task') return null;
     const actionId = optionalIdentifier(input.tool_call_id, extra.tool_call_id);
     if (!actionId) return null;
     event.action = { id: String(actionId) };
@@ -294,13 +295,13 @@ function context(text) {
   return { kind: 'context', text };
 }
 
-function contractFields(contract, delegation = {}) {
-  const summary = inspectDelegation(delegation);
+function contractFields(contract, summary) {
   const limit = Number.isSafeInteger(contract.agentBudget) && contract.agentBudget >= 0 ? contract.agentBudget : DEFAULT_AGENT_LIMIT;
   return `mode=${contract.mode}; agents=${summary.reservedUpperBound}/${limit} reserved${summary.unresolvedReasons.length ? '; count unproven' : ''}; hash=${contract.hashPolicy || 'deny'}; deps=${contract.dependencyPolicy || 'ask'}; files=${Array.isArray(contract.allowedPaths) ? contract.allowedPaths.join('|') : 'unbounded'}.`;
 }
 
-function contractContext(contract, delegation = {}, phase = 'active', directiveWarning = null) {
+function contractContext(contract, delegation = {}, phase = 'active', directiveWarning = null, storageError = null) {
+  if (contract.source === 'recovery' && storageError) return `${storageError.code}: ${storageError.message}`;
   if (contract.source === 'recovery') return 'STATE_DAMAGED: the saved contract is unavailable. Read-only recovery is active. Restore a known-good backup or start a new host session; the damaged file is preserved.';
   if (typeof delegation === 'string') {
     phase = delegation;
@@ -323,7 +324,7 @@ function contractContext(contract, delegation = {}, phase = 'active', directiveW
 
   return [
     directiveWarning && directiveWarning.message ? `Warning: ${directiveWarning.message}` : null,
-    `Stop That Shit (${phase}): ${contractFields(contract, delegation)}`,
+    `Stop That Shit (${phase}): ${contractFields(contract, inspectDelegation(delegation))}`,
     'Stop Ladder: Is it requested? Is it necessary? What reachable evidence proves that? Would omission fail the current acceptance?',
     'Report real findings even when implementation is not authorized.',
     'Before expanding scope, name reachable evidence, failure if omitted, and the fact that changes the next action.',
@@ -384,15 +385,16 @@ function runtimeSummaryText(runtime) {
 
 function handleRuntimeCommand(command, event, state, options) {
   if (command.name === 'status') {
+    const summary = inspectDelegation(state.delegation);
     return context([
       'Stop That Shit status',
       `State: ${activeControlState(state.contract)} / ${state.contract.mode}`,
-      contractFields(state.contract, state.delegation),
+      contractFields(state.contract, summary),
       `Authority source: ${state.contract.source || 'unconfirmed'}`,
       ...(state.storageError ? [`${state.storageError.code}: ${state.storageError.message}`] : []),
       ...(state.directiveError ? [`Directive error: ${state.directiveError.code}: ${state.directiveError.message}`] : []),
-      ...(inspectDelegation(state.delegation).unresolvedReasons.length
-        ? [`Unresolved activity: ${inspectDelegation(state.delegation).unresolvedReasons.join(', ')}. A confirmed completion or a new host session is required; do not reset the ledger.`] : []),
+      ...(summary.unresolvedReasons.length
+        ? [`Unresolved activity: ${summary.unresolvedReasons.join(', ')}. A confirmed completion or a new host session is required; do not reset the ledger.`] : []),
       'Host effect: unobserved',
       'Use runtime for checked-action and Guard-response counts.'
     ].join('\n'));
@@ -423,9 +425,7 @@ function handleRuntimeCommand(command, event, state, options) {
   ].join('\n'));
 }
 
-function handlePrompt(event, state, options) {
-  const command = runtimeCommand(event.prompt);
-  if (command) return handleRuntimeCommand(command, event, state, options);
+function handlePrompt(event, state) {
   if (state.storageError) return context(`${state.storageError.code}: ${state.storageError.message}`);
   const parsed = parseContractPrompt(event.prompt, state.contract);
   if (parsed.error) {
@@ -437,7 +437,7 @@ function handlePrompt(event, state, options) {
   state.contract = parsed.contract;
   if (parsed.directive || parsed.correction) state.directiveError = null;
   if (parsed.directive || parsed.correction) state.directiveWarning = parsed.warning;
-  const promptContext = contractContext(state.contract, state.delegation, 'active', state.directiveWarning);
+  const promptContext = contractContext(state.contract, state.delegation, 'active', state.directiveWarning, state.storageError);
   const repeatedContext = state.lastPromptContext === promptContext;
   state.lastPromptContext = promptContext;
   return repeatedContext ? none() : context(promptContext);
@@ -543,7 +543,7 @@ function handleLifecycleContext(event, options) {
       : event.kind === 'subagent.stop' ? { kind: 'child_stopped', agentId: event.agentId }
       : { kind: event.allDelegationsStopped === true ? 'all_stopped' : 'unknown' };
     state.delegation = applyDelegationFact(state.delegation, fact);
-    return context(contractContext(state.contract, state.delegation, 'active', state.directiveWarning));
+    return context(contractContext(state.contract, state.delegation, 'active', state.directiveWarning, state.storageError));
   };
   // Ordinary session end carries no completion fact. Keep its context response
   // without waiting for another writer or rewriting state during shutdown.
@@ -559,10 +559,12 @@ function handleControlEvent(rawEvent, options = {}) {
     event = { ...event, action: { ...event.action, id: JSON.stringify([event.sourceSessionId, event.action.id]) } };
   }
   switch (event.kind) {
-    case 'prompt.submit':
-      return runtimeCommand(event.prompt)
-        ? handlePrompt(event, readState(event.sessionId, options.dataDir), options)
-        : updateSession(event.sessionId, options.dataDir, state => handlePrompt(event, state, options));
+    case 'prompt.submit': {
+      const command = runtimeCommand(event.prompt);
+      return command
+        ? handleRuntimeCommand(command, event, readState(event.sessionId, options.dataDir), options)
+        : updateSession(event.sessionId, options.dataDir, state => handlePrompt(event, state));
+    }
     case 'action.before':
       return handleBeforeAction(event, options);
     case 'action.after':
@@ -862,6 +864,7 @@ module.exports = {
   MODES,
   DEFAULT_AGENT_LIMIT,
   defaultContract,
+  normalizeContract,
   parseContractPrompt
 };
 
@@ -1184,10 +1187,12 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
   const level = contract.level || 'watch';
 
   if (state.storageError) {
+    const lockDamaged = state.storageError.code === 'STS_LOCK_DAMAGED';
     return action.mutability === 'read' || action.mutability === 'control' && !action.delegationLifecycleUnproven
       ? decision('allow', null, 'RECOVERY_READ_ONLY', 'Read-only recovery remains available.', null)
-      : decision('deny_and_explain', 'I', 'STATE_DAMAGED', state.storageError.message,
-        'Restore the saved state from a known-good backup or start a new host session. Do not clear unresolved delegation records.');
+      : decision('deny_and_explain', 'I', lockDamaged ? 'STS_LOCK_DAMAGED' : 'STATE_DAMAGED', state.storageError.message,
+        lockDamaged ? 'Follow the legacy lock recovery steps in INSTALL.md. Keep saved contracts and delegation records.'
+          : 'Restore the saved state from a known-good backup or start a new host session. Do not clear unresolved delegation records.');
   }
 
   const delegationCount = action.mutability === 'delegate'
@@ -1371,7 +1376,7 @@ const packageJson = __require("package.json");
 const { PROTOCOL_VERSION, isShellAnalysisReason } = __require("src/control-protocol.cjs");
 const { inspectDelegation } = __require("src/delegation-state.cjs");
 const { readAnnotations } = __require("src/runtime-annotations.cjs");
-const { appendJsonl, readJsonl, runtimeRoot } = __require("src/runtime-storage.cjs");
+const { appendJsonl, scanJsonl, runtimeRoot } = __require("src/runtime-storage.cjs");
 const { sessionKey } = __require("src/state.cjs");
 
 function controlState(contract) {
@@ -1391,6 +1396,7 @@ function recordDecision(facts, options = {}) {
 
   const action = facts.action || {};
   const decision = facts.decision || {};
+  const activity = inspectDelegation(delegation);
   const event = {
     schemaVersion: 1,
     eventId: `evt_${crypto.randomUUID()}`,
@@ -1415,8 +1421,8 @@ function recordDecision(facts, options = {}) {
       mode: String(contract.mode || 'unconfirmed'),
       level: String(contract.level || 'watch'),
       agentBudget: Number.isSafeInteger(contract.agentBudget) ? contract.agentBudget : Number.MAX_SAFE_INTEGER,
-      reservedUpperBound: inspectDelegation(delegation).reservedUpperBound,
-      countUnproven: inspectDelegation(delegation).unresolvedReasons.length > 0,
+      reservedUpperBound: activity.reservedUpperBound,
+      countUnproven: activity.unresolvedReasons.length > 0,
       hashPolicy: String(contract.hashPolicy || 'deny'),
       dependencyPolicy: String(contract.dependencyPolicy || 'ask'),
       allowedPathCount: Array.isArray(contract.allowedPaths) ? contract.allowedPaths.length : 0
@@ -1475,32 +1481,40 @@ function summarize(events, annotations, damagedRecords) {
   return { events: labeledEvents, summary };
 }
 
+function isRuntimeEvent(event) {
+  return event && event.schemaVersion === 1
+    && typeof event.eventId === 'string' && /^evt_[0-9a-f-]+$/i.test(event.eventId)
+    && typeof event.occurredAt === 'string' && Number.isFinite(Date.parse(event.occurredAt))
+    && ['off', 'observing', 'armed'].includes(event.controlState)
+    && event.action && typeof event.action.toolName === 'string' && typeof event.action.mutability === 'string'
+    && event.contract && typeof event.contract.mode === 'string'
+    && event.decision && typeof event.decision.policyOutcome === 'string'
+    && typeof event.decision.reasonCode === 'string' && /^[A-Z][A-Z_0-9]*$/.test(event.decision.reasonCode)
+    && typeof event.decision.responseOutcome === 'string';
+}
+
 function readRuntime(query = {}, options = {}) {
   let events = [];
   let damagedRecords = 0;
   for (const file of eventFiles(query, options)) {
-    const parsed = readJsonl(file);
-    const valid = parsed.records.filter(event => event && event.schemaVersion === 1
-      && typeof event.eventId === 'string' && /^evt_[0-9a-f-]+$/i.test(event.eventId)
-      && typeof event.occurredAt === 'string' && Number.isFinite(Date.parse(event.occurredAt))
-      && ['off', 'observing', 'armed'].includes(event.controlState)
-      && event.action && typeof event.action.toolName === 'string' && typeof event.action.mutability === 'string'
-      && event.contract && typeof event.contract.mode === 'string'
-      && event.decision && typeof event.decision.policyOutcome === 'string'
-      && typeof event.decision.reasonCode === 'string' && /^[A-Z][A-Z_0-9]*$/.test(event.decision.reasonCode)
-      && typeof event.decision.responseOutcome === 'string');
-    events.push(...valid);
-    damagedRecords += parsed.damaged + parsed.records.length - valid.length;
+    const parsed = scanJsonl(file, event => {
+      if (!isRuntimeEvent(event)) {
+        damagedRecords += 1;
+        return;
+      }
+      // Retain only selected events, while still counting damage in the whole log.
+      if (query.limit !== 0 && (!query.eventId || event.eventId === query.eventId)) events.push(event);
+    });
+    damagedRecords += parsed.damaged;
   }
   // V8's stable sort preserves append order for equal timestamps within a log.
   events.sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
-  if (query.eventId) events = events.filter((event) => event.eventId === query.eventId);
   if (Number.isInteger(query.limit) && query.limit >= 0) events = events.slice(-query.limit);
 
-  const annotationResult = readAnnotations(options);
-  damagedRecords += annotationResult.damaged;
   const eventIds = new Set(events.map((event) => event.eventId));
-  const annotations = annotationResult.records.filter((annotation) => eventIds.has(annotation.eventId));
+  const annotationResult = readAnnotations(options, eventIds);
+  damagedRecords += annotationResult.damaged;
+  const annotations = annotationResult.records;
   const result = summarize(events, annotations, damagedRecords);
   return { schemaVersion: 1, ...result, annotations };
 }
@@ -1561,7 +1575,8 @@ module.exports = {
     "pretest": "npm run schema:check",
     "hermes:build": "node scripts/build-hermes-plugin.cjs",
     "hermes:check": "node scripts/build-hermes-plugin.cjs --check",
-    "test": "node --test test/manifest-dependencies.test.cjs test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/delegation-state.test.cjs test/delegation-lifecycle.test.cjs test/delegation-facts.test.cjs test/dsh-adapter.test.cjs test/lifecycle-compatibility.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/omp-adapter.test.cjs test/omp-extension.test.cjs test/omp-package.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/opencode-v2-plugin.test.mjs test/opencode-dual-smoke.test.mjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs test/stss-skill.test.cjs",
+    "test": "node scripts/test.cjs",
+    "check": "npm test && npm run eval && npm run release:check",
     "sts": "node scripts/sts.cjs",
     "eval": "node scripts/evaluate-cases.cjs",
     "eval:selftest": "node --test test/case-bundle.test.cjs test/paired-eval.test.cjs",
@@ -1588,7 +1603,7 @@ module.exports = {
     "ajv": "^8.20.0"
   },
   "dependencies": {
-    "@opencode/schema": "2.0.18",
+    "@opencode/schema": "2.0.22",
     "effect": "4.0.0-rc.112"
   }
 };
@@ -1598,7 +1613,7 @@ module.exports = {
 
 const crypto = require('node:crypto');
 const path = require('node:path');
-const { appendJsonl, readJsonl, runtimeRoot } = __require("src/runtime-storage.cjs");
+const { appendJsonl, scanJsonl, runtimeRoot } = __require("src/runtime-storage.cjs");
 
 const LABELS = new Set(['correct', 'incorrect', 'inconclusive']);
 
@@ -1628,13 +1643,21 @@ function recordAnnotation(eventId, label, options = {}) {
   }
 }
 
-function readAnnotations(options = {}) {
-  const parsed = readJsonl(annotationsPath(options));
-  const records = parsed.records.filter(record => record && record.schemaVersion === 1
+function isAnnotation(record) {
+  return record && record.schemaVersion === 1
     && typeof record.eventId === 'string' && /^evt_[0-9a-f-]+$/i.test(record.eventId)
     && typeof record.occurredAt === 'string' && Number.isFinite(Date.parse(record.occurredAt))
-    && LABELS.has(record.label));
-  return { records, damaged: parsed.damaged + parsed.records.length - records.length };
+    && LABELS.has(record.label);
+}
+
+function readAnnotations(options = {}, eventIds) {
+  const records = [];
+  let damaged = 0;
+  const parsed = scanJsonl(annotationsPath(options), record => {
+    if (!isAnnotation(record)) damaged += 1;
+    else if (!eventIds || eventIds.has(record.eventId)) records.push(record);
+  });
+  return { records, damaged: damaged + parsed.damaged };
 }
 
 module.exports = { LABELS, readAnnotations, recordAnnotation };
@@ -1645,6 +1668,7 @@ module.exports = { LABELS, readAnnotations, recordAnnotation };
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { StringDecoder } = require('node:string_decoder');
 const { dataRoot } = __require("src/state.cjs");
 
 function runtimeRoot(options = {}) {
@@ -1657,29 +1681,59 @@ function appendJsonl(file, record) {
   fs.appendFileSync(file, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 });
 }
 
-function readJsonl(file) {
-  let text;
+function scanJsonl(file, onRecord) {
+  let descriptor;
   try {
-    text = fs.readFileSync(file, 'utf8');
+    descriptor = fs.openSync(file, 'r');
   } catch (error) {
-    if (error && error.code === 'ENOENT') return { records: [], damaged: 0 };
+    if (error && error.code === 'ENOENT') return { damaged: 0 };
     throw error;
   }
 
-  const records = [];
   let damaged = 0;
-  for (const line of text.split(/\r?\n/)) {
-    if (!line.trim()) continue;
+  function visitLine(line) {
+    if (!line.trim()) return;
+    let record;
     try {
-      records.push(JSON.parse(line));
+      record = JSON.parse(line);
     } catch {
       damaged += 1;
+      return;
     }
+    // Consumer failures are not malformed JSON and must reach the caller.
+    onRecord(record);
   }
+
+  try {
+    const buffer = Buffer.alloc(64 * 1024);
+    const decoder = new StringDecoder('utf8');
+    let pending = '';
+    let bytesRead;
+    do {
+      bytesRead = fs.readSync(descriptor, buffer, 0, buffer.length, null);
+      pending += bytesRead ? decoder.write(buffer.subarray(0, bytesRead)) : decoder.end();
+      let start = 0;
+      let end;
+      while ((end = pending.indexOf('\n', start)) !== -1) {
+        visitLine(pending.slice(start, end));
+        start = end + 1;
+      }
+      pending = pending.slice(start);
+    } while (bytesRead);
+    visitLine(pending);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+  return { damaged };
+}
+
+function readJsonl(file) {
+  const records = [];
+  const { damaged } = scanJsonl(file, record => records.push(record));
   return { records, damaged };
 }
 
-module.exports = { appendJsonl, readJsonl, runtimeRoot };
+module.exports = { appendJsonl, readJsonl, scanJsonl, runtimeRoot };
 
 },
 "src/state.cjs": function(module, exports, __require) {
@@ -1689,9 +1743,9 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { defaultContract } = __require("src/contracts.cjs");
+const { decodeState, freshState, recoveryState } = __require("src/state-schema.cjs");
 
-const CURRENT_SCHEMA_VERSION = 4;
+const LOCK_STALE_MS = 10000;
 
 function dataRoot(override) {
   return override || process.env.PLUGIN_DATA || process.env.CLAUDE_PLUGIN_DATA || path.join(os.tmpdir(), 'stop-that-shit-dev');
@@ -1704,6 +1758,221 @@ function sessionKey(sessionId) {
 function statePath(sessionId, override) {
   return path.join(dataRoot(override), 'sessions', `${sessionKey(sessionId)}.json`);
 }
+
+function readState(sessionId, override) {
+  const file = statePath(sessionId, override);
+  // Ordinary tool checks do not acquire the session lock. They must still
+  // see a failed legacy lock migration instead of trusting stale authority.
+  try {
+    const lock = `${file}.lock`;
+    const stat = fs.statSync(lock, { throwIfNoEntry: false });
+    if (stat?.isFile() && Date.now() - stat.mtimeMs > LOCK_STALE_MS) legacyLockOwner(lock);
+  } catch (error) {
+    if (error.code === 'STS_LOCK_DAMAGED') return recoveryState({ code: error.code, message: error.message });
+    // A completed migration may remove the old file or replace it with a directory.
+    if (!['ENOENT', 'EISDIR'].includes(error.code)) throw error;
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    // Reads may run without the session lock. Normalize in memory only;
+    // the next locked mutation persists the current schema and latest ledger.
+    return decodeState(parsed);
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return freshState();
+    if (error && error.name === 'SyntaxError') {
+      return recoveryState();
+    }
+    throw error;
+  }
+}
+
+function writeState(sessionId, state, override) {
+  const file = statePath(sessionId, override);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
+  // Do not replace an atomic rename with a partial overwrite on Windows.
+  try {
+    fs.writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    // Concurrent readers can briefly prevent replacement on Windows. Keep the
+    // same atomic rename and session lock; never fall back to partial overwrite.
+    const started = Date.now();
+    while (true) {
+      try { fs.renameSync(temporary, file); break; }
+      catch (error) {
+        if (process.platform !== 'win32' || error.code !== 'EPERM' || Date.now() - started >= 100) throw error;
+        sleepSync(10);
+      }
+    }
+  }
+  finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
+}
+
+
+function lockPath(sessionId, override) {
+  return `${statePath(sessionId, override)}.lock`;
+}
+
+function sleepSync(milliseconds) {
+  const shared = new Int32Array(new SharedArrayBuffer(4));
+  Atomics.wait(shared, 0, 0, milliseconds);
+}
+
+function ownerHasExited(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return false; }
+  catch (error) { return error.code === 'ESRCH'; }
+}
+
+function legacyLockOwner(file) {
+  const match = /^(\d+):/.exec(fs.readFileSync(file, 'utf8'));
+  const pid = match && Number(match[1]);
+  if (Number.isSafeInteger(pid) && pid > 0) return pid;
+  const error = new Error(`The legacy session lock "${path.basename(file)}" has no valid owner. `
+    + 'Read-only recovery is active; the lock and saved state are preserved. '
+    + 'Start a new host session and submit a new contract, or stop every host process using this data directory '
+    + 'before moving only this lock file aside. Keep the saved state and delegation records. '
+    + 'See INSTALL.md#recover-a-damaged-legacy-session-lock.');
+  error.name = 'STS_LOCK_DAMAGED';
+  error.code = 'STS_LOCK_DAMAGED';
+  throw error;
+}
+
+function removeEmptyLock(directory) {
+  // Remove only an empty container. A contender may already have published
+  // its own nonempty lock directory at this path.
+  try { fs.rmdirSync(directory); }
+  catch (error) {
+    if (!['ENOENT', 'ENOTDIR', 'ENOTEMPTY', 'EEXIST'].includes(error.code)) throw error;
+  }
+}
+
+function removeLockOwner(directory, owner) {
+  try { fs.unlinkSync(path.join(directory, owner)); }
+  catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return;
+    throw error;
+  }
+  removeEmptyLock(directory);
+}
+
+function reclaimSessionLock(file, staleMs) {
+  try {
+    const stat = fs.statSync(file);
+    if (Date.now() - stat.mtimeMs <= staleMs) return;
+    if (stat.isDirectory()) {
+      const owners = fs.readdirSync(file);
+      if (owners.length === 0) {
+        removeEmptyLock(file);
+      } else {
+        // Interrupted contenders can leave more than one marker. Reclaim each
+        // confirmed exited owner by its unique name, retaining live owners.
+        for (const owner of owners) {
+          const match = /^(\d+)-[a-f0-9-]{36}$/.exec(owner);
+          if (match && ownerHasExited(Number(match[1]))) removeLockOwner(file, owner);
+        }
+      }
+    } else {
+      // Previous releases used a file containing "pid:uuid timestamp".
+      // A replacement directory cannot be removed by unlinkSync.
+      if (ownerHasExited(legacyLockOwner(file))) fs.unlinkSync(file);
+    }
+  } catch (error) {
+    if (['ENOENT', 'ENOTDIR', 'EISDIR'].includes(error.code)) return;
+    if (error.code === 'EPERM' && fs.statSync(file, { throwIfNoEntry: false })?.isDirectory()) return;
+    throw error;
+  }
+}
+
+function acquireSessionLock(sessionId, override, options = {}) {
+  const file = lockPath(sessionId, override);
+  const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 1500;
+  const staleMs = Number.isFinite(options.staleMs) ? options.staleMs : LOCK_STALE_MS;
+  const started = Date.now();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const owner = `${process.pid}-${crypto.randomUUID()}`;
+  while (true) {
+    let created = false;
+    try { fs.mkdirSync(file, { mode: 0o700 }); created = true; }
+    catch (error) { if (error.code !== 'EEXIST') throw error; }
+    if (created) {
+      let acquired = false;
+      try {
+        fs.writeFileSync(path.join(file, owner), '', { flag: 'wx', mode: 0o600 });
+        // If this process paused after mkdir, recovery may have replaced the
+        // empty directory. Only the sole marker owner may enter. Winners keep
+        // their marker until release, so a delayed initializer cannot also win.
+        const owners = fs.readdirSync(file);
+        acquired = owners.length === 1 && owners[0] === owner;
+        if (acquired) return () => removeLockOwner(file, owner);
+      } catch (error) {
+        if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error;
+      } finally {
+        if (!acquired) {
+          removeLockOwner(file, owner);
+          removeEmptyLock(file);
+        }
+      }
+    }
+    reclaimSessionLock(file, staleMs);
+    if (Date.now() - started >= timeoutMs) {
+      const timeout = new Error(`Timed out waiting for Stop That Shit session lock: ${sessionKey(sessionId)}`);
+      timeout.code = 'STS_LOCK_TIMEOUT';
+      throw timeout;
+    }
+    sleepSync(10);
+  }
+}
+
+function withSessionLock(sessionId, override, fn, options) {
+  const release = acquireSessionLock(sessionId, override, options);
+  try {
+    return fn();
+  } finally {
+    release();
+  }
+}
+
+function updateSession(sessionId, override, update) {
+  let release;
+  try {
+    release = acquireSessionLock(sessionId, override);
+  } catch (error) {
+    if (error.code !== 'STS_LOCK_DAMAGED') throw error;
+    return update(recoveryState({ code: error.code, message: error.message }));
+  }
+  try {
+    const state = readState(sessionId, override);
+    const damaged = Boolean(state.storageError);
+    const result = update(state);
+    if (!damaged) writeState(sessionId, state, override);
+    return result;
+  } finally {
+    release();
+  }
+}
+
+module.exports = {
+  updateSession,
+  acquireSessionLock,
+  dataRoot,
+  freshState,
+  recoveryState,
+  readState,
+  sessionKey,
+  statePath,
+  withSessionLock,
+  writeState
+};
+
+},
+"src/state-schema.cjs": function(module, exports, __require) {
+'use strict';
+
+const {
+  defaultContract, normalizeContract, MODES, LEVELS, HASH_POLICIES, SCOPE_POLICIES
+} = __require("src/contracts.cjs");
+
+const CURRENT_SCHEMA_VERSION = 4;
 
 function freshState() {
   return {
@@ -1732,23 +2001,6 @@ function recoveryState(error = { code: 'STATE_DAMAGED', message: 'The saved cont
 
 function safeCount(value) {
   return Number.isSafeInteger(value) && value >= 0 ? value : 0;
-}
-
-function validAgentBudget(value) {
-  return Number.isSafeInteger(value) && value >= 0 ? value : null;
-}
-
-function migratedAgentBudget(contract) {
-  const legacyBudget = validAgentBudget(contract.agentBudget);
-  if (legacyBudget !== null) return legacyBudget;
-
-  const concurrentBudget = validAgentBudget(contract.concurrentAgentBudget);
-  if (concurrentBudget !== null && concurrentBudget !== Number.MAX_SAFE_INTEGER) return concurrentBudget;
-
-  const totalBudget = validAgentBudget(contract.totalAgentBudget);
-  if (totalBudget !== null && totalBudget !== Number.MAX_SAFE_INTEGER) return totalBudget;
-
-  return Number.MAX_SAFE_INTEGER;
 }
 
 function normalizeDelegation(value) {
@@ -1796,15 +2048,9 @@ function normalizeDelegation(value) {
 }
 
 function normalizeState(parsed) {
-  const fresh = freshState();
   const source = parsed && typeof parsed === 'object' ? parsed : {};
   const legacyContract = source.contract && typeof source.contract === 'object' ? source.contract : {};
-  const contract = { ...fresh.contract, ...legacyContract };
-  delete contract.agentBudget;
-  contract.agentBudget = migratedAgentBudget(legacyContract);
-  delete contract.totalAgentBudget;
-  delete contract.concurrentAgentBudget;
-  delete contract.agentsUsed;
+  const contract = normalizeContract(legacyContract);
   delete contract.directiveWarning;
   delete contract.directiveError;
   const delegation = normalizeDelegation(source.delegation);
@@ -1850,11 +2096,11 @@ function normalizeState(parsed) {
 
 function validStoredContract(contract, schemaVersion) {
   const checks = {
-    mode: value => ['unconfirmed', 'answer', 'review', 'change', 'monitor', 'open'].includes(value),
-    level: value => ['watch', 'guard', 'lock', 'off'].includes(value),
-    agentBudget: value => validAgentBudget(value) !== null,
-    hashPolicy: value => ['deny', 'ask', 'allow'].includes(value),
-    dependencyPolicy: value => ['deny', 'ask', 'allow'].includes(value),
+    mode: value => value === 'unconfirmed' || MODES.has(value),
+    level: value => LEVELS.has(value),
+    agentBudget: value => Number.isSafeInteger(value) && value >= 0,
+    hashPolicy: value => HASH_POLICIES.has(value),
+    dependencyPolicy: value => SCOPE_POLICIES.has(value),
     allowedPaths: value => value === null || Array.isArray(value) && value.every(item => typeof item === 'string')
   };
   return Object.entries(checks).every(([key, check]) =>
@@ -1881,135 +2127,19 @@ function validStoredDelegation(value) {
     && ['observedRunning', 'notStartedAmbiguous', 'resultUnknown'].every(key => reservation[key] === undefined || typeof reservation[key] === 'boolean'));
 }
 
-function readState(sessionId, override) {
-  const file = statePath(sessionId, override);
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
-        || parsed.schemaVersion !== undefined && (!Number.isSafeInteger(parsed.schemaVersion)
-          || parsed.schemaVersion < 1 || parsed.schemaVersion > CURRENT_SCHEMA_VERSION)
-        || !parsed.contract || typeof parsed.contract !== 'object' || Array.isArray(parsed.contract)
-        || !validStoredContract(parsed.contract, parsed.schemaVersion)
-        || parsed.schemaVersion === CURRENT_SCHEMA_VERSION && !validStoredDelegation(parsed.delegation)) {
-      throw new SyntaxError('Invalid control state structure');
-    }
-    // Reads may run without the session lock. Normalize in memory only;
-    // the next locked mutation persists the current schema and latest ledger.
-    return normalizeState(parsed);
-  } catch (error) {
-    if (error && error.code === 'ENOENT') return freshState();
-    if (error && error.name === 'SyntaxError') {
-      return recoveryState();
-    }
-    throw error;
+function decodeState(parsed) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+      || parsed.schemaVersion !== undefined && (!Number.isSafeInteger(parsed.schemaVersion)
+        || parsed.schemaVersion < 1 || parsed.schemaVersion > CURRENT_SCHEMA_VERSION)
+      || !parsed.contract || typeof parsed.contract !== 'object' || Array.isArray(parsed.contract)
+      || !validStoredContract(parsed.contract, parsed.schemaVersion)
+      || parsed.schemaVersion === CURRENT_SCHEMA_VERSION && !validStoredDelegation(parsed.delegation)) {
+    throw new SyntaxError('Invalid control state structure');
   }
+  return normalizeState(parsed);
 }
 
-function writeState(sessionId, state, override) {
-  const file = statePath(sessionId, override);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-  // Do not replace an atomic rename with a partial overwrite on Windows.
-  try {
-    // Concurrent readers can briefly prevent replacement on Windows. Keep the
-    // same atomic rename and session lock; never fall back to partial overwrite.
-    const started = Date.now();
-    while (true) {
-      try { fs.renameSync(temporary, file); break; }
-      catch (error) {
-        if (process.platform !== 'win32' || error.code !== 'EPERM' || Date.now() - started >= 100) throw error;
-        sleepSync(10);
-      }
-    }
-  }
-  finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
-}
-
-
-function lockPath(sessionId, override) {
-  return `${statePath(sessionId, override)}.lock`;
-}
-
-function sleepSync(milliseconds) {
-  const shared = new Int32Array(new SharedArrayBuffer(4));
-  Atomics.wait(shared, 0, 0, milliseconds);
-}
-
-function acquireSessionLock(sessionId, override, options = {}) {
-  const file = lockPath(sessionId, override);
-  const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 1500;
-  const staleMs = Number.isFinite(options.staleMs) ? options.staleMs : 10000;
-  const started = Date.now();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-
-  while (true) {
-    try {
-      const fd = fs.openSync(file, 'wx', 0o600);
-      const token = `${process.pid}:${crypto.randomUUID()}`;
-      fs.writeFileSync(fd, `${token} ${Date.now()}\n`, 'utf8');
-      return () => {
-        try { fs.closeSync(fd); } catch {}
-        try {
-          const owner = fs.readFileSync(file, 'utf8').trim().split(/\s+/, 1)[0];
-          if (owner === token) fs.unlinkSync(file);
-        } catch (error) {
-          if (!error || error.code !== 'ENOENT') throw error;
-        }
-      };
-    } catch (error) {
-      if (!error || error.code !== 'EEXIST') throw error;
-      try {
-        const stat = fs.statSync(file);
-        if (Date.now() - stat.mtimeMs > staleMs) {
-          fs.unlinkSync(file);
-          continue;
-        }
-      } catch (statError) {
-        if (statError && statError.code === 'ENOENT') continue;
-        throw statError;
-      }
-      if (Date.now() - started >= timeoutMs) {
-        const timeout = new Error(`Timed out waiting for Stop That Shit session lock: ${sessionKey(sessionId)}`);
-        timeout.code = 'STS_LOCK_TIMEOUT';
-        throw timeout;
-      }
-      sleepSync(10);
-    }
-  }
-}
-
-function withSessionLock(sessionId, override, fn, options) {
-  const release = acquireSessionLock(sessionId, override, options);
-  try {
-    return fn();
-  } finally {
-    release();
-  }
-}
-
-function updateSession(sessionId, override, update) {
-  return withSessionLock(sessionId, override, () => {
-    const state = readState(sessionId, override);
-    const damaged = Boolean(state.storageError);
-    const result = update(state);
-    if (!damaged) writeState(sessionId, state, override);
-    return result;
-  });
-}
-
-module.exports = {
-  updateSession,
-  acquireSessionLock,
-  dataRoot,
-  freshState,
-  recoveryState,
-  readState,
-  sessionKey,
-  statePath,
-  withSessionLock,
-  writeState
-};
+module.exports = { decodeState, freshState, recoveryState };
 
 },
 "src/adapters/hermes-tool-classifier.cjs": function(module, exports, __require) {
@@ -2018,12 +2148,9 @@ module.exports = {
 const { manifestEditDependencyIntent, manifestDependencyIntent, patchDependencyIntent } = __require("src/manifest-dependencies.cjs");
 
 const nodePath = require('node:path');
-const {
-  analyzeCodexTool,
-  classifyShell,
-  detectDependencyIntent: detectCodexDependencyIntent,
-  detectHashIntent: detectCodexHashIntent
-} = __require("src/adapters/codex-tool-classifier.cjs");
+const { analyzeShellInput, classifyShell } = __require("src/shell-analysis.cjs");
+const { detectDependencyIntent: detectCodexDependencyIntent } = __require("src/adapters/codex-tool-classifier.cjs");
+const { detectHashIntent: detectToolHashIntent } = __require("src/hash-intent.cjs");
 
 const READ_TOOLS = new Set([
   'read_file',
@@ -2134,6 +2261,7 @@ function codexToolName(toolName, toolInput) {
 }
 
 function detectDependencyIntent(toolName, toolInput) {
+  if (toolName === 'terminal') return analyzeShellInput(codexIntentInput(toolName, toolInput)).dependencyIntent;
   const name = codexToolName(toolName, toolInput);
   const input = codexIntentInput(toolName, toolInput);
   if (toolName === 'patch' && name === 'Write') return manifestEditDependencyIntent(input.path, toolInput.old_string, input.content);
@@ -2143,12 +2271,13 @@ function detectDependencyIntent(toolName, toolInput) {
 }
 
 function detectHashIntent(toolName, toolInput) {
-  return detectCodexHashIntent(codexToolName(toolName, toolInput), codexIntentInput(toolName, toolInput));
+  if (toolName === 'terminal') return analyzeShellInput(codexIntentInput(toolName, toolInput)).hashIntent;
+  return detectToolHashIntent(codexToolName(toolName, toolInput), codexIntentInput(toolName, toolInput));
 }
 
 function analyzeHermesTool(toolName, toolInput, cwd) {
   const analysis = toolName === 'terminal'
-    ? analyzeCodexTool('exec_command', codexIntentInput(toolName, toolInput), cwd)
+    ? analyzeShellInput(codexIntentInput(toolName, toolInput))
     : {
       mutability: classifyHermesTool(toolName, toolInput),
       hashIntent: detectHashIntent(toolName, toolInput),
@@ -2319,90 +2448,11 @@ function patchDependencyIntent(patch) {
 module.exports = { manifestDependencyIntent, manifestEditDependencyIntent, patchDependencyIntent };
 
 },
-"src/adapters/codex-tool-classifier.cjs": function(module, exports, __require) {
+"src/shell-analysis.cjs": function(module, exports, __require) {
 'use strict';
 
-const nodePath = require('node:path');
-const { patchDependencyIntent } = __require("src/manifest-dependencies.cjs");
-
-const WRITE_NAME = /(?:^|__|_)(?:add|append|apply|archive|close|commit|copy|create|delete|deploy|edit|install|merge|move|patch|post|publish|push|remove|rename|send|set|submit|update|upload|write)(?:$|__|_)/i;
-const READ_NAME = /(?:^|__|_)(?:cat|check|diff|fetch|find|get|inspect|list|load|open|read|review|search|show|status|view)(?:$|__|_)/i;
-const CONTROL_TOOLS = new Set(['update_plan', 'request_user_input', 'wait', 'wait_agent', 'interrupt_agent', 'close_agent']);
-// Match the host's known flattened namespaces exactly; do not strip arbitrary
-// prefixes from MCP or third-party tool names.
-const CODEX_TOOL_NAMES = new Map([
-  ...['send_input', 'resume_agent', 'wait_agent', 'close_agent']
-    .map(name => [`multi_agent_v1${name}`, name]),
-  ...['spawn_agent', 'followup_task', 'send_message', 'list_agents', 'wait_agent', 'interrupt_agent']
-    .map(name => [`collaboration${name}`, name])
-]);
-const CODE_PATH = /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|cs|php|rb|c|cc|cpp|h|hpp)$/i;
 const HASH_COMMAND = /\b(?:Get-FileHash|md5sum|sha(?:1|224|256|384|512)sum|shasum|b2sum)\b|\bcertutil\b[^\r\n]*\s-hashfile\b|\bopenssl\s+dgst\b/i;
-const HASH_API = /\b(?:createHash|createHmac)\s*\(|\bcrypto\.subtle\.digest\s*\(|\bhashlib\.(?:md5|sha1|sha224|sha256|sha384|sha512|blake2[bs])\s*\(|\bMessageDigest\.getInstance\s*\(|\bDigestUtils\.[A-Za-z0-9_]+\s*\(|\bsha(?:1|256|512)\.(?:New|Sum\w*)\s*\(|\b(?:bcrypt|argon2)\.hash\s*\(|\bpassword_hash\s*\(|\bPasswordHasher\s*\(/i;
 const DEPENDENCY_COMMAND = /\b(?:npm|pnpm|yarn)\s+(?:add|install)\b|\bpip(?:3)?\s+install\b|\bcargo\s+add\b|\bdotnet\s+add\b[^\r\n]*\bpackage\b|\bgo\s+get\b|\bcomposer\s+require\b|\bbundle\s+add\b/i;
-
-function inputText(toolInput) {
-  if (typeof toolInput === 'string') return toolInput;
-  if (!toolInput || typeof toolInput !== 'object') return '';
-  return String(toolInput.command || toolInput.patch || toolInput.content || toolInput.new_string || '');
-}
-
-function detectHashIntent(toolName, toolInput) {
-  const name = String(toolName || '');
-  const text = inputText(toolInput);
-  if (!text) return false;
-
-  if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
-    return analyzeShell(text).hashIntent;
-  }
-
-  if (name === 'apply_patch') {
-    const added = text.split(/\r?\n/).filter((line) => /^\+(?!\+\+)/.test(line)).join('\n');
-    return HASH_API.test(added);
-  }
-
-  if (name === 'Edit' || name === 'Write') {
-    const filePath = String(toolInput && (toolInput.file_path || toolInput.path) || '');
-    return CODE_PATH.test(filePath) && HASH_API.test(text);
-  }
-
-  return false;
-}
-
-function normalizePath(value, cwd) {
-  let normalized = String(value || '').trim().replace(/^['"]|['"]$/g, '').replace(/\\/g, '/');
-  if (cwd && nodePath.isAbsolute(normalized)) {
-    normalized = nodePath.relative(String(cwd), normalized).replace(/\\/g, '/');
-  }
-  return normalized.replace(/^\.\//, '');
-}
-
-function extractAffectedPaths(toolName, toolInput, cwd) {
-  const name = String(toolName || '');
-  if (name === 'Edit' || name === 'Write') {
-    const filePath = normalizePath(toolInput && (toolInput.file_path || toolInput.path), cwd);
-    return filePath ? [filePath] : [];
-  }
-  if (name !== 'apply_patch') return [];
-
-  const paths = [];
-  for (const line of inputText(toolInput).split(/\r?\n/)) {
-    const match = /^\*\*\* (?:Add|Update|Delete) File:\s*(.+?)\s*$/.exec(line)
-      || /^\*\*\* Move to:\s*(.+?)\s*$/.exec(line);
-    if (match) paths.push(normalizePath(match[1], cwd));
-  }
-  return [...new Set(paths.filter(Boolean))];
-}
-
-function detectDependencyIntent(toolName, toolInput) {
-  const name = String(toolName || '');
-  const text = inputText(toolInput);
-  if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
-    return analyzeShell(text).dependencyIntent;
-  }
-  if (name === 'apply_patch') return patchDependencyIntent(text);
-  return false;
-}
 
 function classifyGitBranchArguments(args) {
   let listing = false, positional = false;
@@ -2671,6 +2721,86 @@ function classifyShell(command) {
   return analyzeShell(command).mutability;
 }
 
+// Some installed hook payloads lack command but carry intent text in a legacy
+// field. Keep their mutability unproven while retaining hash/dependency facts.
+function analyzeShellInput(toolInput) {
+  const command = toolInput && toolInput.command;
+  const text = typeof toolInput === 'string' ? toolInput
+    : toolInput && typeof toolInput === 'object'
+      ? String(toolInput.command || toolInput.patch || toolInput.content || toolInput.new_string || '') : '';
+  const analysis = analyzeShell(command);
+  if (text !== String(command || '')) {
+    const intents = analyzeShell(text);
+    analysis.hashIntent = intents.hashIntent;
+    analysis.dependencyIntent = intents.dependencyIntent;
+  }
+  return analysis;
+}
+
+module.exports = { analyzeShell, analyzeShellInput, classifyShell };
+
+},
+"src/adapters/codex-tool-classifier.cjs": function(module, exports, __require) {
+'use strict';
+
+const nodePath = require('node:path');
+const { analyzeShell, analyzeShellInput, classifyShell } = __require("src/shell-analysis.cjs");
+const { patchDependencyIntent } = __require("src/manifest-dependencies.cjs");
+const { detectHashIntent } = __require("src/hash-intent.cjs");
+
+const WRITE_NAME = /(?:^|__|_)(?:add|append|apply|archive|close|commit|copy|create|delete|deploy|edit|install|merge|move|patch|post|publish|push|remove|rename|send|set|submit|update|upload|write)(?:$|__|_)/i;
+const READ_NAME = /(?:^|__|_)(?:cat|check|diff|fetch|find|get|inspect|list|load|open|read|review|search|show|status|view)(?:$|__|_)/i;
+const CONTROL_TOOLS = new Set(['update_plan', 'request_user_input', 'wait', 'wait_agent', 'interrupt_agent', 'close_agent']);
+// Match the host's known flattened namespaces exactly; do not strip arbitrary
+// prefixes from MCP or third-party tool names.
+const CODEX_TOOL_NAMES = new Map([
+  ...['send_input', 'resume_agent', 'wait_agent', 'close_agent']
+    .map(name => [`multi_agent_v1${name}`, name]),
+  ...['spawn_agent', 'followup_task', 'send_message', 'list_agents', 'wait_agent', 'interrupt_agent']
+    .map(name => [`collaboration${name}`, name])
+]);
+
+function inputText(toolInput) {
+  if (typeof toolInput === 'string') return toolInput;
+  if (!toolInput || typeof toolInput !== 'object') return '';
+  return String(toolInput.command || toolInput.patch || toolInput.content || toolInput.new_string || '');
+}
+
+function normalizePath(value, cwd) {
+  let normalized = String(value || '').trim().replace(/^['"]|['"]$/g, '').replace(/\\/g, '/');
+  if (cwd && nodePath.isAbsolute(normalized)) {
+    normalized = nodePath.relative(String(cwd), normalized).replace(/\\/g, '/');
+  }
+  return normalized.replace(/^\.\//, '');
+}
+
+function extractAffectedPaths(toolName, toolInput, cwd) {
+  const name = String(toolName || '');
+  if (name === 'Edit' || name === 'Write') {
+    const filePath = normalizePath(toolInput && (toolInput.file_path || toolInput.path), cwd);
+    return filePath ? [filePath] : [];
+  }
+  if (name !== 'apply_patch') return [];
+
+  const paths = [];
+  for (const line of inputText(toolInput).split(/\r?\n/)) {
+    const match = /^\*\*\* (?:Add|Update|Delete) File:\s*(.+?)\s*$/.exec(line)
+      || /^\*\*\* Move to:\s*(.+?)\s*$/.exec(line);
+    if (match) paths.push(normalizePath(match[1], cwd));
+  }
+  return [...new Set(paths.filter(Boolean))];
+}
+
+function detectDependencyIntent(toolName, toolInput) {
+  const name = String(toolName || '');
+  const text = inputText(toolInput);
+  if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
+    return analyzeShell(text).dependencyIntent;
+  }
+  if (name === 'apply_patch') return patchDependencyIntent(text);
+  return false;
+}
+
 function canonicalCodexToolName(toolName) {
   const name = String(toolName || '');
   return CODEX_TOOL_NAMES.get(name) || name;
@@ -2693,16 +2823,7 @@ function analyzeCodexTool(toolName, toolInput, cwd) {
   const name = canonicalCodexToolName(toolName);
   let analysis;
   if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
-    const command = toolInput && toolInput.command;
-    analysis = analyzeShell(command);
-    // Preserve the legacy intent fallback for inputs without a command field.
-    // Normal shell inputs share the same analysis for all three decisions.
-    const text = inputText(toolInput);
-    if (text !== String(command || '')) {
-      const intents = analyzeShell(text);
-      analysis.hashIntent = intents.hashIntent;
-      analysis.dependencyIntent = intents.dependencyIntent;
-    }
+    analysis = analyzeShellInput(toolInput);
   } else {
     analysis = {
       mutability: classifyCodexTool(name, toolInput),
@@ -2714,6 +2835,50 @@ function analyzeCodexTool(toolName, toolInput, cwd) {
 }
 
 module.exports = { analyzeCodexTool, analyzeShell, canonicalCodexToolName, classifyCodexTool, classifyShell, detectDependencyIntent, detectHashIntent, extractAffectedPaths };
+
+},
+"src/hash-intent.cjs": function(module, exports, __require) {
+'use strict';
+
+const { analyzeShell } = __require("src/shell-analysis.cjs");
+
+const CODE_PATH = /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|cs|php|rb|c|cc|cpp|h|hpp)$/i;
+const HASH_API = /\b(?:createHash|createHmac)\s*\(|\bcrypto\.subtle\.digest\s*\(|\bhashlib\.(?:md5|sha1|sha224|sha256|sha384|sha512|blake2[bs])\s*\(|\bMessageDigest\.getInstance\s*\(|\bDigestUtils\.[A-Za-z0-9_]+\s*\(|\bsha(?:1|256|512)\.(?:New|Sum\w*)\s*\(|\b(?:bcrypt|argon2)\.hash\s*\(|\bpassword_hash\s*\(|\bPasswordHasher\s*\(/i;
+
+function containsHashApi(text) {
+  return HASH_API.test(String(text || ''));
+}
+
+function fileHashIntent(filePath, content) {
+  return CODE_PATH.test(String(filePath || '')) && containsHashApi(content);
+}
+
+function patchHashIntent(patch) {
+  const added = String(patch || '').split(/\r?\n/)
+    .filter((line) => /^\+(?!\+\+)/.test(line)).join('\n');
+  return containsHashApi(added);
+}
+
+// Preserve the original tool-input API for callers using these common shapes.
+// Native adapters can pass file content or patches directly to the helpers.
+function detectHashIntent(toolName, toolInput) {
+  const name = String(toolName || '');
+  const text = typeof toolInput === 'string' ? toolInput
+    : toolInput && typeof toolInput === 'object'
+      ? String(toolInput.command || toolInput.patch || toolInput.content || toolInput.new_string || '')
+      : '';
+  if (!text) return false;
+  if (name === 'Bash' || name === 'exec_command' || name === 'shell_command') {
+    return analyzeShell(text).hashIntent;
+  }
+  if (name === 'apply_patch') return patchHashIntent(text);
+  if (name === 'Edit' || name === 'Write') {
+    return fileHashIntent(toolInput && (toolInput.file_path || toolInput.path), text);
+  }
+  return false;
+}
+
+module.exports = { containsHashApi, fileHashIntent, patchHashIntent, detectHashIntent };
 
 },
 "src/adapters/lifecycle-fields.cjs": function(module, exports, __require) {
@@ -2797,7 +2962,8 @@ __modules["package.json"] = function(module) { module.exports = {
     "pretest": "npm run schema:check",
     "hermes:build": "node scripts/build-hermes-plugin.cjs",
     "hermes:check": "node scripts/build-hermes-plugin.cjs --check",
-    "test": "node --test test/manifest-dependencies.test.cjs test/case-bundle.test.cjs test/claude-adapter.test.cjs test/claude-plugin.test.cjs test/contracts.test.cjs test/control-protocol.test.cjs test/decision.test.cjs test/delegation-state.test.cjs test/delegation-lifecycle.test.cjs test/delegation-facts.test.cjs test/dsh-adapter.test.cjs test/lifecycle-compatibility.test.cjs test/hermes-adapter.test.cjs test/hermes-hook.test.cjs test/hermes-plugin-package.test.cjs test/hooks.test.cjs test/omp-adapter.test.cjs test/omp-extension.test.cjs test/omp-package.test.cjs test/opencode-adapter.test.cjs test/opencode-plugin.test.cjs test/opencode-smoke.test.cjs test/opencode-v2-plugin.test.mjs test/opencode-dual-smoke.test.mjs test/paired-eval.test.cjs test/pi-adapter.test.cjs test/pi-extension.test.cjs test/pi-package.test.cjs test/plugin.test.cjs test/runtime-audit.test.cjs test/sts-cli.test.cjs test/stss-skill.test.cjs",
+    "test": "node scripts/test.cjs",
+    "check": "npm test && npm run eval && npm run release:check",
     "sts": "node scripts/sts.cjs",
     "eval": "node scripts/evaluate-cases.cjs",
     "eval:selftest": "node --test test/case-bundle.test.cjs test/paired-eval.test.cjs",
@@ -2824,7 +2990,7 @@ __modules["package.json"] = function(module) { module.exports = {
     "ajv": "^8.20.0"
   },
   "dependencies": {
-    "@opencode/schema": "2.0.18",
+    "@opencode/schema": "2.0.22",
     "effect": "4.0.0-rc.112"
   }
 }; };

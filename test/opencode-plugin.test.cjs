@@ -143,6 +143,87 @@ function sendPartEvent(hooks, part) {
   return hooks.event({ event: { type: 'message.part.updated', properties: { part } } });
 }
 
+for (const failure of ['fetch', 'session resolution', 'empty parts']) {
+  test(`message processing retries after ${failure} without applying successful duplicates`, async (t) => {
+    const { hooks, client, dataDir } = await plugin(t, { root: { id: 'root' } }, {
+      retry: message('root', 'retry', '$stop-that-shit review -- inspect only')
+    });
+    const method = failure === 'session resolution' ? 'get' : 'message';
+    const original = client.session[method];
+    let attempts = 0;
+    client.session[method] = async (...args) => {
+      if (++attempts === 1) {
+        if (failure === 'empty parts') return { data: { info: userInfo('root', 'retry'), parts: [] } };
+        throw new Error('temporary SDK failure');
+      }
+      return original(...args);
+    };
+    const part = textPart('root', 'retry', '$stop-that-shit review -- inspect only');
+    await sendPartEvent(hooks, part);
+    assert.notEqual(readState('root', dataDir).contract.mode, 'review');
+    await Promise.all([sendPartEvent(hooks, part), sendPartEvent(hooks, part)]);
+    assert.equal(readState('root', dataDir).contract.mode, 'review');
+    const completedFetches = client.calls.sessionMessage;
+    await sendPartEvent(hooks, part);
+    assert.equal(attempts, 2);
+    assert.equal(client.calls.sessionMessage, completedFetches);
+  });
+}
+
+for (const failure of ['fetch', 'session resolution', 'empty parts']) {
+  test(`an earlier ${failure} retry cannot replace a newer root contract`, async (t) => {
+    const { hooks, client, dataDir } = await plugin(t, { root: { id: 'root' } }, {
+      older: message('root', 'older', '$stop-that-shit change -- edit'),
+      newer: message('root', 'newer', '$stop-that-shit review -- inspect')
+    });
+    const method = failure === 'session resolution' ? 'get' : 'message';
+    const original = client.session[method];
+    let attempts = 0;
+    client.session[method] = async input => {
+      if (++attempts === 1) {
+        if (failure === 'empty parts') return { data: { info: userInfo('root', 'older'), parts: [] } };
+        throw new Error('temporary SDK failure');
+      }
+      return original(input);
+    };
+    const older = textPart('root', 'older', '$stop-that-shit change -- edit');
+    await sendPartEvent(hooks, older);
+    await sendPartEvent(hooks, textPart('root', 'newer', '$stop-that-shit review -- inspect'));
+    assert.equal(readState('root', dataDir).contract.mode, 'review');
+    const injections = client.calls.sessionPrompt;
+    await sendPartEvent(hooks, older);
+    assert.equal(readState('root', dataDir).contract.mode, 'review');
+    assert.equal(client.calls.sessionPrompt, injections);
+    await assert.rejects(hooks['tool.execute.before'](
+      { tool: 'write', sessionID: 'root', callID: 'after-retry' },
+      { args: { filePath: '/repo/a.txt', content: 'blocked' } }
+    ), /MODE_FORBIDS_MUTATION/);
+  });
+}
+
+test('a newer input in another root session does not suppress a pending retry', async (t) => {
+  const { hooks, client, dataDir } = await plugin(t, { first: { id: 'first' }, second: { id: 'second' } }, {
+    retry: message('first', 'retry', '$stop-that-shit change -- edit'),
+    other: message('second', 'other', '$stop-that-shit review -- inspect')
+  });
+  const original = client.session.message;
+  let attempts = 0;
+  client.session.message = async input => {
+    if (++attempts === 1) throw new Error('temporary fetch failure');
+    return original(input);
+  };
+  const retry = textPart('first', 'retry', '$stop-that-shit change -- edit');
+  await sendPartEvent(hooks, retry);
+  await sendPartEvent(hooks, textPart('second', 'other', '$stop-that-shit review -- inspect'));
+  await sendPartEvent(hooks, retry);
+  assert.equal(readState('first', dataDir).contract.mode, 'change');
+  assert.equal(readState('second', dataDir).contract.mode, 'review');
+  await hooks['tool.execute.before'](
+    { tool: 'write', sessionID: 'first', callID: 'allowed-after-retry' },
+    { args: { filePath: '/repo/a.txt', content: 'allowed' } }
+  );
+});
+
 test('documented message.part.updated arms a review contract and blocks writes', async (t) => {
   const sessions = { root: { id: 'root' } };
   const messages = {

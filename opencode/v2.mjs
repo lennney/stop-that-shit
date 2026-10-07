@@ -81,7 +81,7 @@ export const openCodeV2Effect = (ctx) => Effect.gen(function* () {
   yield* ctx.session.hook('context', (event) => Effect.gen(function* () {
     const current = yield* prepare(event.sessionID, true);
     const text = [current.reply, contractContext(current.state.contract, current.state.delegation,
-      'active', current.state.directiveWarning)].filter(Boolean).join('\n');
+      'active', current.state.directiveWarning, current.state.storageError)].filter(Boolean).join('\n');
     event.system.push({ type: 'text', text: `Stop That Shit context:\n${current.state.directiveError
       ? directiveErrorText(current.state.directiveError) + '\n' : ''}${text}` });
   }));
@@ -101,8 +101,9 @@ export const openCodeV2Effect = (ctx) => Effect.gen(function* () {
 
   yield* ctx.tool.hook('execute.after', (event) => Effect.gen(function* () {
     const { session, root } = yield* resolveSession(event.sessionID);
-    handleControlEvent(toV2ActionAfterEvent(event,
-      { controlSessionID: root.id, directory: session.location.directory }), { dataDir });
+    const completion = toV2ActionAfterEvent(event,
+      { controlSessionID: root.id, directory: session.location.directory });
+    if (completion) handleControlEvent(completion, { dataDir });
     const text = pendingContext.get(callKey(event));
     pendingContext.delete(callKey(event));
     if (text && event.status === 'completed') {

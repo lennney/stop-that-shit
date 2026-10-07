@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { Effect, Exit, PubSub, Scope, Stream } from 'effect';
 import * as entry from '../opencode/stop-that-shit.mjs';
+import { acquireSessionLock, statePath } from '../src/state.cjs';
 
 async function host(t) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-opencode-v2-'));
@@ -46,6 +47,24 @@ const write = (id = 'call-write', sessionID = 'root', file = '/repo/a.txt') => (
   tool: 'write', id, sessionID, agent: 'build', messageID: 'assistant-1', input: { path: file, content: 'hello' },
 });
 const user = (id, text) => ({ type: 'user', id, text, time: { created: 1 } });
+
+test('V2 ordinary tool results return watch context without rewriting session state', async t => {
+  const h = await host(t);
+  h.messages.get('root').push(user('u1', '$stop-that-shit watch review'));
+  const call = write();
+  await h.run(h.hooks.tool['execute.before'](call));
+  const file = statePath('root', h.dataDir);
+  const before = fs.readFileSync(file, 'utf8');
+  const release = acquireSessionLock('root', h.dataDir);
+  const result = { ...call, status: 'completed', result: { content: 'written' } };
+  try {
+    await h.run(h.hooks.tool['execute.after'](result));
+    assert.match(result.result.content, /WATCH/);
+    assert.equal(fs.readFileSync(file, 'utf8'), before);
+  } finally {
+    release();
+  }
+});
 
 test('V2 rejects review writes as a typed tool error, then permits an explicit change', async (t) => {
   const h = await host(t);
