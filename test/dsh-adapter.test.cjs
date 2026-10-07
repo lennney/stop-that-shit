@@ -22,6 +22,7 @@ const {
   setRunCodeBindingOnly
 } = require('../src/adapters/dsh-tool-classifier.cjs');
 const { readState } = require('../src/state.cjs');
+const { mkdtempSync } = require('node:fs');
 
 const root = path.join(__dirname, '..');
 
@@ -907,4 +908,47 @@ test('Regression: a delegation deeper than one hop cannot bypass the root contra
     options
   );
   assert.equal(read, null);
+});
+
+test('Regression: an authorized in-scope write through a grandchild is permitted', (t) => {
+  const options = workspace(t);
+  start('root', options);
+  handleDshHook('agent/pre-step', fromNativeEvent('agent/pre-step', {
+    agent: { session: { id: 'root' } },
+    messages: [{ role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '$stop-that-shit change files=src/** -- implement' }] }],
+    turn: 1
+  }), options);
+
+  const grandchild = { id: 'grandchild', header: { parentSession: 'child' } };
+  const call = (name, args, callId, context) => handleDshHook(
+    'tools/pre-execute',
+    fromNativeEvent('tools/pre-execute', { name, arguments: args, callId, agent: { session: grandchild } }, context),
+    options
+  );
+
+  // The out-of-scope mutation stops, through the deepest delegation level.
+  const outside = call('write', { file_path: 'docs/out.md', content: 'x' }, 'w1', { rootSessionId: 'root' });
+  assert.equal(outside.kind, 'deny');
+  assert.match(outside.reason, /PATH_OUTSIDE_CONTRACT/);
+
+  // The explicitly authorized in-scope write continues.
+  assert.equal(call('write', { file_path: 'src/ok.ts', content: 'x' }, 'w2', { rootSessionId: 'root' }), null);
+
+  // The permitted nested read continues.
+  assert.equal(call('read', { file_path: 'src/ok.ts' }, 'r1', { rootSessionId: 'root' }), null);
+});
+
+test('Regression: the documented bridge refuses a nested call with no root supplied', () => {
+  // Exactly the documented listener shape, with no root argument. The call must
+  // stop rather than fall back to the intermediate child.
+  const payload = fromNativeEvent('tools/pre-execute', {
+    name: 'write',
+    arguments: { file_path: 'docs/out.md', content: 'x' },
+    callId: 'w1',
+    agent: { session: { id: 'grandchild', header: { parentSession: 'child' } } }
+  });
+  assert.equal(payload.requiresVerifiedRoot, true);
+  const decision = handleDshHook('tools/pre-execute', payload, { dataDir: mkdtempSync(path.join(os.tmpdir(), 'sts-noroot-')) });
+  assert.equal(decision.kind, 'deny');
+  assert.match(decision.reason, /rootSessionId/);
 });
