@@ -1,0 +1,15 @@
+# Stop That Shit — DeepSeek Harness bundle patch.
+#
+# One plugin row: `sts-bridge`. It registers listeners on the harness event
+# surface (session lifecycle, agent/pre-step, tools waterfalls, subagent
+# lifecycle) and funnels the native payloads through the shared adapter
+# (src/adapters/dsh-hooks.cjs). Contracts only apply to sessions the user
+# arms explicitly, so unrelated sessions are unaffected.
+#
+# `projectsRoot` bounds where file operations may legally land when a contract
+# is armed; state lives under ~/.dsh/stop-that-shit by default.
+- insert:
+    - id: sts-bridge
+      name: stop-that-shit-dsh
+      config:
+        dataDir: ""

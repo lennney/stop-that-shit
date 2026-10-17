@@ -9,16 +9,17 @@ These semantic decisions belong in `skills/stop-that-shit/SKILL.md`. The Guard
 checks explicit authority on supported action paths; it does not infer business
 necessity from mechanism names. Updating the Skill does not change Guard policy.
 
-Stop That Shit has a host-independent control core, six thin host adapters
-in 0.2.5 (including Oh My Pi), and a metadata-only runtime evidence sidecar.
+Stop That Shit has a host-independent control core, seven thin host adapters
+in this candidate (including Oh My Pi), and a metadata-only runtime evidence sidecar.
 
 ```text
 Codex Hook JSON       ----> Codex Adapter --------\
 Claude Hook JSON      ----> Claude Adapter --------+--> ControlEvent v2
 OpenCode hooks        ----> OpenCode Adapter -----+          |
 Hermes native Plugin ----> Hermes CLI Adapter ----+          v
-Pi Extension          ----> Pi Adapter -----------+  decision(contract, action)
-OMP Extension         ----> OMP Adapter ----------/
+DeepSeek Harness events -> DSH Adapter -----------+  decision(contract, action)
+Pi Extension          ----> Pi Adapter -----------+          |
+OMP Extension         ----> OMP Adapter ----------/           |
                                                                |
                                   +----------------------------+------------------+
                                   v                                               v
@@ -43,13 +44,15 @@ OMP Extension         ----> OMP Adapter ----------/
 - `src/adapters/opencode-*.cjs` classify OpenCode messages and tool calls.
 - `src/adapters/hermes-*.cjs` classify Hermes payloads and render Hermes
   responses; the installed bundle is `.hermes-plugin/runtime/stop-that-shit.cjs`.
+- `src/adapters/dsh-*.cjs` classify DeepSeek Harness extension-point
+  payloads and render harness waterfall decisions.
 - `src/adapters/pi-*.cjs` classify Pi Extension events and render Pi block or
   context results.
 - `opencode/stop-that-shit.mjs` bridges the in-process OpenCode plugin hooks.
 - `.hermes-plugin/__init__.py` is the only Hermes host entrypoint and bridges
   native Plugin callbacks to the bundled runtime.
 - `pi/stop-that-shit.ts` is the Pi package entrypoint.
-- `omp/stop-that-shit.ts` is the separate Oh My Pi entrypoint.
+- `omp/stop-that-shit.ts` is the separate, unreleased Oh My Pi entrypoint.
   `src/adapters/omp-*.cjs` translate native events into the shared controller.
 - `src/state-schema.cjs` validates and migrates saved state in memory. It owns
   the schema version, fresh state, and recovery defaults; it performs no I/O.
