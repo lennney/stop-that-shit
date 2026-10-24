@@ -77,7 +77,7 @@ Skill은 에이전트가 참고하는 작업 지침입니다.
 **1. 저장소 받기.** 터미널에서 실행합니다.
 
 ```bash
-git clone --branch 0.2.5 https://github.com/lennney/stop-that-shit.git
+git clone --branch 0.2.5.1 https://github.com/lennney/stop-that-shit.git
 cd stop-that-shit
 ```
 
@@ -106,7 +106,7 @@ claude plugin install stop-that-shit@stop-that-shit
 ### Codex
 
 ```bash
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.5
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.5.1
 codex plugin add stop-that-shit@stop-that-shit
 ```
 

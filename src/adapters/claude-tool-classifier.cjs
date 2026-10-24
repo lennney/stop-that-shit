@@ -3,7 +3,7 @@
 const { manifestEditDependencyIntent, manifestDependencyIntent } = require('../manifest-dependencies.cjs');
 
 const nodePath = require('node:path');
-const { analyzeShellInput, classifyShell } = require('../shell-analysis.cjs');
+const { analyzeShellInput, classifyShell, combineAffectedPaths } = require('../shell-analysis.cjs');
 const { classifyCodexTool } = require('./codex-tool-classifier.cjs');
 const { containsHashApi, detectHashIntent: detectToolHashIntent } = require('../hash-intent.cjs');
 
@@ -162,7 +162,12 @@ function analyzeClaudeTool(toolName, toolInput, cwd) {
   // Claude's legacy path fallback uses the Codex tool-name classification.
   // Reuse it only for names with the same classification on both surfaces.
   const pathMutability = name === 'Bash' ? analysis.mutability : undefined;
-  return { ...analysis, affectedPaths: extractAffectedPaths(name, toolInput, cwd, pathMutability) };
+  return {
+    ...analysis,
+    affectedPaths: combineAffectedPaths(
+      extractAffectedPaths(name, toolInput, cwd, pathMutability), analysis, value => normalizePath(value, cwd)
+    )
+  };
 }
 
 module.exports = {

@@ -134,9 +134,27 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
     );
   }
 
+  // Dependency authority is its own decision. Deciding it before the file
+  // boundary keeps deps=allow, deps=ask and deps=deny observable instead of
+  // reporting a path failure for an action the contract already settled.
+  if (action.dependencyIntent && contract.dependencyPolicy !== 'allow') {
+    const requiresApproval = contract.dependencyPolicy === 'ask';
+    return decision(
+      controlledOutcome(level, requiresApproval ? 'require_user_approval' : 'deny_and_explain'),
+      'S',
+      'DEPENDENCY_NOT_AUTHORIZED',
+      `The action adds a dependency while the active contract is deps=${contract.dependencyPolicy || 'ask'}.`,
+      'Use the existing stack, or obtain explicit deps=allow authority for the named dependency.'
+    );
+  }
   if (Array.isArray(contract.allowedPaths)) {
     const affectedPaths = Array.isArray(action.affectedPaths) ? action.affectedPaths : [];
-    if (['write', 'unknown'].includes(action.mutability) && affectedPaths.length === 0 && !contract.allowedPaths.includes('**')) {
+    // An authorized dependency action is already settled above. A package
+    // manager chooses its own write targets, so demanding a proven path here
+    // would turn deps=allow back into a path failure. Explicit paths that the
+    // action does name are still checked below.
+    const dependencySettled = Boolean(action.dependencyIntent) && contract.dependencyPolicy === 'allow';
+    if (['write', 'unknown'].includes(action.mutability) && !dependencySettled && affectedPaths.length === 0 && !contract.allowedPaths.includes('**')) {
       return decision(
         controlledOutcome(level, 'require_user_approval'),
         'S',
@@ -157,16 +175,6 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
     }
   }
 
-  if (action.dependencyIntent && contract.dependencyPolicy !== 'allow') {
-    const requiresApproval = contract.dependencyPolicy === 'ask';
-    return decision(
-      controlledOutcome(level, requiresApproval ? 'require_user_approval' : 'deny_and_explain'),
-      'S',
-      'DEPENDENCY_NOT_AUTHORIZED',
-      `The action adds a dependency while the active contract is deps=${contract.dependencyPolicy || 'ask'}.`,
-      'Use the existing stack, or obtain explicit deps=allow authority for the named dependency.'
-    );
-  }
 
   if (action.mutability === 'delegate' && action.unboundedDelegation) {
     return decision(

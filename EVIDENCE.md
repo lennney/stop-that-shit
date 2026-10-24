@@ -11,10 +11,55 @@ actions, context responses, and permission denies. It records host effect as
 `unobserved`; a returned permission deny is not evidence that the host skipped
 the action.
 
-Version: 0.2.5 OMP and recovery
-Release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.5
-Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.4
-Last updated: 2026-10-15
+Version: 0.2.5.1 shell and dependency proof
+Release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.5.1
+Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.5
+Last updated: 2026-10-24
+
+## 0.2.5.1 — 2026-10-24
+
+This release fixes two decision defects that made a file-locked contract unable
+to see what a shell command writes. Both fixes are cross-host: they live in the
+shared shell analysis and the shared decision engine, so every adapter inherits
+them without host-specific code.
+
+The defensible 0.2.5.1 claim is: a write command whose target the shared parser
+can read is now proven rather than unproven, and an authorized dependency action
+is decided by the dependency policy instead of a path failure. These are still
+task-authority checks, not a sandbox, and the harness remains the only boundary.
+
+Fix 1 — proven shell write targets. `analyzeShell` now returns `affectedPaths`.
+It reads the target out of `mkdir`, `rm`, `rmdir`, `touch`, `mv`, `cp`, `tee`,
+`rename`, `del`/`erase`, `Set-Content`, `Add-Content`, `Out-File`, `New-Item`,
+`Remove-Item`, `Copy-Item`, `Move-Item`, and `git add`, plus `>`/`>>`
+redirections. Any unreadable argument, unknown option, expansion, or unproven
+command in a chain reports an empty list, so the lock stays closed instead of
+narrowing to a partial match. Plain reads never contribute paths.
+
+Fix 2 — dependency authority before the file boundary. `deps=allow`, `deps=ask`,
+and `deps=deny` are now observable under any `files=` lock. Previously an
+installation that could not name its write target reported `WRITE_PATH_UNPROVEN`
+before the dependency policy was consulted, so `deps=allow` was unreachable.
+
+Measured on Windows x64 with Node 24.22.1, `node scripts/test.cjs` after
+`npm install --ignore-scripts`: five failing cases before and after this change,
+an identical set, all in the native Hermes suites, which need a Python host this
+machine does not have. No case regressed. The three files this release changes
+hold their own suites: `test/shell-analysis.test.cjs`, `test/hooks.test.cjs`, and
+`test/decision.test.cjs` pass in full, and the Hermes runtime bundle rebuilds
+byte-identically with `hermes:check`.
+
+Probed directly through `handleHook` with `change files=src/**`:
+
+- `touch src/new.txt`, `mkdir -p src/deep/dir`, and `echo hi > src/x.txt` allowed;
+- `touch README.md` denied with `PATH_OUTSIDE_CONTRACT`;
+- `npm run build` still denied with `WRITE_PATH_UNPROVEN`;
+- with `deps=allow`, `npm install yaml` allowed where `deps=ask` denied it.
+
+This release does not change tool classification. A write whose target the
+parser cannot read is still unproven, so `npm test`, `npm run build`, and any
+other unparsed script remain blocked under a file lock. Lifting that would need
+the host to declare build outputs, which is not established here.
 
 ## 0.2.5 — 2026-10-15
 
@@ -23,7 +68,7 @@ release documentation and unchanged runtime code. It includes
 the OMP adapter and the directive-feedback correction, retains Effect
 4.0.0-rc.112, and does not include the DSH adapter or the stable Effect upgrade.
 
-The defensible 0.2.5 claim is: the shared core provides explicit task-authority
+The defensible 0.2.5 claim was: the shared core provides explicit task-authority
 checks on covered host paths, and STSS provides advisory wording guidance.
 The new directive warning preserves the active contract; it does not prove
 attachment provenance or authorize arbitrary PDF/XLSX extraction.

@@ -104,7 +104,7 @@ await writeFile("report.csv", csv);
 <details>
 <summary>Claude Code</summary>
 
-下载并解压 [0.2.5 源码](https://github.com/lennney/stop-that-shit/archive/refs/tags/0.2.5.zip)，在仓库根目录执行：
+下载并解压 [0.2.5.1 源码](https://github.com/lennney/stop-that-shit/archive/refs/tags/0.2.5.1.zip)，在仓库根目录执行：
 
 ```bash
 claude plugin validate .
@@ -124,7 +124,7 @@ claude plugin install stop-that-shit@stop-that-shit
 <summary>Codex</summary>
 
 ```bash
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.5
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.5.1
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
@@ -191,7 +191,7 @@ pi install /absolute/path/to/stop-that-shit
 <summary>Oh My Pi</summary>
 
 已在 `@oh-my-pi/pi-coding-agent` `18.4.4` 验证独立 Extension。
-0.2.5 包含 OMP 独立 Extension；从该版本源码或解压后的发布包启动：
+0.2.5.1 包含 OMP 独立 Extension；从该版本源码或解压后的发布包启动：
 
 ```bash
 omp -e /absolute/path/to/stop-that-shit/omp/stop-that-shit.ts --skills /absolute/path/to/stop-that-shit/skills --sts-contract "review agents=0 -- inspect"

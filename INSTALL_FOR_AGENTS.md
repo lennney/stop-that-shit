@@ -43,7 +43,7 @@ general improvement in model behavior.
 2. Run these commands one at a time:
 
    ```powershell
-   codex plugin marketplace add lennney/stop-that-shit --ref 0.2.5
+   codex plugin marketplace add lennney/stop-that-shit --ref 0.2.5.1
    codex plugin add stop-that-shit@stop-that-shit
    ```
 
@@ -100,7 +100,7 @@ claim that the optional `subagent` child processes inherit the root contract.
 
 ## Oh My Pi
 
-Use OMP `18.4.4` for the checked baseline. STS `0.2.5` includes this adapter.
+Use OMP `18.4.4` for the checked baseline. STS `0.2.5.1` includes this adapter.
 From the tagged checkout or extracted release package, start OMP with its
 explicit Extension and Skills paths:
 
@@ -144,7 +144,7 @@ general improvement in model behavior.
 If the user does not want Hooks, install the advisory Skill instead:
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.5/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.5.1/skills/stop-that-shit
 ```
 
 If the user asks for only Stop That Shit Slop, run this from the tagged checkout:

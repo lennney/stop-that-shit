@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.5.1 — 2026-10-24 (shell and dependency proof / shell 与依赖判定修复)
+
+- 修复 shell 写入目标不可证明：`analyzeShell` 现在返回 `affectedPaths`，从
+  `mkdir`、`rm`、`touch`、`mv`、`cp`、`tee`、`Set-Content`、`Remove-Item`、
+  `git add` 等写入命令和 `>`/`>>` 重定向里读出目标路径。任何读不懂的参数、
+  未知选项、变量展开或链中不可证明的命令一律返回空列表，锁定保持关闭而不是
+  收窄成部分匹配。纯读取命令不贡献路径。
+  / Prove the write targets the shared shell parser can read. Anything unreadable
+  keeps the file lock closed instead of narrowing it to a partial match.
+- 修复依赖授权被文件边界抢占：`deps=allow`、`deps=ask`、`deps=deny` 在任意
+  `files=` 锁定下都可观测。此前不能命名写入目标的安装动作会先报
+  `WRITE_PATH_UNPROVEN`，使 `deps=allow` 不可达。
+  / Decide dependency authority before the file boundary so deps=allow, deps=ask,
+  and deps=deny stay observable under any file lock.
+- 两处修复都在共享的 shell 分析与判定引擎里，所有宿主适配器同时受益。
+  / Both fixes live in the shared analysis and decision engine, inherited by
+  every host adapter.
+
 ## Unreleased / 未发布
 
 - 修复 #99：接受 Codex 补全生成的 `$stop-that-shit:stop-that-shit` 指令和查询，

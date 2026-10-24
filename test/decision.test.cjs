@@ -132,3 +132,41 @@ test('unbounded delegation takes precedence over a finite requested count', () =
   });
   assert.equal(actual.reasonCode, 'UNBOUNDED_DELEGATION');
 });
+
+// A dependency action usually cannot name its write target: the package manager
+// decides the paths. Deciding the file boundary first reported WRITE_PATH_UNPROVEN
+// for an installation the contract had already settled, so deps=allow, deps=ask
+// and deps=deny stayed unobservable under any file lock.
+test('dependency authority is decided before the file boundary', () => {
+  const action = { mutability: 'write', dependencyIntent: true, affectedPaths: [] };
+  const allowed = decide({
+    contract: { mode: 'change', level: 'guard', dependencyPolicy: 'allow', allowedPaths: ['src/**'] },
+    action
+  });
+  const asked = decide({
+    contract: { mode: 'change', level: 'guard', dependencyPolicy: 'ask', allowedPaths: ['src/**'] },
+    action
+  });
+  const denied = decide({
+    contract: { mode: 'change', level: 'guard', dependencyPolicy: 'deny', allowedPaths: ['src/**'] },
+    action
+  });
+
+  assert.equal(allowed.outcome, 'allow');
+  assert.equal(allowed.reasonCode, 'WITHIN_CONTRACT');
+  assert.equal(asked.outcome, 'require_user_approval');
+  assert.equal(asked.reasonCode, 'DEPENDENCY_NOT_AUTHORIZED');
+  assert.equal(denied.outcome, 'deny_and_explain');
+  assert.equal(denied.reasonCode, 'DEPENDENCY_NOT_AUTHORIZED');
+});
+
+// The boundary still owns paths that are not dependency effects.
+test('an unproven write without dependency intent still requires approval', () => {
+  const actual = decide({
+    contract: { mode: 'change', level: 'guard', dependencyPolicy: 'allow', allowedPaths: ['src/**'] },
+    action: { mutability: 'write', affectedPaths: [] }
+  });
+
+  assert.equal(actual.outcome, 'require_user_approval');
+  assert.equal(actual.reasonCode, 'WRITE_PATH_UNPROVEN');
+});

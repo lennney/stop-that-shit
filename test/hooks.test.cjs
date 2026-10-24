@@ -355,12 +355,26 @@ test('files contract allows equivalent paths after dot-segment normalization', (
   }), options), null);
 });
 
-test('files contract requires approval when a write path is unproven', (t) => {
+test('files contract allows a shell write whose target it can read', (t) => {
   const options = workspace(t);
   handleHook(prompt('files-unknown-session', '$stop-that-shit change files=src/config.cjs -- update config'), options);
-  const output = handleHook(pre('files-unknown-session', 'Bash', { command: "Set-Content -Path src/config.cjs -Value 'x'" }), options);
+  assert.equal(handleHook(pre('files-unknown-session', 'Bash', { command: "Set-Content -Path src/config.cjs -Value 'x'" }), options), null);
+});
+
+test('files contract requires approval when a shell write names no target', (t) => {
+  const options = workspace(t);
+  handleHook(prompt('files-unknown-session', '$stop-that-shit change files=src/config.cjs -- update config'), options);
+  const output = handleHook(pre('files-unknown-session', 'Bash', { command: 'node scripts/write-config.js' }), options);
   assert.equal(output.hookSpecificOutput.permissionDecision, 'deny');
   assert.match(output.hookSpecificOutput.permissionDecisionReason, /S\/WRITE_PATH_UNPROVEN/);
+});
+
+test('files contract blocks a shell write whose proven target is outside', (t) => {
+  const options = workspace(t);
+  handleHook(prompt('files-shell-outside', '$stop-that-shit change files=src/** -- update source'), options);
+  const output = handleHook(pre('files-shell-outside', 'Bash', { command: 'touch README.md' }), options);
+  assert.equal(output.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(output.hookSpecificOutput.permissionDecisionReason, /S\/PATH_OUTSIDE_CONTRACT/);
 });
 
 test('files contract requires approval when tool mutability is unproven', (t) => {

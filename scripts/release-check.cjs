@@ -51,7 +51,7 @@ const claudeMarketplace = JSON.parse(fs.readFileSync(path.join(root, '.claude-pl
 const hermesPluginText = fs.readFileSync(path.join(root, '.hermes-plugin', 'plugin.yaml'), 'utf8');
 const evidenceText = fs.readFileSync(path.join(root, 'EVIDENCE.md'), 'utf8');
 const expectedVersion = packageJson.version;
-if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(expectedVersion)) {
+if (!/^\d+\.\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?$/.test(expectedVersion)) {
   fail(`package version is not semver: ${expectedVersion}`);
 }
 if (expectedVersion !== codexPlugin.version) fail('package and Codex plugin versions differ');
@@ -178,7 +178,7 @@ const currentVersionSurfaces = new Set([
   'README_CN.md',
   'SECURITY.md'
 ]);
-const releaseReference = /(?:--ref\s+|--branch\s+|stop-that-shit@|\/(?:releases\/tag|releases\/download|blob|tree|archive\/refs\/tags)\/)(\d+\.\d+\.\d+)(?=[\s/.)?#]|$)/g;
+const releaseReference = /(?:--ref\s+|--branch\s+|stop-that-shit@|\/(?:releases\/tag|releases\/download|blob|tree|archive\/refs\/tags)\/)(\d+\.\d+\.\d+(?:\.\d+)?)(?=[\s/.)?#]|$)/g;
 const privatePath = /(?:[A-Za-z]:[\\/](?:Users|object)[\\/]|\/Users\/|\/home\/)/;
 const mojibake = /(?:\uFFFD|\u9225|\u6E1F|\u951F)/;
 

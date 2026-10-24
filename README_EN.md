@@ -137,7 +137,7 @@ Expand your host. For guidance without runtime enforcement, [install only the Sk
 <details>
 <summary>Claude Code</summary>
 
-Download and extract the [0.2.5 source](https://github.com/lennney/stop-that-shit/archive/refs/tags/0.2.5.zip), then run from the checkout root:
+Download and extract the [0.2.5.1 source](https://github.com/lennney/stop-that-shit/archive/refs/tags/0.2.5.1.zip), then run from the checkout root:
 
 ```bash
 claude plugin validate .
@@ -157,7 +157,7 @@ Restart Claude Code or run `/reload-plugins`, then invoke:
 <summary>Codex</summary>
 
 ```bash
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.5
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.5.1
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
@@ -236,7 +236,7 @@ The pinned tag includes the Pi adapter and both Skills. See [INSTALL.md](INSTALL
 <summary>Oh My Pi</summary>
 
 The separate Extension was checked with `@oh-my-pi/pi-coding-agent` `18.4.4`.
-Version `0.2.5` includes the separate OMP Extension. Start from the tagged
+Version `0.2.5.1` includes the separate OMP Extension. Start from the tagged
 checkout or extracted release package:
 
 ```bash

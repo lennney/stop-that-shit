@@ -1,6 +1,7 @@
 'use strict';
 
 const { manifestEditDependencyIntent, manifestDependencyIntent } = require('../manifest-dependencies.cjs');
+const { combineAffectedPaths } = require('../shell-analysis.cjs');
 
 const nodePath = require('node:path');
 const {
@@ -369,7 +370,12 @@ function analyzeDshTool(toolName, toolInput, cwd) {
     };
   }
   const pathMutability = isShellTool(name) ? analysis.mutability : undefined;
-  return { ...analysis, affectedPaths: extractAffectedPaths(name, toolInput, cwd, pathMutability) };
+  return {
+    ...analysis,
+    affectedPaths: combineAffectedPaths(
+      extractAffectedPaths(name, toolInput, cwd, pathMutability), analysis, value => normalizePath(value, cwd)
+    )
+  };
 }
 
 module.exports = {

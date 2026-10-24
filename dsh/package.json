@@ -1,6 +1,6 @@
 {
   "name": "stop-that-shit-dsh",
-  "version": "0.2.5",
+  "version": "0.2.5.1",
   "private": true,
   "description": "Stop That Shit for DeepSeek Harness: the Cordis bridge plugin that wires src/adapters/dsh-hooks.cjs onto the live harness event surface. Dev mount for testing on a live instance.",
   "main": "lib/bridge.cjs",

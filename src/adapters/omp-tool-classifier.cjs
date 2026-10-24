@@ -108,6 +108,9 @@ function classifyOmpAction(name, input, cwd) {
     }
     if (anchored) affectedPaths = anchored.map(edit => normalizePath(edit.path, cwd));
   }
+  if (shell) {
+    affectedPaths = [...affectedPaths, ...shell.affectedPaths.map(value => normalizePath(value, cwd))];
+  }
   return {
     mutability, affectedPaths: [...new Set(affectedPaths)],
     delegationCount: task ? (batch ? input.tasks.length : 1) : 0,

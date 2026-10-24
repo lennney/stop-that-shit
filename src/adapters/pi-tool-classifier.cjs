@@ -2,7 +2,7 @@
 
 const { manifestDependencyIntent, manifestEditDependencyIntent } = require('../manifest-dependencies.cjs');
 
-const { analyzeShell, classifyShell } = require('../shell-analysis.cjs');
+const { analyzeShell, classifyShell, combineAffectedPaths } = require('../shell-analysis.cjs');
 const { normalizePath } = require('./opencode-tool-classifier.cjs');
 const { fileHashIntent } = require('../hash-intent.cjs');
 
@@ -91,7 +91,12 @@ function analyzePiTool(toolName, toolInput, cwd) {
       hashIntent: detectHashIntent(toolName, toolInput),
       dependencyIntent: detectDependencyIntent(toolName, toolInput)
     };
-  return { ...analysis, affectedPaths: extractAffectedPaths(toolName, toolInput, cwd) };
+  return {
+    ...analysis,
+    affectedPaths: combineAffectedPaths(
+      extractAffectedPaths(toolName, toolInput, cwd), analysis, value => normalizePath(value, cwd)
+    )
+  };
 }
 
 module.exports = {

@@ -1,7 +1,7 @@
 'use strict';
 
 const nodePath = require('node:path');
-const { analyzeShell, analyzeShellInput, classifyShell } = require('../shell-analysis.cjs');
+const { analyzeShell, analyzeShellInput, classifyShell, combineAffectedPaths } = require('../shell-analysis.cjs');
 const { patchDependencyIntent } = require('../manifest-dependencies.cjs');
 const { detectHashIntent } = require('../hash-intent.cjs');
 
@@ -88,7 +88,12 @@ function analyzeCodexTool(toolName, toolInput, cwd) {
       dependencyIntent: detectDependencyIntent(name, toolInput)
     };
   }
-  return { ...analysis, affectedPaths: extractAffectedPaths(name, toolInput, cwd) };
+  return {
+    ...analysis,
+    affectedPaths: combineAffectedPaths(
+      extractAffectedPaths(name, toolInput, cwd), analysis, value => normalizePath(value, cwd)
+    )
+  };
 }
 
 module.exports = { analyzeCodexTool, analyzeShell, canonicalCodexToolName, classifyCodexTool, classifyShell, detectDependencyIntent, detectHashIntent, extractAffectedPaths };

@@ -1281,9 +1281,27 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
     );
   }
 
+  // Dependency authority is its own decision. Deciding it before the file
+  // boundary keeps deps=allow, deps=ask and deps=deny observable instead of
+  // reporting a path failure for an action the contract already settled.
+  if (action.dependencyIntent && contract.dependencyPolicy !== 'allow') {
+    const requiresApproval = contract.dependencyPolicy === 'ask';
+    return decision(
+      controlledOutcome(level, requiresApproval ? 'require_user_approval' : 'deny_and_explain'),
+      'S',
+      'DEPENDENCY_NOT_AUTHORIZED',
+      `The action adds a dependency while the active contract is deps=${contract.dependencyPolicy || 'ask'}.`,
+      'Use the existing stack, or obtain explicit deps=allow authority for the named dependency.'
+    );
+  }
   if (Array.isArray(contract.allowedPaths)) {
     const affectedPaths = Array.isArray(action.affectedPaths) ? action.affectedPaths : [];
-    if (['write', 'unknown'].includes(action.mutability) && affectedPaths.length === 0 && !contract.allowedPaths.includes('**')) {
+    // An authorized dependency action is already settled above. A package
+    // manager chooses its own write targets, so demanding a proven path here
+    // would turn deps=allow back into a path failure. Explicit paths that the
+    // action does name are still checked below.
+    const dependencySettled = Boolean(action.dependencyIntent) && contract.dependencyPolicy === 'allow';
+    if (['write', 'unknown'].includes(action.mutability) && !dependencySettled && affectedPaths.length === 0 && !contract.allowedPaths.includes('**')) {
       return decision(
         controlledOutcome(level, 'require_user_approval'),
         'S',
@@ -1304,16 +1322,6 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
     }
   }
 
-  if (action.dependencyIntent && contract.dependencyPolicy !== 'allow') {
-    const requiresApproval = contract.dependencyPolicy === 'ask';
-    return decision(
-      controlledOutcome(level, requiresApproval ? 'require_user_approval' : 'deny_and_explain'),
-      'S',
-      'DEPENDENCY_NOT_AUTHORIZED',
-      `The action adds a dependency while the active contract is deps=${contract.dependencyPolicy || 'ask'}.`,
-      'Use the existing stack, or obtain explicit deps=allow authority for the named dependency.'
-    );
-  }
 
   if (action.mutability === 'delegate' && action.unboundedDelegation) {
     return decision(
@@ -1540,7 +1548,7 @@ module.exports = { readRuntime, recordDecision };
 "package.json": function(module, exports, __require) {
 module.exports = {
   "name": "stop-that-shit",
-  "version": "0.2.5",
+  "version": "0.2.5.1",
   "private": true,
   "description": "Keep agent work bounded and reduce defensive wording in Codex, Claude Code, OpenCode, Hermes Agent CLI, Pi, and Oh My Pi",
   "keywords": [
@@ -1573,7 +1581,8 @@ module.exports = {
     "README.md",
     "README_CN.md",
     "README_EN.md",
-    "README_KO.md"
+    "README_KO.md",
+    "dsh/"
   ],
   "pi": {
     "extensions": [
@@ -2167,7 +2176,7 @@ module.exports = { decodeState, freshState, recoveryState };
 const { manifestEditDependencyIntent, manifestDependencyIntent, patchDependencyIntent } = __require("src/manifest-dependencies.cjs");
 
 const nodePath = require('node:path');
-const { analyzeShellInput, classifyShell } = __require("src/shell-analysis.cjs");
+const { analyzeShellInput, classifyShell, combineAffectedPaths } = __require("src/shell-analysis.cjs");
 const { detectDependencyIntent: detectCodexDependencyIntent } = __require("src/adapters/codex-tool-classifier.cjs");
 const { detectHashIntent: detectToolHashIntent } = __require("src/hash-intent.cjs");
 
@@ -2302,7 +2311,12 @@ function analyzeHermesTool(toolName, toolInput, cwd) {
       hashIntent: detectHashIntent(toolName, toolInput),
       dependencyIntent: detectDependencyIntent(toolName, toolInput)
     };
-  return { ...analysis, affectedPaths: extractAffectedPaths(toolName, toolInput, cwd) };
+  return {
+    ...analysis,
+    affectedPaths: combineAffectedPaths(
+      extractAffectedPaths(toolName, toolInput, cwd), analysis, value => normalizePath(value, cwd)
+    )
+  };
 }
 
 module.exports = {
@@ -2552,7 +2566,7 @@ function staticShellCommands(text) {
     }
     if (char === "'" || char === '"') { quote = char; inWord = true; continue; }
     if (/[ \t]/.test(char)) { finishWord(); continue; }
-    if (char === '>') return { redirected: true };
+    if (char === '>') return { redirected: true, redirectTarget: redirectTarget(text, i + 1) };
     if (/[$`{}()<@%*?\[\]#]/.test(char)) return null;
     // Bash removes even an escape before an ordinary letter (e.g. --out\put).
     // Without a shell identity, do not interpret an unquoted backslash.
@@ -2634,13 +2648,165 @@ function classifyStaticCommand({ args: [program, ...args], nativeQuotes }) {
   return result;
 }
 
+// A redirect writes the file its target names. Only a statically spelled
+// target is proven: fd duplication and expansion exceed the parser's facts.
+function redirectTarget(text, start) {
+  let i = start;
+  if (text[i] === '>' || text[i] === '|') i++;
+  else if (text[i] === '&') return null;
+  while (i < text.length && (text[i] === ' ' || text[i] === '\t')) i++;
+  const target = [];
+  let quote = null;
+  for (; i < text.length; i++) {
+    const char = text[i];
+    if (quote) {
+      if (char === quote) { quote = null; continue; }
+      // A double-quoted target is literal only while it holds no expansion.
+      if (quote === '"' && (char === '$' || char === '`')) return null;
+      target.push(char);
+      continue;
+    }
+    if (char === "'" || char === "\"") { quote = char; continue; }
+    if (' \t\r\n;&|<>'.includes(char)) break;
+    if ('`$%*?[]{}()#~'.includes(char) || char === '\\') return null;
+    target.push(char);
+  }
+  if (quote) return null;
+  return target.length ? target.join('') : null;
+}
+
+// Option tables for the write commands whose target is the named operand.
+const POSIX_WRITE_FLAGS = new Set([
+  '-a', '-c', '-d', '-f', '-h', '-i', '-m', '-n', '-p', '-r', '-R', '-v',
+  '-A', '--append', '--parents', '--force', '--recursive', '--interactive',
+  '--verbose', '--dir', '--one-file-system', '--preserve-root',
+  '--no-preserve-root', '--no-create', '--no-dereference', '--no-clobber',
+  '--ignore-fail-on-non-empty', '--ignore-interrupts', '--strip-trailing-slashes',
+  '--zero', '-Z'
+]);
+const POSIX_WRITE_VALUE_OPTIONS = new Set(['-t', '-S', '-m', '--mode', '--suffix', '--target-directory', '--reference']);
+const POWERSHELL_WRITE_FLAGS = new Set([
+  '-recurse', '-force', '-verbose', '-whatif', '-nonewline', '-passthru',
+  '-append', '-confirm', '-asbytestream', '-usebom', '-noclobber', '-container'
+]);
+const POWERSHELL_WRITE_VALUE_OPTIONS = new Set([
+  '-path', '-literalpath', '-filepath', '-destination', '-pspath', '-value',
+  '-encoding', '-itemtype', '-stream', '-delimiter', '-width', '-credential',
+  '-filter', '-include', '-exclude', '-culture'
+]);
+const POWERSHELL_PATH_OPTIONS = new Set(['-path', '-literalpath', '-filepath', '-destination', '-pspath']);
+const GIT_ADD_FLAGS = new Set([
+  '-A', '--all', '-u', '--update', '-p', '--patch', '-n', '--dry-run', '-f',
+  '--force', '-v', '--verbose', '--intent-to-add', '-N', '--no-all',
+  '--ignore-removal', '--no-ignore-removal', '-e', '--edit', '--renormalize',
+  '--sparse', '-i', '--interactive', '--ignore-errors', '--refresh', '--chmod'
+]);
+
+// An option the table does not name ends the proof: the parser cannot tell an
+// option value from a path, so the write target stays unproven.
+function posixWritePaths(args, destinationOnly) {
+  const paths = [];
+  let target = null;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--') { paths.push(...args.slice(i + 1)); break; }
+    if (!arg.startsWith('-') || arg === '-') { paths.push(arg); continue; }
+    if (POSIX_WRITE_FLAGS.has(arg) || /^-[a-zA-Z]+$/.test(arg)) continue;
+    if (POSIX_WRITE_VALUE_OPTIONS.has(arg)) {
+      if (++i === args.length) return null;
+      if (arg === '-t' || arg === '--target-directory') target = args[i];
+      continue;
+    }
+    return null;
+  }
+  if (target) return [target];
+  if (destinationOnly) return paths.length ? [paths[paths.length - 1]] : [];
+  return paths;
+}
+
+function powershellWritePaths(args) {
+  const paths = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    const name = arg.toLowerCase();
+    // -Name resolves against -Path, so it does not name the written path.
+    if (name === '-name') return null;
+    if (POWERSHELL_WRITE_VALUE_OPTIONS.has(name)) {
+      if (++i === args.length) return null;
+      if (POWERSHELL_PATH_OPTIONS.has(name)) paths.push(args[i]);
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      if (POWERSHELL_WRITE_FLAGS.has(name)) continue;
+      return null;
+    }
+    paths.push(arg);
+  }
+  return paths;
+}
+
+function gitAddPaths(args) {
+  const rest = [...args];
+  while (rest.length) {
+    if (rest[0] === '--no-pager' || rest[0] === '--literal-pathspecs') rest.shift();
+    else if (rest[0] === '-C' && rest.length > 1) rest.splice(0, 2);
+    else break;
+  }
+  if (rest.shift() !== 'add') return null;
+  const paths = [];
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i];
+    if (arg === '--') { paths.push(...rest.slice(i + 1)); break; }
+    if (!arg.startsWith('-')) { paths.push(arg); continue; }
+    if (GIT_ADD_FLAGS.has(arg) || arg.startsWith('--chmod=')) continue;
+    return null;
+  }
+  return paths;
+}
+
+// The paths a proven write command names, or null when its arguments do not
+// prove a target. Reads are absent on purpose: their operands are data.
+function writePathsFromArguments(name, args) {
+  if (name === 'git') return gitAddPaths(args);
+  if (name === 'cp' || name === 'copy' || name === 'copy-item') return posixWritePaths(args, true);
+  if (name === 'rm' || name === 'del' || name === 'erase' || name === 'rmdir'
+      || name === 'mkdir' || name === 'touch' || name === 'mv' || name === 'move'
+      || name === 'move-item' || name === 'rename' || name === 'tee') return posixWritePaths(args, false);
+  if (name === 'set-content' || name === 'add-content' || name === 'out-file'
+      || name === 'new-item' || name === 'remove-item') return powershellWritePaths(args);
+  return null;
+}
+
+// A file boundary is only as good as the proof behind it: one command whose
+// writes stay unnamed leaves the whole chain unproven rather than narrowing the
+// boundary to the paths the parser happened to see.
+function provenWritePaths(rawCommands, classifications) {
+  const paths = [];
+  for (let index = 0; index < classifications.length; index++) {
+    const classification = classifications[index];
+    if (classification.mutability === 'read') continue;
+    const [program, ...args] = rawCommands[index].args;
+    const named = classification.mutability === 'write'
+      ? writePathsFromArguments(String(program || '').toLowerCase(), args)
+      : null;
+    if (named === null) return [];
+    paths.push(...named);
+  }
+  return paths;
+}
+
 function analyzeShell(command) {
   const text = String(command || '').replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
   const analysis = staticShellCommands(text);
-  if (!analysis || analysis.redirected) return {
-    ...shellClassification(analysis?.redirected ? 'write' : 'unknown', analysis?.redirected ? 'shell_redirection' : 'shell_syntax_unproven'),
-    hashIntent: HASH_COMMAND.test(text), dependencyIntent: DEPENDENCY_COMMAND.test(text)
-  };
+  if (!analysis || analysis.redirected) {
+    const redirected = Boolean(analysis && analysis.redirected);
+    const target = redirected ? analysis.redirectTarget : null;
+    return {
+      ...shellClassification(redirected ? 'write' : 'unknown', redirected ? 'shell_redirection' : 'shell_syntax_unproven'),
+      hashIntent: HASH_COMMAND.test(text), dependencyIntent: DEPENDENCY_COMMAND.test(text),
+      affectedPaths: target ? [target] : []
+    };
+  }
   const commands = analysis.commands.map(command => ({
     ...classifyStaticCommand(command), text: command.args.join(' ')
   }));
@@ -2649,7 +2815,8 @@ function analyzeShell(command) {
   return {
     ...combineClassifications(commands),
     hashIntent: commands.some(command => command.mutability !== 'read' && HASH_COMMAND.test(command.text)),
-    dependencyIntent: commands.some(command => command.mutability !== 'read' && DEPENDENCY_COMMAND.test(command.text))
+    dependencyIntent: commands.some(command => command.mutability !== 'read' && DEPENDENCY_COMMAND.test(command.text)),
+    affectedPaths: provenWritePaths(analysis.commands, commands)
   };
 }
 
@@ -2756,14 +2923,27 @@ function analyzeShellInput(toolInput) {
   return analysis;
 }
 
-module.exports = { analyzeShell, analyzeShellInput, classifyShell };
+// Adapters contribute their own tool-field proof and a shell command
+// contributes the proof it parsed. Both are paths, so the boundary sees the
+// union, normalized the way the calling host normalizes its own arguments.
+function combineAffectedPaths(paths, analysis, normalize) {
+  const merged = Array.isArray(paths) ? [...paths] : [];
+  const shellPaths = Array.isArray(analysis && analysis.affectedPaths) ? analysis.affectedPaths : [];
+  for (const value of shellPaths) {
+    const path = normalize(value);
+    if (path && !merged.includes(path)) merged.push(path);
+  }
+  return merged;
+}
+
+module.exports = { analyzeShell, analyzeShellInput, classifyShell, combineAffectedPaths };
 
 },
 "src/adapters/codex-tool-classifier.cjs": function(module, exports, __require) {
 'use strict';
 
 const nodePath = require('node:path');
-const { analyzeShell, analyzeShellInput, classifyShell } = __require("src/shell-analysis.cjs");
+const { analyzeShell, analyzeShellInput, classifyShell, combineAffectedPaths } = __require("src/shell-analysis.cjs");
 const { patchDependencyIntent } = __require("src/manifest-dependencies.cjs");
 const { detectHashIntent } = __require("src/hash-intent.cjs");
 
@@ -2850,7 +3030,12 @@ function analyzeCodexTool(toolName, toolInput, cwd) {
       dependencyIntent: detectDependencyIntent(name, toolInput)
     };
   }
-  return { ...analysis, affectedPaths: extractAffectedPaths(name, toolInput, cwd) };
+  return {
+    ...analysis,
+    affectedPaths: combineAffectedPaths(
+      extractAffectedPaths(name, toolInput, cwd), analysis, value => normalizePath(value, cwd)
+    )
+  };
 }
 
 module.exports = { analyzeCodexTool, analyzeShell, canonicalCodexToolName, classifyCodexTool, classifyShell, detectDependencyIntent, detectHashIntent, extractAffectedPaths };
@@ -2931,7 +3116,7 @@ module.exports = { optionalIdentifier, readAsyncLaunched };
 };
 __modules["package.json"] = function(module) { module.exports = {
   "name": "stop-that-shit",
-  "version": "0.2.5",
+  "version": "0.2.5.1",
   "private": true,
   "description": "Keep agent work bounded and reduce defensive wording in Codex, Claude Code, OpenCode, Hermes Agent CLI, Pi, and Oh My Pi",
   "keywords": [
@@ -2964,7 +3149,8 @@ __modules["package.json"] = function(module) { module.exports = {
     "README.md",
     "README_CN.md",
     "README_EN.md",
-    "README_KO.md"
+    "README_KO.md",
+    "dsh/"
   ],
   "pi": {
     "extensions": [

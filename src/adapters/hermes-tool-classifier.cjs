@@ -3,7 +3,7 @@
 const { manifestEditDependencyIntent, manifestDependencyIntent, patchDependencyIntent } = require('../manifest-dependencies.cjs');
 
 const nodePath = require('node:path');
-const { analyzeShellInput, classifyShell } = require('../shell-analysis.cjs');
+const { analyzeShellInput, classifyShell, combineAffectedPaths } = require('../shell-analysis.cjs');
 const { detectDependencyIntent: detectCodexDependencyIntent } = require('./codex-tool-classifier.cjs');
 const { detectHashIntent: detectToolHashIntent } = require('../hash-intent.cjs');
 
@@ -138,7 +138,12 @@ function analyzeHermesTool(toolName, toolInput, cwd) {
       hashIntent: detectHashIntent(toolName, toolInput),
       dependencyIntent: detectDependencyIntent(toolName, toolInput)
     };
-  return { ...analysis, affectedPaths: extractAffectedPaths(toolName, toolInput, cwd) };
+  return {
+    ...analysis,
+    affectedPaths: combineAffectedPaths(
+      extractAffectedPaths(toolName, toolInput, cwd), analysis, value => normalizePath(value, cwd)
+    )
+  };
 }
 
 module.exports = {

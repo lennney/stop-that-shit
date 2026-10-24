@@ -1,6 +1,6 @@
 # Install Stop That Shit
 
-These instructions target [`0.2.5`](https://github.com/lennney/stop-that-shit/releases/tag/0.2.5).
+These instructions target [`0.2.5.1`](https://github.com/lennney/stop-that-shit/releases/tag/0.2.5.1).
 
 For local checkout validation, use the flow under
 [Local Guard development](#local-guard-development).
@@ -45,7 +45,7 @@ The Guard requires Node.js 18 or newer. Add the repository as a Codex
 marketplace, then install the plugin:
 
 ```powershell
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.5
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.5.1
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
@@ -369,7 +369,7 @@ Add `-l` for a project-scoped installation. The tagged release contains
 the Pi adapter; use this pinned Git ref instead of an unpinned branch:
 
 ```bash
-pi install git:github.com/lennney/stop-that-shit@0.2.5
+pi install git:github.com/lennney/stop-that-shit@0.2.5.1
 ```
 
 Start a new Pi process, or run `/reload` in the TUI after changing package
@@ -399,7 +399,7 @@ cp skills/stop-that-shit/SKILL.md ~/.claude/skills/stop-that-shit/SKILL.md
 For Codex, ask the built-in Skill Installer to install the shared Skill folder:
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.5/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.5.1/skills/stop-that-shit
 ```
 
 To install only Stop That Shit Slop from the tagged checkout:
@@ -490,7 +490,7 @@ for the distinction between session state and runtime events.
 ## Oh My Pi
 
 The OMP Extension is checked with `@oh-my-pi/pi-coding-agent` `18.4.4`.
-STS `0.2.5` includes it. Use the tagged checkout or extracted release package
+STS `0.2.5.1` includes it. Use the tagged checkout or extracted release package
 that contains `omp/stop-that-shit.ts`:
 
 ```bash
