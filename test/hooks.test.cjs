@@ -7,6 +7,7 @@ const path = require('node:path');
 const test = require('node:test');
 const { spawnSync } = require('node:child_process');
 const { handleHook } = require('../src/hook-policy.cjs');
+const { activeDelegationCount } = require('../src/delegation-state.cjs');
 const { acquireSessionLock, readState, statePath } = require('../src/state.cjs');
 const { readRuntime } = require('../src/runtime-audit.cjs');
 
@@ -778,7 +779,14 @@ test('Codex wait releases only explicit UUID targets with proven terminal result
 test('Codex stop attempts cannot release parent accounting and resumes expose uncertainty', () => {
   const { toControlEvent } = require('../src/adapters/codex-hooks.cjs');
   assert.equal(toControlEvent({ session_id: 'child', hook_event_name: 'SubagentStop', agent_id: 'child' }), null);
-  for (const tool_name of ['send_input', 'resume_agent', 'followup_task', 'multi_agent_v1send_input', 'multi_agent_v1resume_agent']) {
+  const message = toControlEvent({
+    session_id: 'parent', hook_event_name: 'PreToolUse', tool_name: 'multi_agent_v1send_input',
+    tool_use_id: 'message-1', tool_input: { target: 'agent-1', message: 'Continue' }
+  });
+  assert.equal(message.action.mutability, 'control');
+  assert.equal(message.action.delegationTargetId, 'agent-1');
+  assert.equal(message.action.delegationLifecycleUnproven, true);
+  for (const tool_name of ['resume_agent', 'followup_task', 'multi_agent_v1resume_agent']) {
     assert.equal(toControlEvent({ session_id: 'parent', hook_event_name: 'PreToolUse', tool_name, tool_use_id: 'resume-1', tool_input: {} }).action.delegationLifecycleUnproven, true);
   }
 });
@@ -828,7 +836,7 @@ test('Codex v2 mailbox activity and path-only snapshots do not release an unboun
 
 // Codex flat_tool_name concatenates the multi_agent_v1 namespace and tool name.
 // spawn_agent alone gets a canonical-name override in function_hook_tool_name.
-test('Codex namespaced v1 waits release UUID reservations and resumes retain the finite gate', (t) => {
+test('Codex namespaced messages reach only active agents while waits and resumes keep the finite gate', (t) => {
   const options = workspace(t);
   const session = 'v1-namespaced';
   const id = '019c6e27-e55b-73d1-87d8-4e01f1f75043';
@@ -836,6 +844,10 @@ test('Codex namespaced v1 waits release UUID reservations and resumes retain the
   assert.equal(handleHook(pre(session, 'spawn_agent', { message: 'Inspect' }), options), null);
   handleHook({ session_id: session, hook_event_name: 'PostToolUse', tool_name: 'spawn_agent', tool_use_id: 'spawn_agent-1', tool_input: {}, tool_response: JSON.stringify({ agent_id: id, nickname: null }) }, options);
   handleHook(prompt(session, '$stop-that-shit review agents=1 -- inspect'), options);
+  assert.equal(handleHook(pre(session, 'multi_agent_v1send_input', { id, message: 'Continue', interrupt: true }), options), null);
+  assert.equal(activeDelegationCount(readState(session, options.dataDir).delegation), 1);
+  const unknown = handleHook(pre(session, 'multi_agent_v1send_input', { id: 'unknown-agent', message: 'Continue' }), options);
+  assert.match(unknown.hookSpecificOutput.permissionDecisionReason, /DELEGATION_LIFECYCLE_UNPROVEN/);
   assert.equal(handleHook(pre(session, 'multi_agent_v1wait_agent', { targets: [id] }), options), null);
   handleHook({ session_id: session, hook_event_name: 'PostToolUse', tool_name: 'multi_agent_v1wait_agent', tool_use_id: 'wait-1', tool_input: { targets: [id] }, tool_response: JSON.stringify({ status: { [id]: { completed: 'Done' } }, timed_out: false }) }, options);
   assert.equal(handleHook({ ...pre(session, 'spawn_agent', { message: 'Inspect next' }), tool_use_id: 'spawn-2' }, options), null);

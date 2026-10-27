@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { defaultContract, parseContractPrompt } = require('../src/contracts.cjs');
+const { defaultContract, narrowContract, parseContractPrompt } = require('../src/contracts.cjs');
 
 test('Chinese observation objects preserve an existing change contract across heartbeat deliveries', () => {
   const previous = parseContractPrompt('$stop-that-shit change -- 检查同步，必要时修复或回滚。').contract;
@@ -48,6 +48,38 @@ test('explicit review directive enables guard by default', () => {
   assert.equal(result.contract.mode, 'review');
   assert.equal(result.contract.level, 'guard');
   assert.equal(result.contract.hashPolicy, 'deny');
+});
+
+test('child contracts keep the stricter value for every authority field', () => {
+  const parent = parseContractPrompt(
+    '$stop-that-shit lock review agents=2 files=src/** hash=ask deps=ask -- inspect'
+  ).contract;
+  const child = parseContractPrompt(
+    '$stop-that-shit change agents=4 files=src/config.cjs|test/** hash=allow deps=deny -- work'
+  ).contract;
+  const effective = narrowContract(parent, child);
+  assert.equal(effective.mode, 'review');
+  assert.equal(effective.level, 'lock');
+  assert.equal(effective.agentBudget, 2);
+  assert.deepEqual(effective.allowedPaths, ['src/config.cjs']);
+  assert.equal(effective.hashPolicy, 'ask');
+  assert.equal(effective.dependencyPolicy, 'deny');
+});
+
+test('a disabled parent contract stays disabled for children', () => {
+  const parent = parseContractPrompt('$stop-that-shit off -- disabled').contract;
+  const child = parseContractPrompt('$stop-that-shit lock review -- inspect').contract;
+  assert.equal(narrowContract(parent, child).level, 'off');
+});
+
+test('equal read-only modes keep the parent meaning', () => {
+  for (const parentMode of ['answer', 'review', 'monitor']) {
+    const parent = parseContractPrompt(`$stop-that-shit ${parentMode} -- parent`).contract;
+    for (const childMode of ['answer', 'review', 'monitor']) {
+      const child = parseContractPrompt(`$stop-that-shit ${childMode} -- child`).contract;
+      assert.equal(narrowContract(parent, child).mode, parentMode, `${parentMode} + ${childMode}`);
+    }
+  }
 });
 
 test('Codex namespaced directives match short directives and preserve field boundaries', () => {

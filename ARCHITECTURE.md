@@ -105,6 +105,13 @@ Its supported UUID spawn results bind a child; confirmed matching wait results
 release it. The plugin does not register `SubagentStart` or `SubagentStop` for
 Codex. Payloads from older configurations remain ignored.
 
+Codex child state stores only the child's additional restrictions and its own
+delegation ledger. Each child prompt, query, and action resolves an effective
+contract from the latest parent contract plus those restrictions. The stricter
+mode, level, agent budget, file boundary, hash policy, and dependency policy
+wins. A child can therefore narrow authority but cannot promote it, and a later
+parent restriction applies without rewriting every child state file.
+
 Claude Code retains line boundaries when normalizing its native slash form.
 It uses its `Agent` tool's `tool_use_id` and completed result, and injects context
 on `SubagentStart`. Both hosts' `SubagentStop` events are stop attempts and do

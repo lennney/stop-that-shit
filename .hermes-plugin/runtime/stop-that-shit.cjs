@@ -226,6 +226,9 @@ function assertControlEvent(event) {
     if (event.action.asyncLaunched !== undefined && typeof event.action.asyncLaunched !== 'boolean') {
       throw new TypeError('ControlEvent action.asyncLaunched must be a boolean when provided.');
     }
+    if (event.action.delegationTargetId !== undefined) {
+      nonEmptyString(event.action.delegationTargetId, 'action.delegationTargetId');
+    }
   }
   if (event.kind === 'action.after') {
     if (!event.action || typeof event.action !== 'object') {
@@ -257,6 +260,17 @@ function assertControlEvent(event) {
     }
   }
 
+  if (event.agent !== undefined) {
+    if (!event.agent || typeof event.agent !== 'object' || Array.isArray(event.agent)) {
+      throw new TypeError('ControlEvent agent must be an object when provided.');
+    }
+    nonEmptyString(event.agent.agentId, 'agent.agentId');
+    if (event.agent.agentType !== null && event.agent.agentType !== undefined
+        && typeof event.agent.agentType !== 'string') {
+      throw new TypeError('ControlEvent agent.agentType must be a string when provided.');
+    }
+  }
+
   if (event.allDelegationsStopped !== undefined && typeof event.allDelegationsStopped !== 'boolean') throw new TypeError('allDelegationsStopped must be boolean.');
   if (event.sourceSessionId !== undefined) nonEmptyString(event.sourceSessionId, 'sourceSessionId');
   if (event.action && event.action.completionScope !== undefined && !['call', 'children'].includes(event.action.completionScope)) {
@@ -279,13 +293,13 @@ module.exports = {
 "src/controller.cjs": function(module, exports, __require) {
 'use strict';
 
-const { DEFAULT_AGENT_LIMIT, parseContractPrompt } = __require("src/contracts.cjs");
+const { DEFAULT_AGENT_LIMIT, boundaryContains, narrowContract, parseContractPrompt } = __require("src/contracts.cjs");
 const { SHELL_ANALYSIS_REASONS, isShellAnalysisReason, assertControlEvent, supportsLifecycleFacts } = __require("src/control-protocol.cjs");
-const { inspectDelegation, applyDelegationFact } = __require("src/delegation-state.cjs");
+const { inspectDelegation, applyDelegationFact, isActiveAgent } = __require("src/delegation-state.cjs");
 const { decide } = __require("src/decision.cjs");
 const { readRuntime, recordDecision } = __require("src/runtime-audit.cjs");
 const { recordAnnotation } = __require("src/runtime-annotations.cjs");
-const { readState, recoveryState, updateSession } = __require("src/state.cjs");
+const { readState, recoveryState, removeChildState, updateSession } = __require("src/state.cjs");
 
 function none() {
   return { kind: 'none' };
@@ -388,6 +402,7 @@ function handleRuntimeCommand(command, event, state, options) {
     const summary = inspectDelegation(state.delegation);
     return context([
       'Stop That Shit status',
+      ...(event.agent ? [`Agent: ${event.agent.agentId}`] : []),
       `State: ${activeControlState(state.contract)} / ${state.contract.mode}`,
       contractFields(state.contract, summary),
       `Authority source: ${state.contract.source || 'unconfirmed'}`,
@@ -400,7 +415,9 @@ function handleRuntimeCommand(command, event, state, options) {
     ].join('\n'));
   }
   if (command.name === 'runtime') {
-    const query = command.all ? {} : { sessionId: event.sessionId };
+    const query = command.all ? {} : event.agent
+      ? { sessionId: event.sessionId, agentId: event.agent.agentId }
+      : { sessionId: event.sessionId };
     return context(runtimeSummaryText(readRuntime(query, options)));
   }
   const runtime = readRuntime({ eventId: command.eventId }, options);
@@ -425,7 +442,13 @@ function handleRuntimeCommand(command, event, state, options) {
   ].join('\n'));
 }
 
-function handlePrompt(event, state) {
+function widensFileBoundary(previous, next) {
+  if (previous === null) return false;
+  if (!Array.isArray(next)) return true;
+  return next.some(pattern => !previous.some(container => boundaryContains(container, pattern)));
+}
+
+function handlePrompt(event, state, parentContract = null) {
   if (state.storageError) return context(`${state.storageError.code}: ${state.storageError.message}`);
   const parsed = parseContractPrompt(event.prompt, state.contract);
   if (parsed.error) {
@@ -434,25 +457,74 @@ function handlePrompt(event, state) {
     state.lastPromptContext = null;
     return { kind: 'prompt-error', error: parsed.error, message: parsed.error.message };
   }
+  if (event.agent && widensFileBoundary(state.contract.allowedPaths, parsed.contract.allowedPaths)) {
+    state.directiveError = {
+      code: 'FILE_BOUNDARY_WIDEN',
+      message: 'A subagent can narrow its inherited files= boundary, but cannot widen it.'
+    };
+    state.directiveWarning = null;
+    state.lastPromptContext = null;
+    return {
+      kind: 'prompt-error',
+      error: state.directiveError,
+      message: `${state.directiveError.code}: ${state.directiveError.message}`
+    };
+  }
   state.contract = parsed.contract;
   if (parsed.directive || parsed.correction) state.directiveError = null;
   if (parsed.directive || parsed.correction) state.directiveWarning = parsed.directive ? parsed.warning : null;
-  const promptContext = contractContext(state.contract, state.delegation, 'active', parsed.warning || state.directiveWarning, state.storageError);
+  const effectiveContract = parentContract ? narrowContract(parentContract, state.contract) : state.contract;
+  const promptContext = contractContext(effectiveContract, state.delegation, 'active', parsed.warning || state.directiveWarning, state.storageError);
   const repeatedContext = state.lastPromptContext === promptContext;
   state.lastPromptContext = promptContext;
   if (parsed.warning) return { ...context(promptContext), warning: parsed.warning };
   return repeatedContext ? none() : context(promptContext);
 }
 
-function handleBeforeAction(event, options) {
+function childScope(event) {
+  return event.agent ? { agentId: event.agent.agentId } : null;
+}
+
+function freshDelegation() {
+  return {
+    reservations: {},
+    agentIdsSeen: [],
+    stoppedAgentIds: [],
+    unresolved: {},
+    acceptedActions: {}
+  };
+}
+
+function ensureChildState(event, options) {
+  const scope = childScope(event);
+  if (!scope) return readState(event.sessionId, options.dataDir);
+  const parent = readState(event.sessionId, options.dataDir);
+  const child = updateSession(event.sessionId, options.dataDir, (state) => {
+    if (state.storageError) return state;
+    if (state.contract.source === 'default' && state.contract.mode === 'unconfirmed') {
+      state.delegation = freshDelegation();
+      state.lastPromptContext = null;
+    }
+    return state;
+  }, scope);
+  child.contract = narrowContract(parent.contract, child.contract);
+  return child;
+}
+
+function handleBeforeAction(event, options, effectiveState = null) {
   const legacyDelegationProtocol = !supportsLifecycleFacts(event)
     && ['delegate', 'control', 'unknown'].includes(event.action.mutability);
-  const changesDelegation = event.action.mutability === 'delegate'
+  const mayChangeDelegation = event.action.mutability === 'delegate'
     || event.action.delegationLifecycleUnproven || legacyDelegationProtocol;
   const delegationCount = event.action.mutability === 'delegate'
     ? (Number.isInteger(event.action.delegationCount) ? event.action.delegationCount : 1)
     : 0;
   const evaluate = (state) => {
+    const delegationLifecycleUnproven = Boolean(event.action.delegationLifecycleUnproven)
+      && !(event.action.delegationTargetId
+        && isActiveAgent(state.delegation, event.action.delegationTargetId));
+    const changesDelegation = event.action.mutability === 'delegate'
+      || delegationLifecycleUnproven || legacyDelegationProtocol;
     const action = {
       mutability: event.action.mutability,
       analysisReason: event.action.analysisReason,
@@ -465,7 +537,7 @@ function handleBeforeAction(event, options) {
       cwd: event.action.cwd,
       dependencyIntent: Boolean(event.action.dependencyIntent),
       unboundedDelegation: Boolean(event.action.unboundedDelegation),
-      delegationLifecycleUnproven: Boolean(event.action.delegationLifecycleUnproven)
+      delegationLifecycleUnproven
     };
     const summary = inspectDelegation(state.delegation, { id: event.action.id });
     action.duplicateActionId = summary.duplicateActionId;
@@ -489,11 +561,19 @@ function handleBeforeAction(event, options) {
   // Separate host processes can issue independent agent launches close together.
   // Serialize delegation reservations across Hook processes. Prompt updates
   // and completion handlers use the same lock; pure reads stay unlocked.
+  const scope = childScope(event);
   const { state, result } = options.recoveryError
     ? evaluate(recoveryState(options.recoveryError))
-    : changesDelegation
-      ? updateSession(event.sessionId, options.dataDir, evaluate)
-      : evaluate(readState(event.sessionId, options.dataDir));
+    : mayChangeDelegation
+      ? updateSession(event.sessionId, options.dataDir, (state) => {
+        if (!scope || !effectiveState) return evaluate(state);
+        const childContract = state.contract;
+        state.contract = effectiveState.contract;
+        const outcome = evaluate(state);
+        state.contract = childContract;
+        return { ...outcome, state: { ...outcome.state, contract: effectiveState.contract } };
+      }, scope || {})
+      : evaluate(effectiveState || readState(event.sessionId, options.dataDir));
 
   const denied = result.outcome === 'deny_and_explain' || result.outcome === 'require_user_approval';
   const responseOutcome = denied
@@ -501,6 +581,7 @@ function handleBeforeAction(event, options) {
     : result.outcome === 'report_and_defer' ? 'context_returned' : 'none';
   const auditEvent = recordDecision({
     sessionId: event.sessionId,
+    agent: scope ? { agentId: scope.agentId } : undefined,
     action: { ...event.action, delegationCount },
     contract: state.contract,
     delegation: state.delegation,
@@ -519,6 +600,7 @@ function handleBeforeAction(event, options) {
 
 function handleAfterAction(event, options) {
   if (!supportsLifecycleFacts(event)) return none();
+  const scope = childScope(event);
   return updateSession(event.sessionId, options.dataDir, (state) => {
     // Only a declared facts adapter may report binding or completion. A false
     // async flag can be a request parameter and never proves children joined.
@@ -531,7 +613,7 @@ function handleAfterAction(event, options) {
       state.delegation = applyDelegationFact(state.delegation, { kind: 'child_stopped', agentId });
     }
     return none();
-  });
+  }, scope || {});
 }
 
 function handleLifecycleContext(event, options) {
@@ -550,24 +632,35 @@ function handleLifecycleContext(event, options) {
   // without waiting for another writer or rewriting state during shutdown.
   const readOnly = event.kind === 'session.start'
     || event.kind === 'session.end' && event.allDelegationsStopped !== true;
-  return readOnly ? update(readState(event.sessionId, options.dataDir))
+  const result = readOnly ? update(readState(event.sessionId, options.dataDir))
     : updateSession(event.sessionId, options.dataDir, update);
+  if (event.kind === 'session.end') {
+    const state = readState(event.sessionId, options.dataDir);
+    const stopped = new Set(state.delegation.stoppedAgentIds);
+    for (const agentId of stopped) removeChildState(event.sessionId, agentId, options.dataDir);
+  }
+  return result;
 }
 
 function handleControlEvent(rawEvent, options = {}) {
   let event = assertControlEvent(rawEvent);
+  const scope = childScope(event);
+  const effectiveState = scope ? ensureChildState(event, options) : null;
   if (event.action && event.action.id && event.sourceSessionId && event.sourceSessionId !== event.sessionId) {
     event = { ...event, action: { ...event.action, id: JSON.stringify([event.sourceSessionId, event.action.id]) } };
   }
   switch (event.kind) {
     case 'prompt.submit': {
       const command = runtimeCommand(event.prompt);
-      return command
-        ? handleRuntimeCommand(command, event, readState(event.sessionId, options.dataDir), options)
-        : updateSession(event.sessionId, options.dataDir, state => handlePrompt(event, state));
+      if (command) {
+        const commandState = effectiveState || readState(event.sessionId, options.dataDir);
+        return handleRuntimeCommand(command, event, commandState, options);
+      }
+      return updateSession(event.sessionId, options.dataDir, state => handlePrompt(event, state,
+        scope ? readState(event.sessionId, options.dataDir).contract : null), scope || {});
     }
     case 'action.before':
-      return handleBeforeAction(event, options);
+      return handleBeforeAction(event, options, effectiveState);
     case 'action.after':
       return handleAfterAction(event, options);
     case 'session.start':
@@ -794,6 +887,63 @@ function normalizeContract(previousContract) {
   return previous;
 }
 
+const MODE_AUTHORITY = new Map([
+  ['answer', 0], ['review', 0], ['monitor', 0],
+  ['unconfirmed', 1], ['change', 2], ['open', 2]
+]);
+const LEVEL_AUTHORITY = new Map([
+  ['lock', 0], ['guard', 1], ['watch', 2], ['off', 3]
+]);
+const POLICY_AUTHORITY = new Map([
+  ['deny', 0], ['ask', 1], ['allow', 2]
+]);
+
+function narrowerScalar(parent, child, authority) {
+  const parentRank = authority.get(parent);
+  const childRank = authority.get(child);
+  if (parentRank === undefined) return child;
+  if (childRank === undefined) return parent;
+  if (childRank === parentRank) return parent;
+  return childRank <= parentRank ? child : parent;
+}
+
+function narrowerPaths(parent, child) {
+  if (parent === null) return child;
+  if (child === null) return parent;
+  return child.filter(candidate => parent.some(container => boundaryContains(container, candidate)));
+}
+
+function normalizeBoundaryPattern(value) {
+  return String(value || '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+}
+
+function boundaryContains(container, candidate) {
+  container = normalizeBoundaryPattern(container);
+  candidate = normalizeBoundaryPattern(candidate);
+  if (container === '**') return true;
+  if (!container || !candidate || candidate === '**') return false;
+  const containerPrefix = container.endsWith('/**') ? container.slice(0, -3) : null;
+  const candidatePrefix = candidate.endsWith('/**') ? candidate.slice(0, -3) : null;
+  if (containerPrefix === null) return candidatePrefix === null && container === candidate;
+  if (!candidatePrefix) return candidate === containerPrefix || candidate.startsWith(`${containerPrefix}/`);
+  return candidatePrefix === containerPrefix || candidatePrefix.startsWith(`${containerPrefix}/`);
+}
+
+function narrowContract(parentContract, childContract) {
+  const parent = normalizeContract(parentContract);
+  const child = normalizeContract(childContract);
+  if (parent.level === 'off') return { ...parent };
+  return {
+    ...child,
+    mode: narrowerScalar(parent.mode, child.mode, MODE_AUTHORITY),
+    level: narrowerScalar(parent.level, child.level, LEVEL_AUTHORITY),
+    agentBudget: Math.min(parent.agentBudget, child.agentBudget),
+    hashPolicy: narrowerScalar(parent.hashPolicy, child.hashPolicy, POLICY_AUTHORITY),
+    allowedPaths: narrowerPaths(parent.allowedPaths, child.allowedPaths),
+    dependencyPolicy: narrowerScalar(parent.dependencyPolicy, child.dependencyPolicy, POLICY_AUTHORITY)
+  };
+}
+
 function parseContractPrompt(prompt, previousContract = defaultContract()) {
   const previous = normalizeContract(previousContract);
   const text = String(prompt || '');
@@ -878,6 +1028,8 @@ module.exports = {
   MODES,
   DEFAULT_AGENT_LIMIT,
   defaultContract,
+  boundaryContains,
+  narrowContract,
   normalizeContract,
   parseContractPrompt
 };
@@ -898,6 +1050,12 @@ function seenAgentIds(state) {
 
 function stoppedAgentIds(state) {
   return Array.isArray(state && state.stoppedAgentIds) ? state.stoppedAgentIds : [];
+}
+
+function isActiveAgent(state, agentId) {
+  if (typeof agentId !== 'string' || !agentId || stoppedAgentIds(state).includes(agentId)) return false;
+  return Object.values(reservationsOf(state)).some((reservation) =>
+    Array.isArray(reservation.agentIds) && reservation.agentIds.includes(agentId));
 }
 
 function acceptedActions(state) {
@@ -1136,6 +1294,7 @@ module.exports = {
   activeDelegationCount,
   bindSubagent,
   clearDelegations,
+  isActiveAgent,
   markReservationAsync,
   releaseReservation,
   releaseSubagent,
@@ -1403,6 +1562,15 @@ function eventPath(sessionId, options) {
   return path.join(runtimeRoot(options), `${sessionKey(sessionId)}.jsonl`);
 }
 
+function runtimeAgent(event) {
+  return event && event.agent && typeof event.agent.agentId === 'string' ? event.agent.agentId : null;
+}
+
+function agentEventPath(sessionId, agentKey, options) {
+  return path.join(runtimeRoot(options), 'children',
+    sessionKey(sessionId), `${agentKey}.jsonl`);
+}
+
 function recordDecision(facts, options = {}) {
   const contract = facts && facts.contract || {};
   const delegation = facts && facts.delegation || {};
@@ -1432,6 +1600,7 @@ function recordDecision(facts, options = {}) {
       dependencyIntent: Boolean(action.dependencyIntent),
       unboundedDelegation: Boolean(action.unboundedDelegation)
     },
+    ...(runtimeAgent(facts) ? { agent: { agentKey: sessionKey(runtimeAgent(facts)) } } : {}),
     contract: {
       mode: String(contract.mode || 'unconfirmed'),
       level: String(contract.level || 'watch'),
@@ -1452,7 +1621,9 @@ function recordDecision(facts, options = {}) {
   };
 
   try {
-    appendJsonl(eventPath(facts.sessionId, options), event);
+    appendJsonl(runtimeAgent(facts)
+      ? agentEventPath(facts.sessionId, sessionKey(runtimeAgent(facts)), options)
+      : eventPath(facts.sessionId, options), event);
     return event;
   } catch {
     return null;
@@ -1463,9 +1634,32 @@ function eventFiles(query, options) {
   const root = runtimeRoot(options);
   if (query.sessionId) return [eventPath(query.sessionId, options)];
   if (query.sessionKey) return [path.join(root, `${query.sessionKey}.jsonl`)];
+  const files = [];
+  for (const directory of [root, path.join(root, 'children')]) {
+    if (!fs.existsSync(directory)) continue;
+    for (const name of fs.readdirSync(directory)) {
+      const entry = path.join(directory, name);
+      if (directory === root && name.endsWith('.jsonl') && name !== 'annotations.jsonl') {
+        files.push(entry);
+      } else if (directory !== root && fs.statSync(entry).isDirectory()) {
+        for (const child of fs.readdirSync(entry)) {
+          if (child.endsWith('.jsonl')) files.push(path.join(entry, child));
+        }
+      }
+    }
+  }
+  return files.sort();
+}
+
+function childEventFiles(query, options) {
+  const agentId = query.agentId;
+  if (agentId) return [agentEventPath(query.sessionId, sessionKey(agentId), options)];
+  if (query.agentKey) return [agentEventPath(query.sessionId, query.agentKey, options)];
+  if (!query.sessionId) return [];
+  const directory = path.join(runtimeRoot(options), 'children', sessionKey(query.sessionId));
   try {
-    return fs.readdirSync(root).filter((name) => name.endsWith('.jsonl') && name !== 'annotations.jsonl')
-      .sort().map((name) => path.join(root, name));
+    return fs.readdirSync(directory).filter(name => name.endsWith('.jsonl'))
+      .sort().map(name => path.join(directory, name));
   } catch (error) {
     if (error && error.code === 'ENOENT') return [];
     throw error;
@@ -1511,7 +1705,10 @@ function isRuntimeEvent(event) {
 function readRuntime(query = {}, options = {}) {
   let events = [];
   let damagedRecords = 0;
-  for (const file of eventFiles(query, options)) {
+  const files = query.agentId || query.agentKey
+    ? childEventFiles(query, options)
+    : [...eventFiles(query, options), ...childEventFiles(query, options)];
+  for (const file of files) {
     const parsed = scanJsonl(file, event => {
       if (!isRuntimeEvent(event)) {
         damagedRecords += 1;
@@ -1775,12 +1972,17 @@ function sessionKey(sessionId) {
   return crypto.createHash('sha256').update(String(sessionId || 'unknown')).digest('hex').slice(0, 24);
 }
 
-function statePath(sessionId, override) {
+function statePath(sessionId, override, scope = {}) {
+  const agentKey = scope.agentId ? sessionKey(scope.agentId) : scope.agentKey;
+  if (agentKey) {
+    return path.join(dataRoot(override), 'sessions', 'children',
+      sessionKey(sessionId), `${agentKey}.json`);
+  }
   return path.join(dataRoot(override), 'sessions', `${sessionKey(sessionId)}.json`);
 }
 
-function readState(sessionId, override) {
-  const file = statePath(sessionId, override);
+function readState(sessionId, override, scope = {}) {
+  const file = statePath(sessionId, override, scope);
   // Ordinary tool checks do not acquire the session lock. They must still
   // see a failed legacy lock migration instead of trusting stale authority.
   try {
@@ -1806,8 +2008,8 @@ function readState(sessionId, override) {
   }
 }
 
-function writeState(sessionId, state, override) {
-  const file = statePath(sessionId, override);
+function writeState(sessionId, state, override, scope = {}) {
+  const file = statePath(sessionId, override, scope);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
   // Do not replace an atomic rename with a partial overwrite on Windows.
@@ -1828,8 +2030,8 @@ function writeState(sessionId, state, override) {
 }
 
 
-function lockPath(sessionId, override) {
-  return `${statePath(sessionId, override)}.lock`;
+function lockPath(sessionId, override, scope = {}) {
+  return `${statePath(sessionId, override, scope)}.lock`;
 }
 
 function sleepSync(milliseconds) {
@@ -1903,8 +2105,8 @@ function reclaimSessionLock(file, staleMs) {
   }
 }
 
-function acquireSessionLock(sessionId, override, options = {}) {
-  const file = lockPath(sessionId, override);
+function acquireSessionLock(sessionId, override, options = {}, scope = {}) {
+  const file = lockPath(sessionId, override, scope);
   const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 1500;
   const staleMs = Number.isFinite(options.staleMs) ? options.staleMs : LOCK_STALE_MS;
   const started = Date.now();
@@ -1943,8 +2145,8 @@ function acquireSessionLock(sessionId, override, options = {}) {
   }
 }
 
-function withSessionLock(sessionId, override, fn, options) {
-  const release = acquireSessionLock(sessionId, override, options);
+function withSessionLock(sessionId, override, fn, options, scope = {}) {
+  const release = acquireSessionLock(sessionId, override, options, scope);
   try {
     return fn();
   } finally {
@@ -1952,32 +2154,45 @@ function withSessionLock(sessionId, override, fn, options) {
   }
 }
 
-function updateSession(sessionId, override, update) {
+function updateSession(sessionId, override, update, scope = {}) {
   let release;
   try {
-    release = acquireSessionLock(sessionId, override);
+    release = acquireSessionLock(sessionId, override, {}, scope);
   } catch (error) {
     if (error.code !== 'STS_LOCK_DAMAGED') throw error;
     return update(recoveryState({ code: error.code, message: error.message }));
   }
   try {
-    const state = readState(sessionId, override);
+    const state = readState(sessionId, override, scope);
     const damaged = Boolean(state.storageError);
     const result = update(state);
-    if (!damaged) writeState(sessionId, state, override);
+    if (!damaged) writeState(sessionId, state, override, scope);
     return result;
   } finally {
     release();
   }
 }
 
+function childStatePath(sessionId, agentId, override) {
+  return statePath(sessionId, override, { agentId });
+}
+
+function removeChildState(sessionId, agentId, override) {
+  for (const file of [childStatePath(sessionId, agentId, override), `${childStatePath(sessionId, agentId, override)}.lock`]) {
+    try { fs.rmSync(file, { recursive: true, force: true }); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+}
+
 module.exports = {
   updateSession,
   acquireSessionLock,
+  childStatePath,
   dataRoot,
   freshState,
   recoveryState,
   readState,
+  removeChildState,
   sessionKey,
   statePath,
   withSessionLock,
@@ -2771,7 +2986,7 @@ const { detectHashIntent } = __require("src/hash-intent.cjs");
 
 const WRITE_NAME = /(?:^|__|_)(?:add|append|apply|archive|close|commit|copy|create|delete|deploy|edit|install|merge|move|patch|post|publish|push|remove|rename|send|set|submit|update|upload|write)(?:$|__|_)/i;
 const READ_NAME = /(?:^|__|_)(?:cat|check|diff|fetch|find|get|inspect|list|load|open|read|review|search|show|status|view)(?:$|__|_)/i;
-const CONTROL_TOOLS = new Set(['update_plan', 'request_user_input', 'wait', 'wait_agent', 'interrupt_agent', 'close_agent']);
+const CONTROL_TOOLS = new Set(['send_input', 'update_plan', 'request_user_input', 'wait', 'wait_agent', 'interrupt_agent', 'close_agent']);
 // Match the host's known flattened namespaces exactly; do not strip arbitrary
 // prefixes from MCP or third-party tool names.
 const CODEX_TOOL_NAMES = new Map([

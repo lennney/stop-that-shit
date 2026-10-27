@@ -24,11 +24,24 @@ function parsedResponse(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
 }
 
+function agentIdentity(input) {
+  const agentId = optionalIdentifier(input.agent_id, input.agentId);
+  if (!agentId) return null;
+  return { agentId, agentType: typeof input.agent_type === 'string' ? input.agent_type : null };
+}
+
+function delegationTargetId(toolName, toolInput) {
+  if (toolName !== 'send_input' || !toolInput || typeof toolInput !== 'object') return null;
+  return optionalIdentifier(toolInput.target, toolInput.id, toolInput.agent_id, toolInput.agentId);
+}
+
 function toControlEvent(input) {
   if (!input || typeof input !== 'object') return null;
   const kind = EVENT_KIND[input.hook_event_name];
   if (!kind) return null;
   const toolName = canonicalCodexToolName(input.tool_name);
+  const agent = agentIdentity(input);
+  const delegationTarget = delegationTargetId(toolName, input.tool_input);
 
   const event = {
     protocolVersion: PROTOCOL_VERSION,
@@ -36,6 +49,7 @@ function toControlEvent(input) {
     kind,
     sessionId: String(input.session_id || ''),
     turnId: input.turn_id || null,
+    agent: agent || undefined,
     host: {
       family: 'codex',
       model: input.model || null,
@@ -85,6 +99,7 @@ function toControlEvent(input) {
       ...analysis,
       cwd: input.cwd
     };
+    if (delegationTarget) event.action.delegationTargetId = delegationTarget;
     if (['send_input', 'resume_agent', 'followup_task'].includes(toolName)) {
       event.action.delegationLifecycleUnproven = true;
     }

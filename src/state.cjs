@@ -16,12 +16,17 @@ function sessionKey(sessionId) {
   return crypto.createHash('sha256').update(String(sessionId || 'unknown')).digest('hex').slice(0, 24);
 }
 
-function statePath(sessionId, override) {
+function statePath(sessionId, override, scope = {}) {
+  const agentKey = scope.agentId ? sessionKey(scope.agentId) : scope.agentKey;
+  if (agentKey) {
+    return path.join(dataRoot(override), 'sessions', 'children',
+      sessionKey(sessionId), `${agentKey}.json`);
+  }
   return path.join(dataRoot(override), 'sessions', `${sessionKey(sessionId)}.json`);
 }
 
-function readState(sessionId, override) {
-  const file = statePath(sessionId, override);
+function readState(sessionId, override, scope = {}) {
+  const file = statePath(sessionId, override, scope);
   // Ordinary tool checks do not acquire the session lock. They must still
   // see a failed legacy lock migration instead of trusting stale authority.
   try {
@@ -47,8 +52,8 @@ function readState(sessionId, override) {
   }
 }
 
-function writeState(sessionId, state, override) {
-  const file = statePath(sessionId, override);
+function writeState(sessionId, state, override, scope = {}) {
+  const file = statePath(sessionId, override, scope);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
   // Do not replace an atomic rename with a partial overwrite on Windows.
@@ -69,8 +74,8 @@ function writeState(sessionId, state, override) {
 }
 
 
-function lockPath(sessionId, override) {
-  return `${statePath(sessionId, override)}.lock`;
+function lockPath(sessionId, override, scope = {}) {
+  return `${statePath(sessionId, override, scope)}.lock`;
 }
 
 function sleepSync(milliseconds) {
@@ -144,8 +149,8 @@ function reclaimSessionLock(file, staleMs) {
   }
 }
 
-function acquireSessionLock(sessionId, override, options = {}) {
-  const file = lockPath(sessionId, override);
+function acquireSessionLock(sessionId, override, options = {}, scope = {}) {
+  const file = lockPath(sessionId, override, scope);
   const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 1500;
   const staleMs = Number.isFinite(options.staleMs) ? options.staleMs : LOCK_STALE_MS;
   const started = Date.now();
@@ -184,8 +189,8 @@ function acquireSessionLock(sessionId, override, options = {}) {
   }
 }
 
-function withSessionLock(sessionId, override, fn, options) {
-  const release = acquireSessionLock(sessionId, override, options);
+function withSessionLock(sessionId, override, fn, options, scope = {}) {
+  const release = acquireSessionLock(sessionId, override, options, scope);
   try {
     return fn();
   } finally {
@@ -193,32 +198,45 @@ function withSessionLock(sessionId, override, fn, options) {
   }
 }
 
-function updateSession(sessionId, override, update) {
+function updateSession(sessionId, override, update, scope = {}) {
   let release;
   try {
-    release = acquireSessionLock(sessionId, override);
+    release = acquireSessionLock(sessionId, override, {}, scope);
   } catch (error) {
     if (error.code !== 'STS_LOCK_DAMAGED') throw error;
     return update(recoveryState({ code: error.code, message: error.message }));
   }
   try {
-    const state = readState(sessionId, override);
+    const state = readState(sessionId, override, scope);
     const damaged = Boolean(state.storageError);
     const result = update(state);
-    if (!damaged) writeState(sessionId, state, override);
+    if (!damaged) writeState(sessionId, state, override, scope);
     return result;
   } finally {
     release();
   }
 }
 
+function childStatePath(sessionId, agentId, override) {
+  return statePath(sessionId, override, { agentId });
+}
+
+function removeChildState(sessionId, agentId, override) {
+  for (const file of [childStatePath(sessionId, agentId, override), `${childStatePath(sessionId, agentId, override)}.lock`]) {
+    try { fs.rmSync(file, { recursive: true, force: true }); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+}
+
 module.exports = {
   updateSession,
   acquireSessionLock,
+  childStatePath,
   dataRoot,
   freshState,
   recoveryState,
   readState,
+  removeChildState,
   sessionKey,
   statePath,
   withSessionLock,

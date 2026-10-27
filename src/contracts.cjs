@@ -208,6 +208,63 @@ function normalizeContract(previousContract) {
   return previous;
 }
 
+const MODE_AUTHORITY = new Map([
+  ['answer', 0], ['review', 0], ['monitor', 0],
+  ['unconfirmed', 1], ['change', 2], ['open', 2]
+]);
+const LEVEL_AUTHORITY = new Map([
+  ['lock', 0], ['guard', 1], ['watch', 2], ['off', 3]
+]);
+const POLICY_AUTHORITY = new Map([
+  ['deny', 0], ['ask', 1], ['allow', 2]
+]);
+
+function narrowerScalar(parent, child, authority) {
+  const parentRank = authority.get(parent);
+  const childRank = authority.get(child);
+  if (parentRank === undefined) return child;
+  if (childRank === undefined) return parent;
+  if (childRank === parentRank) return parent;
+  return childRank <= parentRank ? child : parent;
+}
+
+function narrowerPaths(parent, child) {
+  if (parent === null) return child;
+  if (child === null) return parent;
+  return child.filter(candidate => parent.some(container => boundaryContains(container, candidate)));
+}
+
+function normalizeBoundaryPattern(value) {
+  return String(value || '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+}
+
+function boundaryContains(container, candidate) {
+  container = normalizeBoundaryPattern(container);
+  candidate = normalizeBoundaryPattern(candidate);
+  if (container === '**') return true;
+  if (!container || !candidate || candidate === '**') return false;
+  const containerPrefix = container.endsWith('/**') ? container.slice(0, -3) : null;
+  const candidatePrefix = candidate.endsWith('/**') ? candidate.slice(0, -3) : null;
+  if (containerPrefix === null) return candidatePrefix === null && container === candidate;
+  if (!candidatePrefix) return candidate === containerPrefix || candidate.startsWith(`${containerPrefix}/`);
+  return candidatePrefix === containerPrefix || candidatePrefix.startsWith(`${containerPrefix}/`);
+}
+
+function narrowContract(parentContract, childContract) {
+  const parent = normalizeContract(parentContract);
+  const child = normalizeContract(childContract);
+  if (parent.level === 'off') return { ...parent };
+  return {
+    ...child,
+    mode: narrowerScalar(parent.mode, child.mode, MODE_AUTHORITY),
+    level: narrowerScalar(parent.level, child.level, LEVEL_AUTHORITY),
+    agentBudget: Math.min(parent.agentBudget, child.agentBudget),
+    hashPolicy: narrowerScalar(parent.hashPolicy, child.hashPolicy, POLICY_AUTHORITY),
+    allowedPaths: narrowerPaths(parent.allowedPaths, child.allowedPaths),
+    dependencyPolicy: narrowerScalar(parent.dependencyPolicy, child.dependencyPolicy, POLICY_AUTHORITY)
+  };
+}
+
 function parseContractPrompt(prompt, previousContract = defaultContract()) {
   const previous = normalizeContract(previousContract);
   const text = String(prompt || '');
@@ -292,6 +349,8 @@ module.exports = {
   MODES,
   DEFAULT_AGENT_LIMIT,
   defaultContract,
+  boundaryContains,
+  narrowContract,
   normalizeContract,
   parseContractPrompt
 };

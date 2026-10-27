@@ -19,6 +19,15 @@ function eventPath(sessionId, options) {
   return path.join(runtimeRoot(options), `${sessionKey(sessionId)}.jsonl`);
 }
 
+function runtimeAgent(event) {
+  return event && event.agent && typeof event.agent.agentId === 'string' ? event.agent.agentId : null;
+}
+
+function agentEventPath(sessionId, agentKey, options) {
+  return path.join(runtimeRoot(options), 'children',
+    sessionKey(sessionId), `${agentKey}.jsonl`);
+}
+
 function recordDecision(facts, options = {}) {
   const contract = facts && facts.contract || {};
   const delegation = facts && facts.delegation || {};
@@ -48,6 +57,7 @@ function recordDecision(facts, options = {}) {
       dependencyIntent: Boolean(action.dependencyIntent),
       unboundedDelegation: Boolean(action.unboundedDelegation)
     },
+    ...(runtimeAgent(facts) ? { agent: { agentKey: sessionKey(runtimeAgent(facts)) } } : {}),
     contract: {
       mode: String(contract.mode || 'unconfirmed'),
       level: String(contract.level || 'watch'),
@@ -68,7 +78,9 @@ function recordDecision(facts, options = {}) {
   };
 
   try {
-    appendJsonl(eventPath(facts.sessionId, options), event);
+    appendJsonl(runtimeAgent(facts)
+      ? agentEventPath(facts.sessionId, sessionKey(runtimeAgent(facts)), options)
+      : eventPath(facts.sessionId, options), event);
     return event;
   } catch {
     return null;
@@ -79,9 +91,32 @@ function eventFiles(query, options) {
   const root = runtimeRoot(options);
   if (query.sessionId) return [eventPath(query.sessionId, options)];
   if (query.sessionKey) return [path.join(root, `${query.sessionKey}.jsonl`)];
+  const files = [];
+  for (const directory of [root, path.join(root, 'children')]) {
+    if (!fs.existsSync(directory)) continue;
+    for (const name of fs.readdirSync(directory)) {
+      const entry = path.join(directory, name);
+      if (directory === root && name.endsWith('.jsonl') && name !== 'annotations.jsonl') {
+        files.push(entry);
+      } else if (directory !== root && fs.statSync(entry).isDirectory()) {
+        for (const child of fs.readdirSync(entry)) {
+          if (child.endsWith('.jsonl')) files.push(path.join(entry, child));
+        }
+      }
+    }
+  }
+  return files.sort();
+}
+
+function childEventFiles(query, options) {
+  const agentId = query.agentId;
+  if (agentId) return [agentEventPath(query.sessionId, sessionKey(agentId), options)];
+  if (query.agentKey) return [agentEventPath(query.sessionId, query.agentKey, options)];
+  if (!query.sessionId) return [];
+  const directory = path.join(runtimeRoot(options), 'children', sessionKey(query.sessionId));
   try {
-    return fs.readdirSync(root).filter((name) => name.endsWith('.jsonl') && name !== 'annotations.jsonl')
-      .sort().map((name) => path.join(root, name));
+    return fs.readdirSync(directory).filter(name => name.endsWith('.jsonl'))
+      .sort().map(name => path.join(directory, name));
   } catch (error) {
     if (error && error.code === 'ENOENT') return [];
     throw error;
@@ -127,7 +162,10 @@ function isRuntimeEvent(event) {
 function readRuntime(query = {}, options = {}) {
   let events = [];
   let damagedRecords = 0;
-  for (const file of eventFiles(query, options)) {
+  const files = query.agentId || query.agentKey
+    ? childEventFiles(query, options)
+    : [...eventFiles(query, options), ...childEventFiles(query, options)];
+  for (const file of files) {
     const parsed = scanJsonl(file, event => {
       if (!isRuntimeEvent(event)) {
         damagedRecords += 1;
