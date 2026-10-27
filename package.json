@@ -82,6 +82,6 @@
   },
   "dependencies": {
     "@opencode/schema": "2.1.3",
-    "effect": "4.0.0-rc.112"
+    "effect": "4.0.6"
   }
 }
