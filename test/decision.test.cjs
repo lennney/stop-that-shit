@@ -132,3 +132,38 @@ test('unbounded delegation takes precedence over a finite requested count', () =
   });
   assert.equal(actual.reasonCode, 'UNBOUNDED_DELEGATION');
 });
+
+test('spec mode permits specification artifact writes and blocks source mutations by default', () => {
+  const cwd = '/Workspace/project';
+  for (const target of [
+    'docs/designs/auth.md',
+    'specs/v1/api.yaml',
+    'README.md',
+    'packages/core/DESIGN.md'
+  ]) {
+    const allowed = decide({
+      contract: { mode: 'spec', level: 'guard' },
+      action: { mutability: 'write', affectedPaths: [target], cwd }
+    });
+    assert.equal(allowed.outcome, 'allow', target);
+  }
+
+  for (const blockedTarget of [
+    'src/index.js',
+    'lib/auth.ts',
+    '../outside.md'
+  ]) {
+    const denied = decide({
+      contract: { mode: 'spec', level: 'guard' },
+      action: { mutability: 'write', affectedPaths: [blockedTarget], cwd }
+    });
+    assert.equal(denied.outcome, 'deny_and_explain', blockedTarget);
+    assert.equal(denied.reasonCode, 'PATH_OUTSIDE_CONTRACT', blockedTarget);
+  }
+
+  const customSpec = decide({
+    contract: { mode: 'spec', level: 'guard', allowedPaths: ['.review/**'] },
+    action: { mutability: 'write', affectedPaths: ['.review/findings.json'], cwd }
+  });
+  assert.equal(customSpec.outcome, 'allow');
+});

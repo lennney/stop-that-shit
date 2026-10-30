@@ -279,7 +279,7 @@ module.exports = {
 "src/controller.cjs": function(module, exports, __require) {
 'use strict';
 
-const { DEFAULT_AGENT_LIMIT, parseContractPrompt } = __require("src/contracts.cjs");
+const { DEFAULT_AGENT_LIMIT, SPEC_ALLOWED_PATHS, parseContractPrompt } = __require("src/contracts.cjs");
 const { SHELL_ANALYSIS_REASONS, isShellAnalysisReason, assertControlEvent, supportsLifecycleFacts } = __require("src/control-protocol.cjs");
 const { inspectDelegation, applyDelegationFact } = __require("src/delegation-state.cjs");
 const { decide } = __require("src/decision.cjs");
@@ -297,7 +297,10 @@ function context(text) {
 
 function contractFields(contract, summary) {
   const limit = Number.isSafeInteger(contract.agentBudget) && contract.agentBudget >= 0 ? contract.agentBudget : DEFAULT_AGENT_LIMIT;
-  return `mode=${contract.mode}; agents=${summary.reservedUpperBound}/${limit} reserved${summary.unresolvedReasons.length ? '; count unproven' : ''}; hash=${contract.hashPolicy || 'deny'}; deps=${contract.dependencyPolicy || 'ask'}; files=${Array.isArray(contract.allowedPaths) ? contract.allowedPaths.join('|') : 'unbounded'}.`;
+  const effectiveAllowedPaths = Array.isArray(contract.allowedPaths)
+    ? contract.allowedPaths
+    : (contract.mode === 'spec' ? SPEC_ALLOWED_PATHS : null);
+  return `mode=${contract.mode}; agents=${summary.reservedUpperBound}/${limit} reserved${summary.unresolvedReasons.length ? '; count unproven' : ''}; hash=${contract.hashPolicy || 'deny'}; deps=${contract.dependencyPolicy || 'ask'}; files=${Array.isArray(effectiveAllowedPaths) ? effectiveAllowedPaths.join('|') : 'unbounded'}.`;
 }
 
 function contractContext(contract, delegation = {}, phase = 'active', directiveWarning = null, storageError = null) {
@@ -586,7 +589,8 @@ module.exports = { contractContext, handleControlEvent, runtimeCommand };
 "src/contracts.cjs": function(module, exports, __require) {
 'use strict';
 
-const MODES = new Set(['answer', 'review', 'change', 'monitor', 'open']);
+const MODES = new Set(['answer', 'review', 'spec', 'change', 'monitor', 'open']);
+const SPEC_ALLOWED_PATHS = ['docs/**', 'specs/**', '*.md', '**/*.md'];
 const LEVELS = new Set(['watch', 'guard', 'lock', 'off']);
 const HASH_POLICIES = new Set(['deny', 'ask', 'allow']);
 const SCOPE_POLICIES = new Set(['deny', 'ask', 'allow']);
@@ -751,7 +755,11 @@ function naturalCorrection(prompt, previous) {
     return { mode: 'monitor', source: 'natural-explicit' };
   }
 
-  const wasNonMutating = ['answer', 'review', 'monitor'].includes(previous.mode);
+  if (/\bspec only\b|\bdesign doc only\b|只写(?:文档|规范|设计文档)/i.test(text)) {
+    return { mode: 'spec', source: 'natural-explicit' };
+  }
+
+  const wasNonMutating = ['answer', 'review', 'monitor', 'spec'].includes(previous.mode);
   const explicitChange = /^(?:please\s+)?(?:fix|implement|change|apply|patch)\b|^(?:请)?(?:修复|修改|实现|应用补丁)|^把.+(?:修复|修改|改掉)/i.test(text);
   if (wasNonMutating && explicitChange) {
     return { mode: 'change', source: 'natural-explicit' };
@@ -876,6 +884,7 @@ module.exports = {
   SCOPE_POLICIES,
   LEVELS,
   MODES,
+  SPEC_ALLOWED_PATHS,
   DEFAULT_AGENT_LIMIT,
   defaultContract,
   normalizeContract,
@@ -1148,7 +1157,7 @@ module.exports = {
 'use strict';
 
 const nodePath = require('node:path');
-const { DEFAULT_AGENT_LIMIT } = __require("src/contracts.cjs");
+const { DEFAULT_AGENT_LIMIT, SPEC_ALLOWED_PATHS } = __require("src/contracts.cjs");
 const { inspectDelegation } = __require("src/delegation-state.cjs");
 const { SHELL_ANALYSIS_REASONS, isShellAnalysisReason } = __require("src/control-protocol.cjs");
 
@@ -1183,6 +1192,10 @@ function normalizeComparablePath(value, cwd) {
 
 function pathAllowed(path, allowedPaths, cwd) {
   const normalizedPath = normalizeComparablePath(path, cwd);
+  const insideWorkspace = Boolean(normalizedPath)
+    && !normalizedPath.startsWith('..')
+    && !nodePath.posix.isAbsolute(normalizedPath)
+    && !isWindowsAbsolute(normalizedPath);
   return allowedPaths.some((value) => {
     const allowed = normalizeComparablePath(value, cwd);
     const caseInsensitive = isWindowsAbsolute(cwd) || (isWindowsAbsolute(path) && isWindowsAbsolute(value));
@@ -1192,6 +1205,19 @@ function pathAllowed(path, allowedPaths, cwd) {
     if (comparableAllowed.endsWith('/**')) {
       const base = comparableAllowed.slice(0, -3);
       return comparablePath === base || comparablePath.startsWith(`${base}/`);
+    }
+    if (comparableAllowed.startsWith('**/')) {
+      if (!insideWorkspace) return false;
+      const subPattern = comparableAllowed.slice(3);
+      const baseName = nodePath.posix.basename(comparablePath);
+      if (subPattern.startsWith('*.')) {
+        return baseName.endsWith(subPattern.slice(1));
+      }
+      return baseName === subPattern || comparablePath === subPattern || comparablePath.endsWith(`/${subPattern}`);
+    }
+    if (!comparableAllowed.includes('/') && comparableAllowed.startsWith('*.')) {
+      if (!insideWorkspace || comparablePath.includes('/')) return false;
+      return comparablePath.endsWith(comparableAllowed.slice(1));
     }
     return comparablePath === comparableAllowed;
   });
@@ -1281,9 +1307,12 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
     );
   }
 
-  if (Array.isArray(contract.allowedPaths)) {
+  const effectiveAllowedPaths = Array.isArray(contract.allowedPaths)
+    ? contract.allowedPaths
+    : (mode === 'spec' ? SPEC_ALLOWED_PATHS : null);
+  if (Array.isArray(effectiveAllowedPaths)) {
     const affectedPaths = Array.isArray(action.affectedPaths) ? action.affectedPaths : [];
-    if (['write', 'unknown'].includes(action.mutability) && affectedPaths.length === 0 && !contract.allowedPaths.includes('**')) {
+    if (['write', 'unknown'].includes(action.mutability) && affectedPaths.length === 0 && !effectiveAllowedPaths.includes('**')) {
       return decision(
         controlledOutcome(level, 'require_user_approval'),
         'S',
@@ -1292,7 +1321,7 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
         'Use apply_patch or an Edit tool with visible paths, or obtain approval for an explicit broader boundary.'
       );
     }
-    const outside = affectedPaths.filter((path) => !pathAllowed(path, contract.allowedPaths, action.cwd));
+    const outside = affectedPaths.filter((path) => !pathAllowed(path, effectiveAllowedPaths, action.cwd));
     if (outside.length) {
       return decision(
         controlledOutcome(level),

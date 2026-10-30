@@ -1,7 +1,7 @@
 'use strict';
 
 const nodePath = require('node:path');
-const { DEFAULT_AGENT_LIMIT } = require('./contracts.cjs');
+const { DEFAULT_AGENT_LIMIT, SPEC_ALLOWED_PATHS } = require('./contracts.cjs');
 const { inspectDelegation } = require('./delegation-state.cjs');
 const { SHELL_ANALYSIS_REASONS, isShellAnalysisReason } = require('./control-protocol.cjs');
 
@@ -36,6 +36,10 @@ function normalizeComparablePath(value, cwd) {
 
 function pathAllowed(path, allowedPaths, cwd) {
   const normalizedPath = normalizeComparablePath(path, cwd);
+  const insideWorkspace = Boolean(normalizedPath)
+    && !normalizedPath.startsWith('..')
+    && !nodePath.posix.isAbsolute(normalizedPath)
+    && !isWindowsAbsolute(normalizedPath);
   return allowedPaths.some((value) => {
     const allowed = normalizeComparablePath(value, cwd);
     const caseInsensitive = isWindowsAbsolute(cwd) || (isWindowsAbsolute(path) && isWindowsAbsolute(value));
@@ -45,6 +49,19 @@ function pathAllowed(path, allowedPaths, cwd) {
     if (comparableAllowed.endsWith('/**')) {
       const base = comparableAllowed.slice(0, -3);
       return comparablePath === base || comparablePath.startsWith(`${base}/`);
+    }
+    if (comparableAllowed.startsWith('**/')) {
+      if (!insideWorkspace) return false;
+      const subPattern = comparableAllowed.slice(3);
+      const baseName = nodePath.posix.basename(comparablePath);
+      if (subPattern.startsWith('*.')) {
+        return baseName.endsWith(subPattern.slice(1));
+      }
+      return baseName === subPattern || comparablePath === subPattern || comparablePath.endsWith(`/${subPattern}`);
+    }
+    if (!comparableAllowed.includes('/') && comparableAllowed.startsWith('*.')) {
+      if (!insideWorkspace || comparablePath.includes('/')) return false;
+      return comparablePath.endsWith(comparableAllowed.slice(1));
     }
     return comparablePath === comparableAllowed;
   });
@@ -134,9 +151,12 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
     );
   }
 
-  if (Array.isArray(contract.allowedPaths)) {
+  const effectiveAllowedPaths = Array.isArray(contract.allowedPaths)
+    ? contract.allowedPaths
+    : (mode === 'spec' ? SPEC_ALLOWED_PATHS : null);
+  if (Array.isArray(effectiveAllowedPaths)) {
     const affectedPaths = Array.isArray(action.affectedPaths) ? action.affectedPaths : [];
-    if (['write', 'unknown'].includes(action.mutability) && affectedPaths.length === 0 && !contract.allowedPaths.includes('**')) {
+    if (['write', 'unknown'].includes(action.mutability) && affectedPaths.length === 0 && !effectiveAllowedPaths.includes('**')) {
       return decision(
         controlledOutcome(level, 'require_user_approval'),
         'S',
@@ -145,7 +165,7 @@ function decide({ contract, action, state = {}, delegation = inspectDelegation(s
         'Use apply_patch or an Edit tool with visible paths, or obtain approval for an explicit broader boundary.'
       );
     }
-    const outside = affectedPaths.filter((path) => !pathAllowed(path, contract.allowedPaths, action.cwd));
+    const outside = affectedPaths.filter((path) => !pathAllowed(path, effectiveAllowedPaths, action.cwd));
     if (outside.length) {
       return decision(
         controlledOutcome(level),

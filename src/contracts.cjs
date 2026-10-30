@@ -1,6 +1,7 @@
 'use strict';
 
-const MODES = new Set(['answer', 'review', 'change', 'monitor', 'open']);
+const MODES = new Set(['answer', 'review', 'spec', 'change', 'monitor', 'open']);
+const SPEC_ALLOWED_PATHS = ['docs/**', 'specs/**', '*.md', '**/*.md'];
 const LEVELS = new Set(['watch', 'guard', 'lock', 'off']);
 const HASH_POLICIES = new Set(['deny', 'ask', 'allow']);
 const SCOPE_POLICIES = new Set(['deny', 'ask', 'allow']);
@@ -165,7 +166,11 @@ function naturalCorrection(prompt, previous) {
     return { mode: 'monitor', source: 'natural-explicit' };
   }
 
-  const wasNonMutating = ['answer', 'review', 'monitor'].includes(previous.mode);
+  if (/\bspec only\b|\bdesign doc only\b|只写(?:文档|规范|设计文档)/i.test(text)) {
+    return { mode: 'spec', source: 'natural-explicit' };
+  }
+
+  const wasNonMutating = ['answer', 'review', 'monitor', 'spec'].includes(previous.mode);
   const explicitChange = /^(?:please\s+)?(?:fix|implement|change|apply|patch)\b|^(?:请)?(?:修复|修改|实现|应用补丁)|^把.+(?:修复|修改|改掉)/i.test(text);
   if (wasNonMutating && explicitChange) {
     return { mode: 'change', source: 'natural-explicit' };
@@ -290,6 +295,7 @@ module.exports = {
   SCOPE_POLICIES,
   LEVELS,
   MODES,
+  SPEC_ALLOWED_PATHS,
   DEFAULT_AGENT_LIMIT,
   defaultContract,
   normalizeContract,

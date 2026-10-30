@@ -87,6 +87,10 @@ attribute uncertain claims instead of surrounding them with disclaimers.
 
 - `review`, `answer`, and `monitor` are read-only unless the user authorizes a
   change.
+- `spec` permits creating and editing specification or design artifacts (`docs/**`,
+  `specs/**`, `*.md`, `**/*.md`, or an explicit `files=` boundary) while keeping
+  production source code and dependencies untouched until implementation is
+  authorized.
 - `change` permits only requested work and necessary consequences.
 - Necessary work does not override an explicit file lock or a narrower action
   boundary. Explain a required boundary change before acting outside it.

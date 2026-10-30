@@ -1,6 +1,6 @@
 'use strict';
 
-const { DEFAULT_AGENT_LIMIT, parseContractPrompt } = require('./contracts.cjs');
+const { DEFAULT_AGENT_LIMIT, SPEC_ALLOWED_PATHS, parseContractPrompt } = require('./contracts.cjs');
 const { SHELL_ANALYSIS_REASONS, isShellAnalysisReason, assertControlEvent, supportsLifecycleFacts } = require('./control-protocol.cjs');
 const { inspectDelegation, applyDelegationFact } = require('./delegation-state.cjs');
 const { decide } = require('./decision.cjs');
@@ -18,7 +18,10 @@ function context(text) {
 
 function contractFields(contract, summary) {
   const limit = Number.isSafeInteger(contract.agentBudget) && contract.agentBudget >= 0 ? contract.agentBudget : DEFAULT_AGENT_LIMIT;
-  return `mode=${contract.mode}; agents=${summary.reservedUpperBound}/${limit} reserved${summary.unresolvedReasons.length ? '; count unproven' : ''}; hash=${contract.hashPolicy || 'deny'}; deps=${contract.dependencyPolicy || 'ask'}; files=${Array.isArray(contract.allowedPaths) ? contract.allowedPaths.join('|') : 'unbounded'}.`;
+  const effectiveAllowedPaths = Array.isArray(contract.allowedPaths)
+    ? contract.allowedPaths
+    : (contract.mode === 'spec' ? SPEC_ALLOWED_PATHS : null);
+  return `mode=${contract.mode}; agents=${summary.reservedUpperBound}/${limit} reserved${summary.unresolvedReasons.length ? '; count unproven' : ''}; hash=${contract.hashPolicy || 'deny'}; deps=${contract.dependencyPolicy || 'ask'}; files=${Array.isArray(effectiveAllowedPaths) ? effectiveAllowedPaths.join('|') : 'unbounded'}.`;
 }
 
 function contractContext(contract, delegation = {}, phase = 'active', directiveWarning = null, storageError = null) {

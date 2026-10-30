@@ -54,7 +54,7 @@ test('Codex namespaced directives match short directives and preserve field boun
   const previous = parseContractPrompt('$stop-that-shit review -- inspect').contract;
   for (const prefix of ['', '\n', '\r\n\r\n   ']) {
     for (const head of [
-      'answer', 'review', 'monitor', 'open',
+      'answer', 'review', 'spec', 'monitor', 'open',
       'lock change agents=0 files=src/Config.cjs|test/** deps=deny hash=allow', 'off'
     ]) {
       const short = `${prefix}$stop-that-shit ${head} -- task`;
@@ -304,4 +304,18 @@ test('natural corrections ignore quoted examples without disabling real task cor
   assert.equal(parseContractPrompt('Fix "src/config.cjs" now.', review).contract.mode, 'change');
   assert.equal(parseContractPrompt('"Fix the bug" is an example.', review).contract.mode, 'review');
   assert.equal(parseContractPrompt("Don't edit anything.", previous).contract.mode, 'review');
+});
+
+test('spec directive and natural corrections support spec-to-change workflow handoffs', () => {
+  const specDirective = parseContractPrompt('$stop-that-shit spec -- draft the design specification', defaultContract());
+  assert.equal(specDirective.contract.mode, 'spec');
+  assert.equal(specDirective.contract.level, 'guard');
+  assert.equal(specDirective.contract.allowedPaths, null);
+
+  const naturalSpec = parseContractPrompt('Design doc only.', specDirective.contract);
+  assert.equal(naturalSpec.contract.mode, 'spec');
+
+  const promoted = parseContractPrompt('Please implement the approved spec now.', specDirective.contract);
+  assert.equal(promoted.contract.mode, 'change');
+  assert.equal(promoted.contract.allowedPaths, null);
 });
