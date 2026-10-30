@@ -179,7 +179,7 @@ function unarmedDirectiveWarning(prompt) {
   // Host-generated prefixes and user introductions cannot be distinguished
   // from this text alone, so neither is removed to make a directive eligible.
   const prose = correctionProse(prompt);
-  if (!/^ {0,3}\$stop-that-shit(?=$|[\s,:])/im.test(prose)) return null;
+  if (!/^ {0,3}\$stop-that-shit(?=$|[\s,:])/im.test(prose) && !/\$stop-that-shit(?:\s|:)[^\r\n]*\bdeps=(?:allow|ask|deny)\b/i.test(prompt)) return null;
   return {
     code: 'DIRECTIVE_NOT_ARMED',
     message: 'DIRECTIVE_NOT_ARMED: a Stop That Shit directive was not applied because it does not start the first non-empty line of the received prompt. Send the directive first in a separate message and check $stop-that-shit status before continuing.'

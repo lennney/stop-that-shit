@@ -765,7 +765,7 @@ function unarmedDirectiveWarning(prompt) {
   // Host-generated prefixes and user introductions cannot be distinguished
   // from this text alone, so neither is removed to make a directive eligible.
   const prose = correctionProse(prompt);
-  if (!/^ {0,3}\$stop-that-shit(?=$|[\s,:])/im.test(prose)) return null;
+  if (!/^ {0,3}\$stop-that-shit(?=$|[\s,:])/im.test(prose) && !/\$stop-that-shit(?:\s|:)[^\r\n]*\bdeps=(?:allow|ask|deny)\b/i.test(prompt)) return null;
   return {
     code: 'DIRECTIVE_NOT_ARMED',
     message: 'DIRECTIVE_NOT_ARMED: a Stop That Shit directive was not applied because it does not start the first non-empty line of the received prompt. Send the directive first in a separate message and check $stop-that-shit status before continuing.'
@@ -2526,7 +2526,7 @@ const WRITE_SHELL_COMMANDS = new Set([
 function staticShellCommands(text) {
   const commands = [];
   let args = [], word = '', inWord = false, quote = null, separator = null;
-  let nativeQuotes = false;
+  let nativeQuotes = false, hasPipe = false;
   const finishWord = () => {
     if (inWord) args.push(word);
     word = ''; inWord = false;
@@ -2565,6 +2565,7 @@ function staticShellCommands(text) {
       const operator = char === '\r' ? '\n'
         : (char === '&' || char === '|') && next === char ? char + text[++i] : char;
       if (operator === '&') return null;
+      if (operator === '|') hasPipe = true;
       if (args.length) finishCommand();
       else if (operator === '\n') continue;
       else return null;
@@ -2578,7 +2579,7 @@ function staticShellCommands(text) {
   finishWord();
   if (args.length) finishCommand();
   else if (['&&', '||', '|'].includes(separator)) return null;
-  return commands.length ? { commands } : null;
+  return commands.length ? { commands, hasPipe } : null;
 }
 
 // Consume ripgrep option values before interpreting -- or executable options.
@@ -2644,14 +2645,17 @@ function analyzeShell(command) {
     hashIntent: HASH_COMMAND.test(text), dependencyIntent: DEPENDENCY_COMMAND.test(text)
   };
   const commands = analysis.commands.map(command => ({
-    ...classifyStaticCommand(command), text: command.args.join(' ')
+    ...classifyStaticCommand(command), text: command.args.join(' '),
+    // Static PowerShell content cmdlets receive their literal arguments as data.
+    // Dynamic syntax is rejected by staticShellCommands before this point.
+    literalContent: analysis.commands.length === 1 && !analysis.hasPipe && ['set-content', 'add-content'].includes(String(command.args[0] || '').toLowerCase())
   }));
   // Proven reads treat their arguments as data. Keep the existing intent checks
   // for writes and unproven programs, independently for each command in a chain.
   return {
     ...combineClassifications(commands),
-    hashIntent: commands.some(command => command.mutability !== 'read' && HASH_COMMAND.test(command.text)),
-    dependencyIntent: commands.some(command => command.mutability !== 'read' && DEPENDENCY_COMMAND.test(command.text))
+    hashIntent: commands.some(command => command.mutability !== 'read' && !command.literalContent && HASH_COMMAND.test(command.text)),
+    dependencyIntent: commands.some(command => command.mutability !== 'read' && !command.literalContent && DEPENDENCY_COMMAND.test(command.text))
   };
 }
 
