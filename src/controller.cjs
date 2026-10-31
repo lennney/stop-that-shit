@@ -4,7 +4,7 @@ const { DEFAULT_AGENT_LIMIT, parseContractPrompt } = require('./contracts.cjs');
 const { SHELL_ANALYSIS_REASONS, isShellAnalysisReason, assertControlEvent, supportsLifecycleFacts } = require('./control-protocol.cjs');
 const { inspectDelegation, applyDelegationFact } = require('./delegation-state.cjs');
 const { decide } = require('./decision.cjs');
-const { readRuntime, recordDecision } = require('./runtime-audit.cjs');
+const { readRuntime, recordDecision, recordModeChange } = require('./runtime-audit.cjs');
 const { recordAnnotation } = require('./runtime-annotations.cjs');
 const { readState, recoveryState, updateSession } = require('./state.cjs');
 
@@ -146,7 +146,7 @@ function handleRuntimeCommand(command, event, state, options) {
   ].join('\n'));
 }
 
-function handlePrompt(event, state) {
+function handlePrompt(event, state, options) {
   if (state.storageError) return context(`${state.storageError.code}: ${state.storageError.message}`);
   const parsed = parseContractPrompt(event.prompt, state.contract);
   if (parsed.error) {
@@ -155,12 +155,19 @@ function handlePrompt(event, state) {
     state.lastPromptContext = null;
     return { kind: 'prompt-error', error: parsed.error, message: parsed.error.message };
   }
+  const previousMode = state.contract.mode;
   state.contract = parsed.contract;
+  let auditWarning = null;
+  if (previousMode !== state.contract.mode) {
+    try { recordModeChange(event, previousMode, state.contract, options); }
+    catch { auditWarning = 'MODE_AUDIT_UNAVAILABLE: mode transition metadata could not be recorded.'; }
+  }
   if (parsed.directive || parsed.correction) state.directiveError = null;
   if (parsed.directive || parsed.correction) state.directiveWarning = parsed.directive ? parsed.warning : null;
   const promptContext = contractContext(state.contract, state.delegation, 'active', parsed.warning || state.directiveWarning, state.storageError);
   const repeatedContext = state.lastPromptContext === promptContext;
   state.lastPromptContext = promptContext;
+  if (auditWarning) return context(`${promptContext}\n${auditWarning}`);
   if (parsed.warning) return { ...context(promptContext), warning: parsed.warning };
   return repeatedContext ? none() : context(promptContext);
 }
@@ -285,7 +292,7 @@ function handleControlEvent(rawEvent, options = {}) {
       const command = runtimeCommand(event.prompt);
       return command
         ? handleRuntimeCommand(command, event, readState(event.sessionId, options.dataDir), options)
-        : updateSession(event.sessionId, options.dataDir, state => handlePrompt(event, state));
+        : updateSession(event.sessionId, options.dataDir, state => handlePrompt(event, state, options));
     }
     case 'action.before':
       return handleBeforeAction(event, options);

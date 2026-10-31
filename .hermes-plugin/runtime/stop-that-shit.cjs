@@ -283,7 +283,7 @@ const { DEFAULT_AGENT_LIMIT, parseContractPrompt } = __require("src/contracts.cj
 const { SHELL_ANALYSIS_REASONS, isShellAnalysisReason, assertControlEvent, supportsLifecycleFacts } = __require("src/control-protocol.cjs");
 const { inspectDelegation, applyDelegationFact } = __require("src/delegation-state.cjs");
 const { decide } = __require("src/decision.cjs");
-const { readRuntime, recordDecision } = __require("src/runtime-audit.cjs");
+const { readRuntime, recordDecision, recordModeChange } = __require("src/runtime-audit.cjs");
 const { recordAnnotation } = __require("src/runtime-annotations.cjs");
 const { readState, recoveryState, updateSession } = __require("src/state.cjs");
 
@@ -425,7 +425,7 @@ function handleRuntimeCommand(command, event, state, options) {
   ].join('\n'));
 }
 
-function handlePrompt(event, state) {
+function handlePrompt(event, state, options) {
   if (state.storageError) return context(`${state.storageError.code}: ${state.storageError.message}`);
   const parsed = parseContractPrompt(event.prompt, state.contract);
   if (parsed.error) {
@@ -434,12 +434,19 @@ function handlePrompt(event, state) {
     state.lastPromptContext = null;
     return { kind: 'prompt-error', error: parsed.error, message: parsed.error.message };
   }
+  const previousMode = state.contract.mode;
   state.contract = parsed.contract;
+  let auditWarning = null;
+  if (previousMode !== state.contract.mode) {
+    try { recordModeChange(event, previousMode, state.contract, options); }
+    catch { auditWarning = 'MODE_AUDIT_UNAVAILABLE: mode transition metadata could not be recorded.'; }
+  }
   if (parsed.directive || parsed.correction) state.directiveError = null;
   if (parsed.directive || parsed.correction) state.directiveWarning = parsed.directive ? parsed.warning : null;
   const promptContext = contractContext(state.contract, state.delegation, 'active', parsed.warning || state.directiveWarning, state.storageError);
   const repeatedContext = state.lastPromptContext === promptContext;
   state.lastPromptContext = promptContext;
+  if (auditWarning) return context(`${promptContext}\n${auditWarning}`);
   if (parsed.warning) return { ...context(promptContext), warning: parsed.warning };
   return repeatedContext ? none() : context(promptContext);
 }
@@ -564,7 +571,7 @@ function handleControlEvent(rawEvent, options = {}) {
       const command = runtimeCommand(event.prompt);
       return command
         ? handleRuntimeCommand(command, event, readState(event.sessionId, options.dataDir), options)
-        : updateSession(event.sessionId, options.dataDir, state => handlePrompt(event, state));
+        : updateSession(event.sessionId, options.dataDir, state => handlePrompt(event, state, options));
     }
     case 'action.before':
       return handleBeforeAction(event, options);
@@ -738,7 +745,8 @@ function naturalCorrection(prompt, previous) {
   if (/^(?:stop|stop now|停止|停下来)[.!。！\s]*$/i.test(text)) {
     return { mode: 'answer', source: 'explicit-stop' };
   }
-  if (/\breview only\b|\b(?:do not|don't) (?:edit|change|fix) (?:anything|the (?:repo|repository|files?|code))\b|只审查|只看不改|不要修改(?:任何|代码|文件)/i.test(text)) {
+  if (/\breview only\b|\b(?:do not|don't) (?:edit|change|fix) (?:anything|the (?:repo|repository|files?|code))\b/i.test(text)
+      || /(?:^|[\n，,。.!！；;])[ \t]*(?:(?:请你|请|注意[：:]?|这次|本次|现在|接下来|先)[ \t]*)*(?:只审查|只看不改|不要修改(?:任何|代码|文件))/u.test(text)) {
     return { mode: 'review', source: 'natural-explicit' };
   }
   if (/\banswer only\b|只回答/i.test(text)) {
@@ -1403,6 +1411,21 @@ function eventPath(sessionId, options) {
   return path.join(runtimeRoot(options), `${sessionKey(sessionId)}.jsonl`);
 }
 
+function recordModeChange(event, previousMode, contract, options = {}) {
+  // Separate from decision events so existing runtime readers retain their schema.
+  // Never persist prompts or host-provided free text.
+  const record = {
+    schemaVersion: 1,
+    occurredAt: new Date().toISOString(),
+    previousMode,
+    nextMode: contract.mode,
+    source: contract.source,
+    eventKind: 'prompt.submit',
+    hostFamily: ['codex', 'claude-code', 'deepseek-harness', 'opencode', 'pi', 'omp', 'hermes-agent'].includes(event.host?.family) ? event.host.family : 'other'
+  };
+  appendJsonl(path.join(runtimeRoot(options), 'mode-changes', `${sessionKey(event.sessionId)}.jsonl`), record);
+}
+
 function recordDecision(facts, options = {}) {
   const contract = facts && facts.contract || {};
   const delegation = facts && facts.delegation || {};
@@ -1534,7 +1557,7 @@ function readRuntime(query = {}, options = {}) {
   return { schemaVersion: 1, ...result, annotations };
 }
 
-module.exports = { readRuntime, recordDecision };
+module.exports = { readRuntime, recordDecision, recordModeChange };
 
 },
 "package.json": function(module, exports, __require) {

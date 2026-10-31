@@ -19,6 +19,21 @@ function eventPath(sessionId, options) {
   return path.join(runtimeRoot(options), `${sessionKey(sessionId)}.jsonl`);
 }
 
+function recordModeChange(event, previousMode, contract, options = {}) {
+  // Separate from decision events so existing runtime readers retain their schema.
+  // Never persist prompts or host-provided free text.
+  const record = {
+    schemaVersion: 1,
+    occurredAt: new Date().toISOString(),
+    previousMode,
+    nextMode: contract.mode,
+    source: contract.source,
+    eventKind: 'prompt.submit',
+    hostFamily: ['codex', 'claude-code', 'deepseek-harness', 'opencode', 'pi', 'omp', 'hermes-agent'].includes(event.host?.family) ? event.host.family : 'other'
+  };
+  appendJsonl(path.join(runtimeRoot(options), 'mode-changes', `${sessionKey(event.sessionId)}.jsonl`), record);
+}
+
 function recordDecision(facts, options = {}) {
   const contract = facts && facts.contract || {};
   const delegation = facts && facts.delegation || {};
@@ -150,4 +165,4 @@ function readRuntime(query = {}, options = {}) {
   return { schemaVersion: 1, ...result, annotations };
 }
 
-module.exports = { readRuntime, recordDecision };
+module.exports = { readRuntime, recordDecision, recordModeChange };

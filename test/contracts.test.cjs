@@ -28,6 +28,15 @@ test('standalone Chinese observation instructions still withdraw change authorit
   assert.equal(parseContractPrompt('只观察，不要修改代码', previous).contract.mode, 'review');
 });
 
+test('direct Chinese review corrections with polite and attention prefixes withdraw change authority', () => {
+  const previous = parseContractPrompt('$stop-that-shit change -- task').contract;
+  for (const prompt of ['请你不要修改代码', '注意：不要修改代码']) {
+    const result = parseContractPrompt(prompt, previous);
+    assert.equal(result.contract.mode, 'review', prompt);
+    assert.equal(result.contract.source, 'natural-explicit', prompt);
+  }
+});
+
 test('spaces before a Chinese observation object do not revoke change', () => {
   const previous = parseContractPrompt('$stop-that-shit change -- implement').contract;
   for (const prompt of ['只观察 实际定时轮次，按授权修复', '请只观察失败任务，按授权修复']) {
@@ -304,4 +313,18 @@ test('natural corrections ignore quoted examples without disabling real task cor
   assert.equal(parseContractPrompt('Fix "src/config.cjs" now.', review).contract.mode, 'change');
   assert.equal(parseContractPrompt('"Fix the bug" is an example.', review).contract.mode, 'review');
   assert.equal(parseContractPrompt("Don't edit anything.", previous).contract.mode, 'review');
+});
+
+test('Chinese role-scoped review wording and quoted examples do not withdraw change authority', () => {
+  const previous = parseContractPrompt('$stop-that-shit change -- task').contract;
+  for (const prompt of [
+    '主不要修改代码，执行器继续实现。',
+    '主：只审查；执行器继续修改。',
+    '示例：请你不要修改代码',
+    '请你继续执行任务。\n引用：注意：不要修改代码'
+  ]) {
+    const result = parseContractPrompt(prompt, previous);
+    assert.equal(result.contract.mode, 'change', prompt);
+    assert.equal(result.correction, false, prompt);
+  }
 });

@@ -41,3 +41,5 @@ through another path.
 
 Removing the plugin does not necessarily remove host-owned plugin data. Users
 may delete that plugin data through their normal host data-management workflow.
+
+Mode transitions are stored separately under `runtime/mode-changes/` in the plugin data directory. Each record contains the time, previous and next mode, transition source, event kind, and host family; it contains no prompt text.
