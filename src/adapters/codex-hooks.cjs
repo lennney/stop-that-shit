@@ -4,6 +4,7 @@ const { PROTOCOL_VERSION } = require('../control-protocol.cjs');
 const { handleControlEvent } = require('../controller.cjs');
 const { analyzeCodexTool, canonicalCodexToolName } = require('./codex-tool-classifier.cjs');
 const { optionalIdentifier } = require('./lifecycle-fields.cjs');
+const { YES, NO, syncQuestionDigest } = require('../action-approval.cjs');
 
 const EVENT_KIND = {
   SessionStart: 'session.start',
@@ -24,11 +25,24 @@ function parsedResponse(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
 }
 
+function agentIdentity(input) {
+  const agentId = optionalIdentifier(input.agent_id, input.agentId);
+  if (!agentId) return null;
+  return { agentId, agentType: typeof input.agent_type === 'string' ? input.agent_type : null };
+}
+
+function delegationTargetId(toolName, toolInput) {
+  if (toolName !== 'send_input' || !toolInput || typeof toolInput !== 'object') return null;
+  return optionalIdentifier(toolInput.target, toolInput.id, toolInput.agent_id, toolInput.agentId);
+}
+
 function toControlEvent(input) {
   if (!input || typeof input !== 'object') return null;
   const kind = EVENT_KIND[input.hook_event_name];
   if (!kind) return null;
   const toolName = canonicalCodexToolName(input.tool_name);
+  const agent = agentIdentity(input);
+  const delegationTarget = delegationTargetId(toolName, input.tool_input);
 
   const event = {
     protocolVersion: PROTOCOL_VERSION,
@@ -42,14 +56,41 @@ function toControlEvent(input) {
       permissionMode: input.permission_mode || null
     }
   };
+  if (agent) event.agent = agent;
 
   if (kind === 'prompt.submit') event.prompt = String(input.prompt || '');
   if (kind === 'action.after') {
-    // Only delegation results can change this adapter's ledger. Ordinary tool
-    // output must not acquire a writer lock just to rewrite unchanged state.
-    if (!['spawn_agent', 'Agent', 'wait_agent'].includes(toolName)) return null;
-    const actionId = optionalIdentifier(input.tool_use_id, input.tool_call_id);
+    // Delegation results and an exact registered native approval answer can
+    // change state. Ordinary tool output must not acquire a writer lock.
+    const actionId = toolName === 'request_user_input'
+      ? optionalIdentifier(input.tool_use_id)
+      : optionalIdentifier(input.tool_use_id, input.tool_call_id);
     if (!actionId) return null;
+    if (toolName === 'request_user_input') {
+      const response = parsedResponse(input.tool_response);
+      const questions = input.tool_input?.questions;
+      if (!response || Object.keys(response).length !== 1 || !Object.hasOwn(response, 'answers')
+          || !response.answers || typeof response.answers !== 'object' || Array.isArray(response.answers)
+          || !Array.isArray(questions) || questions.length !== 1) return null;
+      const questionDigest = syncQuestionDigest(questions[0]);
+      if (!questionDigest) return null;
+      const questionId = questions[0].id;
+      const answers = response.answers;
+      if (Object.keys(answers).length === 0 && Object.keys(response).length === 1
+          && Object.keys(input.tool_input).length === 1 && Object.hasOwn(input.tool_input, 'questions')) {
+        event.action = { id: actionId, name: toolName, questionId, questionDigest, unanswered: true, cwd: input.cwd };
+        return event;
+      }
+      if (Object.keys(answers).length !== 1 || !Object.hasOwn(answers, questionId)) return null;
+      const answer = answers[questionId];
+      if (!answer || typeof answer !== 'object' || Array.isArray(answer)
+          || Object.keys(answer).length !== 1 || !Object.hasOwn(answer, 'answers')
+          || !Array.isArray(answer.answers) || answer.answers.length !== 1
+          || ![YES, NO].includes(answer.answers[0])) return null;
+      event.action = { id: actionId, name: toolName, questionId, questionDigest, answer: answer.answers[0], cwd: input.cwd };
+      return event;
+    }
+    if (!['spawn_agent', 'Agent', 'wait_agent'].includes(toolName)) return null;
     event.action = { id: actionId, lifecycle: 'unknown' };
     const response = parsedResponse(input.tool_response);
     if (toolName === 'spawn_agent' && response && uuid(response.agent_id)) {
@@ -76,7 +117,9 @@ function toControlEvent(input) {
   }
   if (kind === 'action.before') {
     const analysis = analyzeCodexTool(input.tool_name, input.tool_input, input.cwd);
-    const actionId = optionalIdentifier(input.tool_use_id, input.tool_call_id);
+    const actionId = toolName === 'request_user_input'
+      ? optionalIdentifier(input.tool_use_id)
+      : optionalIdentifier(input.tool_use_id, input.tool_call_id);
     if (analysis.mutability === 'delegate' && !actionId) return null;
     event.action = {
       id: actionId,
@@ -85,6 +128,7 @@ function toControlEvent(input) {
       ...analysis,
       cwd: input.cwd
     };
+    if (delegationTarget) event.action.delegationTargetId = delegationTarget;
     if (['send_input', 'resume_agent', 'followup_task'].includes(toolName)) {
       event.action.delegationLifecycleUnproven = true;
     }
@@ -119,6 +163,9 @@ function fromControlResult(hookEventName, result) {
     const output = contextOutput(hookEventName, result.text);
     if (result.warning) output.systemMessage = result.warning.message;
     return output;
+  }
+  if (result.kind === 'rewrite') {
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { command: result.command } } };
   }
   if (result.kind === 'deny') {
     return {

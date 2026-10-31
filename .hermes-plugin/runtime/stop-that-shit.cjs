@@ -202,6 +202,17 @@ function assertControlEvent(event) {
   }
   nonEmptyString(event.sessionId, 'sessionId');
 
+  if (event.agent !== undefined && event.agent !== null) {
+    if (!event.agent || typeof event.agent !== 'object' || Array.isArray(event.agent)) {
+      throw new TypeError('ControlEvent agent must be an object when provided.');
+    }
+    nonEmptyString(event.agent.agentId, 'agent.agentId');
+    if (event.agent.agentType !== undefined && event.agent.agentType !== null
+        && typeof event.agent.agentType !== 'string') {
+      throw new TypeError('ControlEvent agent.agentType must be a string when provided.');
+    }
+  }
+
   if (event.kind === 'prompt.submit' && typeof event.prompt !== 'string') {
     throw new TypeError('ControlEvent prompt.submit requires a string prompt.');
   }
@@ -215,6 +226,9 @@ function assertControlEvent(event) {
     }
     if (event.action.analysisReason !== undefined && !isShellAnalysisReason(event.action.analysisReason)) {
       throw new TypeError('Unsupported action analysis reason.');
+    }
+    if (event.action.delegationTargetId !== undefined) {
+      nonEmptyString(event.action.delegationTargetId, 'action.delegationTargetId');
     }
     if (event.action.mutability === 'delegate' || event.action.delegationLifecycleUnproven) nonEmptyString(event.action.id, 'action.id');
     if (
@@ -281,18 +295,42 @@ module.exports = {
 
 const { DEFAULT_AGENT_LIMIT, parseContractPrompt } = __require("src/contracts.cjs");
 const { SHELL_ANALYSIS_REASONS, isShellAnalysisReason, assertControlEvent, supportsLifecycleFacts } = __require("src/control-protocol.cjs");
-const { inspectDelegation, applyDelegationFact } = __require("src/delegation-state.cjs");
+const delegationState = __require("src/delegation-state.cjs");
+const { inspectDelegation, applyDelegationFact } = delegationState;
 const { decide } = __require("src/decision.cjs");
 const { readRuntime, recordDecision } = __require("src/runtime-audit.cjs");
 const { recordAnnotation } = __require("src/runtime-annotations.cjs");
-const { readState, recoveryState, updateSession } = __require("src/state.cjs");
+const { readState, recoveryState, updateSession, dataRoot } = __require("src/state.cjs");
+const path = require('node:path');
+const crypto = require('node:crypto');
+const approval = __require("src/action-approval.cjs");
+const approvalScope = __require("src/approval-scope.cjs");
+const { buildRunnerCommand } = __require("src/runner-command.cjs");
+const { bindingForRecord, createHandoff, handoffAvailable, withCoordinationLock } = __require("src/dependency-handoff.cjs");
+// Keep the executable helper in the hook's statically discoverable dependency graph.
+__require("src/dependency-runner.cjs");
 
 function none() {
   return { kind: 'none' };
 }
 
+function targetIsActive(state, agentId) {
+  // PR109 adds authoritative target resolution. Without that API, retain the
+  // existing conservative lifecycle decision instead of guessing from names.
+  return typeof delegationState.isActiveAgent === 'function'
+    && delegationState.isActiveAgent(state, agentId);
+}
+
 function context(text) {
   return { kind: 'context', text };
+}
+
+function coordinatedUpdate(event, options, update) {
+  // The runner shares this temp-root lock while claiming its one-time handoff.
+  // Hook writers take it before the private ledger lock so policy changes and
+  // runner claims have a single ordering without making the runner write private state.
+  return withCoordinationLock(event.sessionId, options.dataDir,
+    () => updateSession(event.sessionId, options.dataDir, update));
 }
 
 function contractFields(contract, summary) {
@@ -427,24 +465,235 @@ function handleRuntimeCommand(command, event, state, options) {
 
 function handlePrompt(event, state) {
   if (state.storageError) return context(`${state.storageError.code}: ${state.storageError.message}`);
-  const parsed = parseContractPrompt(event.prompt, state.contract);
+  const previousContract = state.scope?.child ? state.childContract : state.contract;
+  const parsed = parseContractPrompt(event.prompt, previousContract);
   if (parsed.error) {
     state.directiveError = parsed.error;
     state.directiveWarning = null;
     state.lastPromptContext = null;
     return { kind: 'prompt-error', error: parsed.error, message: parsed.error.message };
   }
-  state.contract = parsed.contract;
+  if (state.scope?.child) {
+    if (parsed.directive || parsed.correction) state.childContract = parsed.contract;
+    state.contract = approvalScope.effectiveChildContract(state.parentContract, state.childContract);
+  } else state.contract = parsed.contract;
+  let reply;
+  const replyEnvelope = /^\s*<send_user_message_question_reply>[\s\S]*<\/send_user_message_question_reply>\s*$/.test(event.prompt);
+  if (replyEnvelope && state.scope?.child && state.actionApproval
+      && state.actionApproval.scopeAgentId !== state.scope.agentId) {
+    reply = { status: 'unavailable' };
+  } else if (replyEnvelope && state.actionApproval
+      && !approval.proposalStillAllowed(state.actionApproval, state.contract, state)) {
+    state.actionApproval.status = 'consumed';
+    reply = { status: 'unavailable' };
+  } else reply = approval.acceptReply(state.actionApproval, event.prompt);
+  if (state.contract.mode !== 'change' || state.contract.dependencyPolicy !== 'ask' || state.contract.level !== 'guard') {
+    state.actionApproval = null;
+    if (reply) reply.status = 'unavailable';
+  }
   if (parsed.directive || parsed.correction) state.directiveError = null;
   if (parsed.directive || parsed.correction) state.directiveWarning = parsed.directive ? parsed.warning : null;
   const promptContext = contractContext(state.contract, state.delegation, 'active', parsed.warning || state.directiveWarning, state.storageError);
   const repeatedContext = state.lastPromptContext === promptContext;
   state.lastPromptContext = promptContext;
+  if (reply) {
+    const acknowledgment = reply.status === 'approved'
+      ? `One-time approval is available for ${reply.eventId} in ${reply.targetCwd}. Retry the same operation; session deps=ask remains unchanged.`
+      : reply.status === 'denied'
+        ? `One-time approval for ${reply.eventId} was denied. No operation was authorized; session deps=ask remains unchanged.`
+        : 'No one-time approval was accepted: the question is unavailable, expired or does not match. The dependency policy is unchanged.';
+    return context(`${promptContext}\n${acknowledgment}`);
+  }
   if (parsed.warning) return { ...context(promptContext), warning: parsed.warning };
   return repeatedContext ? none() : context(promptContext);
 }
 
+function handleScopedPrompt(event, options) {
+  const scope = approvalScope.resolve(event, options);
+  if (!scope.available) {
+    // A child prompt must never rewrite the parent contract when this runtime
+    // lacks the host's real child-state API. Contract changes fail closed;
+    // ordinary child conversation remains read-only.
+    const parent = readState(event.sessionId, options.dataDir);
+    const parsed = parseContractPrompt(event.prompt, parent.contract);
+    if (parsed.error) return { kind: 'prompt-error', error: parsed.error, message: parsed.error.message };
+    if (parsed.directive || parsed.correction || /<send_user_message_question_reply>/.test(event.prompt)) {
+      return { kind: 'prompt-error', error: { code: 'CHILD_SCOPE_UNAVAILABLE' },
+        message: 'Stop That Shit: child-scoped policy and approval state are unavailable; no parent state was changed.' };
+    }
+    return none();
+  }
+  try {
+    return approvalScope.update(event, options, state => handlePrompt(event, state));
+  } catch {
+    return { kind: 'prompt-error', error: { code: 'CHILD_SCOPE_UNAVAILABLE' },
+      message: 'Stop That Shit: child-scoped policy state is unavailable; no parent state was changed.' };
+  }
+}
+
+function handleApprovalAction(event, options) {
+  const scope = approvalScope.resolve(event, options);
+  if (scope.child && !scope.available) {
+    return { kind: 'deny', message: 'Stop That Shit: child-scoped approval state is unavailable; action denied.' };
+  }
+  let orphanedHandoff = null;
+  try {
+    const mutate = state => {
+    if (state.storageError) return { kind: 'deny', message: state.storageError.message };
+    const summary = inspectDelegation(state.delegation, { id: event.action.id });
+    const action = { ...event.action, duplicateActionId: summary.duplicateActionId };
+    let result = decide({ contract: state.contract, action, delegation: summary, state });
+    let usedApproval = null;
+    let rewrittenCommand = null;
+    const record = state.actionApproval;
+    if (approval.live(record) && record.status === 'issued'
+        && !handoffAvailable(record.handoff, bindingForRecord(event.sessionId, record))) {
+      record.status = 'consumed';
+      delete record.ticket;
+      delete record.handoff;
+    }
+    if (result.reasonCode === 'DEPENDENCY_NOT_AUTHORIZED' && state.contract.dependencyPolicy === 'ask'
+        && state.contract.mode === 'change' && state.contract.level === 'guard' && approval.live(record)
+        && ['approved', 'issued'].includes(record.status) && event.action.id !== record.deniedActionId
+        && approval.digest(event) === record.digest
+        && (scope.child ? record.scopeAgentId === scope.agentId : record.scopeAgentId === undefined)
+        && approval.proposalStillAllowed(record, state.contract, state)) {
+      const remaining = decide({ contract: state.contract, action: { ...action, dependencyIntent: false }, delegation: summary, state });
+      if (remaining.outcome === 'allow') {
+        const ticket = record.status === 'issued' ? record.ticket : crypto.randomBytes(32).toString('hex');
+        try {
+          rewrittenCommand = buildRunnerCommand({
+            executable: process.execPath,
+            runnerPath: path.join(__dirname, 'dependency-runner.cjs'),
+            sessionId: event.sessionId,
+            dataDir: dataRoot(options.dataDir),
+            ticket,
+            agentId: scope.child ? scope.agentId : null
+          });
+          const handoff = record.status === 'issued' ? record.handoff
+            : createHandoff(bindingForRecord(event.sessionId, record, ticket));
+          if (record.status !== 'issued') orphanedHandoff = handoff;
+          else if (!handoffAvailable(handoff, bindingForRecord(event.sessionId, record))) {
+            throw new Error('The issued one-time handoff is unavailable; it cannot be recreated.');
+          }
+          record.status = 'issued';
+          record.handoff = handoff;
+          record.approvedAction = {
+            mutability: action.mutability,
+            analysisReason: action.analysisReason,
+            hashIntent: Boolean(action.hashIntent),
+            reachability: action.reachability,
+            authorization: action.authorization,
+            affectedPaths: action.affectedPaths,
+            cwd: record.targetCwd,
+            unboundedDelegation: Boolean(action.unboundedDelegation),
+            delegationLifecycleUnproven: Boolean(action.delegationLifecycleUnproven)
+          };
+          record.issuedActionId = event.action.id;
+          record.ticket = ticket;
+          usedApproval = { eventId: record.eventId, questionCallId: record.questionCallId, consumed: false };
+          result = remaining;
+        } catch (error) {
+          result = {
+            outcome: 'deny_and_explain', family: 'S', reasonCode: 'APPROVED_LAUNCHER_UNAVAILABLE',
+            explanation: error.message,
+            nextStep: 'The one-time approval remains unused. Retry after restoring a verifiable system PowerShell launcher path.'
+          };
+        }
+      }
+    }
+    if (result.outcome === 'allow' && ['request_user_input_async', 'request_user_input'].includes(event.action.name)
+        && approval.isProposalQuestion(event.action, record || { eventId: state.expiredApprovalEventId })) {
+      let registered = false;
+      const sameScope = scope.child ? record?.scopeAgentId === scope.agentId : record?.scopeAgentId === undefined;
+      if (sameScope && approval.proposalStillAllowed(record, state.contract, state)) {
+        const candidate = JSON.parse(JSON.stringify(record));
+        registered = approval.registerQuestion(candidate, event.action)
+          && approval.proposalStillAllowed(candidate, state.contract, state);
+        if (registered) Object.assign(record, candidate);
+      }
+      if (!registered) {
+        result = { outcome: 'deny_and_explain', family: 'S', reasonCode: 'APPROVAL_QUESTION_INVALID',
+          explanation: 'The approval question is expired, already registered, no longer allowed by the current contract, or does not match the pending operation and an existing absolute directory.',
+          nextStep: 'Request a fresh approval for the specific operation; do not display an unbound card.' };
+      }
+    }
+    const denied = ['deny_and_explain', 'require_user_approval'].includes(result.outcome);
+    const responseOutcome = denied ? options.denialResponseOutcome || 'permission_deny_returned'
+      : result.outcome === 'report_and_defer' ? 'context_returned' : 'none';
+    const auditEvent = recordDecision({ sessionId: event.sessionId, agent: event.agent,
+      action: event.action, contract: state.contract,
+      delegation: state.delegation, decision: result, responseOutcome, approval: usedApproval }, options);
+    let message;
+    if (denied && result.reasonCode === 'DEPENDENCY_NOT_AUTHORIZED' && state.contract.dependencyPolicy === 'ask'
+        && state.contract.mode === 'change' && state.contract.level === 'guard') {
+      let pending = null;
+      if (!approval.live(record) || record.status === 'consumed') {
+        pending = approval.newPending(event, auditEvent && auditEvent.eventId, Date.now(), {
+          agentId: scope.child ? scope.agentId : null,
+          policyDigest: scope.child ? approvalScope.policyDigest(state.contract) : null
+        });
+        if (pending) { state.actionApproval = pending; state.expiredApprovalEventId = null; }
+      } else if (record.status === 'pending' && approval.digest(event) === record.digest) {
+        pending = record;
+      }
+      const nextStep = pending
+        ? 'Submit the exact approval card below with the target directory. After an affirmative reply, retry this operation; the session remains deps=ask.'
+        : approval.live(record) && record.status !== 'consumed'
+          ? 'An approval is already bound to another action or is awaiting execution. Use the matching operation; the session remains deps=ask.'
+          : 'A single direct static dependency command or supported PowerShell wrapper can be proposed as a controlled child and still requires a card. For diagnostic text use a supported literal write or file edit; do not execute an install.';
+      message = decisionMessage({ ...result, nextStep }, state.contract, auditEvent, responseOutcome, event.action.analysisReason);
+      if (pending) message += `\nApproval question: ${pending.questionPrefix}<absolute canonical directory>?\nApproval options: ${approval.YES} | ${approval.NO}`;
+      else if (!approval.live(record) || record.status === 'consumed') message += '\nOne-time approval is unavailable for this operation or no safe package manager entry was found.';
+    } else {
+      message = decisionMessage(result, state.contract, auditEvent, responseOutcome, event.action.analysisReason);
+    }
+    if (denied) return { kind: 'deny', decision: result, eventId: auditEvent && auditEvent.eventId, message };
+    if (rewrittenCommand) return { kind: 'rewrite', command: rewrittenCommand };
+    return responseOutcome === 'context_returned' ? context(message) : none();
+    };
+    const result = scope.child
+      ? approvalScope.update(event, options, mutate)
+      : withCoordinationLock(event.sessionId, options.dataDir, () => updateSession(event.sessionId, options.dataDir, mutate));
+    orphanedHandoff = null;
+    return result;
+  } catch {
+    // A failed private state commit must not leave a reusable orphan capability.
+    if (orphanedHandoff) {
+      try { __require("src/dependency-handoff.cjs").discardHandoff(orphanedHandoff); } catch {}
+    }
+    // A failed ledger lock or write cannot turn a guarded action into a fail-open call.
+    return { kind: 'deny', message: 'Stop That Shit: approval state unavailable; action denied.' };
+  }
+}
+
 function handleBeforeAction(event, options) {
+  if (!options.recoveryError && event.host?.family === 'codex'
+      && (event.action.name === 'request_user_input_async' || event.action.dependencyIntent)) {
+    const scope = approvalScope.resolve(event, options);
+    if (event.action.dependencyIntent && scope.child && !scope.available) {
+      // Without PR109's child-state APIs, retain the original generic decision
+      // path. It may report a watch/default observation or deny deps=ask, but
+      // must never inspect or mutate a parent's one-time approval record.
+    } else if (event.action.name === 'request_user_input_async' && scope.child && !scope.available) {
+      let snapshot = null;
+      try { snapshot = readState(event.sessionId, options.dataDir); } catch {}
+      const record = snapshot && (snapshot.actionApproval || { eventId: snapshot.expiredApprovalEventId });
+      if (approval.isProposalQuestion(event.action, record) || approval.isProposalQuestion(event.action, null)) {
+        return handleApprovalAction(event, options);
+      }
+      // An ordinary async clarification stays on the existing read-only path
+      // when this standalone runtime has no child ledger.
+    } else return handleApprovalAction(event, options);
+  }
+  if (!options.recoveryError && event.host?.family === 'codex' && event.action.name === 'request_user_input') {
+    let snapshot = null;
+    try { snapshot = event.agent ? approvalScope.read(event, options) : readState(event.sessionId, options.dataDir); } catch {}
+    const record = snapshot && (snapshot.actionApproval || { eventId: snapshot.expiredApprovalEventId });
+    if (approval.isProposalQuestion(event.action, record) || approval.isProposalQuestion(event.action, null)) {
+      return handleApprovalAction(event, options);
+    }
+  }
   const legacyDelegationProtocol = !supportsLifecycleFacts(event)
     && ['delegate', 'control', 'unknown'].includes(event.action.mutability);
   const changesDelegation = event.action.mutability === 'delegate'
@@ -453,6 +702,10 @@ function handleBeforeAction(event, options) {
     ? (Number.isInteger(event.action.delegationCount) ? event.action.delegationCount : 1)
     : 0;
   const evaluate = (state) => {
+    const delegationLifecycleUnproven = Boolean(event.action.delegationLifecycleUnproven)
+      && !(event.action.delegationTargetId && targetIsActive(state.delegation, event.action.delegationTargetId));
+    const actionChangesDelegation = event.action.mutability === 'delegate'
+      || delegationLifecycleUnproven || legacyDelegationProtocol;
     const action = {
       mutability: event.action.mutability,
       analysisReason: event.action.analysisReason,
@@ -465,12 +718,12 @@ function handleBeforeAction(event, options) {
       cwd: event.action.cwd,
       dependencyIntent: Boolean(event.action.dependencyIntent),
       unboundedDelegation: Boolean(event.action.unboundedDelegation),
-      delegationLifecycleUnproven: Boolean(event.action.delegationLifecycleUnproven)
+      delegationLifecycleUnproven
     };
     const summary = inspectDelegation(state.delegation, { id: event.action.id });
     action.duplicateActionId = summary.duplicateActionId;
     const result = decide({ contract: state.contract, action, delegation: summary, state });
-    if (changesDelegation && ['allow', 'report_and_defer'].includes(result.outcome)) {
+    if (actionChangesDelegation && ['allow', 'report_and_defer'].includes(result.outcome)) {
       state.delegation = applyDelegationFact(state.delegation, {
         kind: 'accepted', id: event.action.id || 'legacy:unidentified', count: delegationCount,
         completionScope: event.action.completionScope,
@@ -478,7 +731,7 @@ function handleBeforeAction(event, options) {
           : action.unboundedDelegation ? 'unbounded_execution'
           : action.delegationLifecycleUnproven ? 'unversioned_resume' : null
       });
-    } else if (changesDelegation && summary.duplicateActionId) {
+    } else if (actionChangesDelegation && summary.duplicateActionId) {
       // A later not-started event may describe this rejected attempt, not the
       // original pending execution that still owns the reservation.
       state.delegation = applyDelegationFact(state.delegation, { kind: 'duplicate_rejected', id: event.action.id });
@@ -489,11 +742,27 @@ function handleBeforeAction(event, options) {
   // Separate host processes can issue independent agent launches close together.
   // Serialize delegation reservations across Hook processes. Prompt updates
   // and completion handlers use the same lock; pure reads stay unlocked.
-  const { state, result } = options.recoveryError
-    ? evaluate(recoveryState(options.recoveryError))
-    : changesDelegation
-      ? updateSession(event.sessionId, options.dataDir, evaluate)
-      : evaluate(readState(event.sessionId, options.dataDir));
+  let evaluated;
+  if (options.recoveryError) evaluated = evaluate(recoveryState(options.recoveryError));
+  else if (event.agent) {
+    const scoped = approvalScope.resolve(event, options);
+    if (!scoped.available) {
+      // Keep the standalone PR120 behavior for non-approval child tools when
+      // PR109's scoped-state APIs are absent. Preserve PR120's shared
+      // delegation budget and serialize reservations, but don't write a child
+      // contract or approval record into the parent ledger.
+      evaluated = changesDelegation
+        ? coordinatedUpdate(event, options, evaluate)
+        : evaluate(readState(event.sessionId, options.dataDir));
+    } else if (changesDelegation) evaluated = approvalScope.update(event, options, evaluate);
+    else {
+      const state = approvalScope.read(event, options);
+      if (state.storageError) return { kind: 'deny', message: 'Stop That Shit: child-scoped policy state is unavailable; action denied.' };
+      evaluated = evaluate(state);
+    }
+  } else if (changesDelegation) evaluated = coordinatedUpdate(event, options, evaluate);
+  else evaluated = evaluate(readState(event.sessionId, options.dataDir));
+  const { state, result } = evaluated;
 
   const denied = result.outcome === 'deny_and_explain' || result.outcome === 'require_user_approval';
   const responseOutcome = denied
@@ -501,6 +770,7 @@ function handleBeforeAction(event, options) {
     : result.outcome === 'report_and_defer' ? 'context_returned' : 'none';
   const auditEvent = recordDecision({
     sessionId: event.sessionId,
+    agent: event.agent,
     action: { ...event.action, delegationCount },
     contract: state.contract,
     delegation: state.delegation,
@@ -518,8 +788,47 @@ function handleBeforeAction(event, options) {
 }
 
 function handleAfterAction(event, options) {
+  if (event.action?.name === 'request_user_input') {
+    if (event.host?.family !== 'codex') return none();
+    const scope = approvalScope.resolve(event, options);
+    if (scope.child && !scope.available) return none();
+    try {
+      const snapshot = scope.child ? approvalScope.read(event, options) : readState(event.sessionId, options.dataDir);
+      const scopeMatches = record => scope.child
+        ? record?.scopeAgentId === scope.agentId
+        : record?.scopeAgentId === undefined;
+      if (event.action.unanswered === true) {
+        if (snapshot.storageError || !scopeMatches(snapshot.actionApproval)
+            || !approval.nativeQuestionMatches(snapshot.actionApproval, event.action)) return none();
+        const update = (state) => {
+          if (!state.storageError && scopeMatches(state.actionApproval)
+              && approval.nativeQuestionMatches(state.actionApproval, event.action)) {
+            state.actionApproval = null;
+          }
+          return none();
+        };
+        return scope.child ? approvalScope.update(event, options, update)
+          : coordinatedUpdate(event, options, update);
+      }
+      if (snapshot.storageError || !scopeMatches(snapshot.actionApproval)
+          || !approval.proposalStillAllowed(snapshot.actionApproval, snapshot.contract, snapshot)
+          || !approval.nativeAnswerMatches(snapshot.actionApproval, event.action)) return none();
+      const update = (state) => {
+        if (!state.storageError && scopeMatches(state.actionApproval)
+            && approval.proposalStillAllowed(state.actionApproval, state.contract, state)) {
+          approval.acceptNativeAnswer(state.actionApproval, event.action);
+        }
+        return none();
+      };
+      return scope.child ? approvalScope.update(event, options, update)
+        : coordinatedUpdate(event, options, update);
+    } catch {
+      // An unavailable approval ledger leaves the proposal unapproved.
+      return none();
+    }
+  }
   if (!supportsLifecycleFacts(event)) return none();
-  return updateSession(event.sessionId, options.dataDir, (state) => {
+  const update = (state) => {
     // Only a declared facts adapter may report binding or completion. A false
     // async flag can be a request parameter and never proves children joined.
     const kind = event.action.lifecycle || (event.action.completed === true ? 'joined'
@@ -531,7 +840,10 @@ function handleAfterAction(event, options) {
       state.delegation = applyDelegationFact(state.delegation, { kind: 'child_stopped', agentId });
     }
     return none();
-  });
+  };
+  const scope = approvalScope.resolve(event, options);
+  if (scope.child && scope.available) return approvalScope.update(event, options, update);
+  return coordinatedUpdate(event, options, update);
 }
 
 function handleLifecycleContext(event, options) {
@@ -551,7 +863,7 @@ function handleLifecycleContext(event, options) {
   const readOnly = event.kind === 'session.start'
     || event.kind === 'session.end' && event.allDelegationsStopped !== true;
   return readOnly ? update(readState(event.sessionId, options.dataDir))
-    : updateSession(event.sessionId, options.dataDir, update);
+    : coordinatedUpdate(event, options, update);
 }
 
 function handleControlEvent(rawEvent, options = {}) {
@@ -562,9 +874,15 @@ function handleControlEvent(rawEvent, options = {}) {
   switch (event.kind) {
     case 'prompt.submit': {
       const command = runtimeCommand(event.prompt);
-      return command
-        ? handleRuntimeCommand(command, event, readState(event.sessionId, options.dataDir), options)
-        : updateSession(event.sessionId, options.dataDir, state => handlePrompt(event, state));
+      if (command) {
+        const scope = approvalScope.resolve(event, options);
+        const state = scope.child && scope.available
+          ? approvalScope.read(event, options) : readState(event.sessionId, options.dataDir);
+        return handleRuntimeCommand(command, event, state, options);
+      }
+      return event.agent
+          ? handleScopedPrompt(event, options)
+          : coordinatedUpdate(event, options, state => handlePrompt(event, state));
     }
     case 'action.before':
       return handleBeforeAction(event, options);
@@ -1442,6 +1760,7 @@ function recordDecision(facts, options = {}) {
       dependencyPolicy: String(contract.dependencyPolicy || 'ask'),
       allowedPathCount: Array.isArray(contract.allowedPaths) ? contract.allowedPaths.length : 0
     },
+    ...(facts.approval ? { approval: facts.approval } : {}),
     decision: {
       policyOutcome: String(decision.outcome || 'allow'),
       family: decision.family || null,
@@ -2005,6 +2324,8 @@ function freshState() {
       unresolved: {},
       acceptedActions: {}
     },
+    actionApproval: null,
+    expiredApprovalEventId: null,
     directiveWarning: null,
     directiveError: null,
     lastPromptContext: null
@@ -2109,6 +2430,10 @@ function normalizeState(parsed) {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     contract,
     delegation,
+    actionApproval: __require("src/action-approval.cjs").live(source.actionApproval) ? source.actionApproval : null,
+    expiredApprovalEventId: !__require("src/action-approval.cjs").live(source.actionApproval)
+      && /^evt_[0-9a-f-]{36}$/.test(source.actionApproval?.eventId || '') ? source.actionApproval.eventId
+      : /^evt_[0-9a-f-]{36}$/.test(source.expiredApprovalEventId || '') ? source.expiredApprovalEventId : null,
     directiveWarning,
     directiveError,
     lastPromptContext: migrated ? null : source.lastPromptContext ?? null
@@ -2161,6 +2486,1265 @@ function decodeState(parsed) {
 }
 
 module.exports = { decodeState, freshState, recoveryState };
+
+},
+"src/action-approval.cjs": function(module, exports, __require) {
+'use strict';
+
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
+const { directDependencyArguments } = __require("src/shell-analysis.cjs");
+const { resolveManager } = __require("src/dependency-manager.cjs");
+const { validMetadata } = __require("src/dependency-handoff.cjs");
+const { decide } = __require("src/decision.cjs");
+const { inspectDelegation } = __require("src/delegation-state.cjs");
+
+const PROPOSAL_TTL_MS = 24 * 60 * 60 * 1000;
+const PERMIT_TTL_MS = 10 * 60 * 1000;
+const YES = 'Allow this operation once';
+const NO = 'Deny this operation';
+const PROPOSAL_PREFIX = 'Allow this controlled child operation once';
+const SYNC_HEADER = 'Approval';
+const YES_DESCRIPTION = 'Authorize this operation once.';
+const NO_DESCRIPTION = 'Do not authorize this operation.';
+
+function stable(value) {
+  if (Array.isArray(value)) return value.map(stable);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])]));
+}
+
+function digest(event) {
+  const action = event.action;
+  if (!action || !['Bash', 'exec_command', 'shell_command'].includes(action.name)
+      || !action.id || Buffer.byteLength(action.id, 'utf8') > 256
+      || !action.cwd || !action.input || typeof action.input.command !== 'string') return null;
+  if (!directDependencyArguments(action.input.command) || /[\r\n]/.test(action.input.command)) return null;
+  const bound = { session: event.sessionId, tool: action.name, input: action.input, cwd: action.cwd };
+  if (event.agent?.agentId) bound.agentId = event.agent.agentId;
+  const canonicalBound = stable(bound);
+  return crypto.createHash('sha256').update(JSON.stringify(canonicalBound)).digest('hex');
+}
+
+function newPending(event, eventId, now = Date.now(), scope = {}) {
+  const actionDigest = digest(event);
+  if (!actionDigest || !eventId) return null;
+  const argv = directDependencyArguments(event.action.input.command);
+  // Do not place likely credentials or arbitrary environment fields in a user-visible question.
+  if (Object.keys(event.action.input).some(key => key !== 'command')
+      || argv.some(value => /(?:https?:|password|token|secret|api[_-]?key|authorization)/i.test(value))) return null;
+  const manager = resolveManager(argv[0]);
+  if (!manager) return null;
+  const proposalExpires = now + PROPOSAL_TTL_MS;
+  const questionPrefix = `${PROPOSAL_PREFIX}. Reply by ${new Date(proposalExpires).toISOString()}; if allowed, run once within 10 minutes after your reply: ${JSON.stringify(argv)} using ${JSON.stringify(manager.launchPath || manager.entry.path)} (${eventId}) in directory: `;
+  if (Buffer.byteLength(questionPrefix, 'utf8') > 8192) return null;
+  const record = { digest: actionDigest, eventId, questionPrefix, argv, manager,
+    deniedActionId: event.action.id, expires: proposalExpires, proposalExpires, status: 'pending' };
+  record.proposedAction = {
+    mutability: event.action.mutability || 'unknown',
+    analysisReason: event.action.analysisReason || null,
+    hashIntent: Boolean(event.action.hashIntent),
+    reachability: event.action.reachability || null,
+    authorization: event.action.authorization || null,
+    affectedPaths: Array.isArray(event.action.affectedPaths) ? event.action.affectedPaths.slice(0, 128) : [],
+    cwd: event.action.cwd,
+    unboundedDelegation: Boolean(event.action.unboundedDelegation),
+    delegationLifecycleUnproven: Boolean(event.action.delegationLifecycleUnproven)
+  };
+  if (scope.agentId) {
+    if (typeof scope.agentId !== 'string' || !scope.agentId.trim() || Buffer.byteLength(scope.agentId, 'utf8') > 4096
+        || !/^[a-f0-9]{64}$/.test(scope.policyDigest || '')) return null;
+    record.scopeAgentId = scope.agentId;
+    record.policyDigest = scope.policyDigest;
+  }
+  return record;
+}
+
+function live(record, now = Date.now()) {
+  return record && typeof record === 'object'
+    && /^[a-f0-9]{64}$/.test(record.digest || '')
+    && /^evt_[0-9a-f-]{36}$/.test(record.eventId || '')
+    && typeof record.questionPrefix === 'string' && Buffer.byteLength(record.questionPrefix, 'utf8') <= 8192
+    && Array.isArray(record.argv) && record.argv.every(arg => typeof arg === 'string')
+    && record.manager && ['node', 'native'].includes(record.manager.kind)
+    && record.manager.entry && typeof record.manager.entry.path === 'string'
+    && (record.manager.kind !== 'node' || record.manager.executable && typeof record.manager.executable.path === 'string')
+    && (record.status === 'pending' || typeof record.question === 'string' && Buffer.byteLength(record.question, 'utf8') <= 8192)
+    && (record.status === 'issued' ? validDecisionAction(record.approvedAction)
+      : record.proposedAction === undefined || validDecisionAction(record.proposedAction))
+    && typeof record.deniedActionId === 'string' && record.deniedActionId.length > 0
+    && (record.status === 'pending' || typeof record.questionId === 'string'
+      && typeof record.questionCallId === 'string' && /^[A-Za-z0-9_-]{1,256}$/.test(record.questionCallId))
+    && (record.questionToolName === undefined || ['request_user_input_async', 'request_user_input'].includes(record.questionToolName))
+    && (record.questionToolName !== 'request_user_input' || typeof record.syncQuestionId === 'string'
+      && /^[A-Za-z0-9_-]{1,256}$/.test(record.syncQuestionId)
+      && /^[a-f0-9]{64}$/.test(record.syncQuestionDigest || '')
+      && typeof record.syncRegistrationCwd === 'string' && path.isAbsolute(record.syncRegistrationCwd))
+    && Number.isSafeInteger(record.proposalExpires) && Number.isSafeInteger(record.expires)
+    && (record.scopeAgentId === undefined || typeof record.scopeAgentId === 'string'
+      && record.scopeAgentId.trim() && Buffer.byteLength(record.scopeAgentId, 'utf8') <= 4096
+      && /^[a-f0-9]{64}$/.test(record.policyDigest || ''))
+    && (['pending', 'question'].includes(record.status) ? record.proposalExpires : record.expires) > now
+    && ['pending', 'question', 'approved', 'issued', 'consumed'].includes(record.status)
+    && (record.status !== 'issued' || validMetadata(record.handoff));
+}
+
+function validDecisionAction(action) {
+  return action && typeof action === 'object' && !Array.isArray(action)
+    && ['read', 'write', 'delegate', 'control', 'unknown'].includes(action.mutability)
+    && (action.analysisReason === undefined || action.analysisReason === null || typeof action.analysisReason === 'string')
+    && typeof action.hashIntent === 'boolean'
+    && (action.reachability === undefined || action.reachability === null || ['reachable', 'unreachable'].includes(action.reachability))
+    && (action.authorization === undefined || action.authorization === null || typeof action.authorization === 'string')
+    && Array.isArray(action.affectedPaths) && action.affectedPaths.length <= 128
+    && action.affectedPaths.every(value => typeof value === 'string' && value.length <= 8192)
+    && typeof action.cwd === 'string' && path.isAbsolute(action.cwd)
+    && (action.unboundedDelegation === undefined || typeof action.unboundedDelegation === 'boolean')
+    && (action.delegationLifecycleUnproven === undefined || typeof action.delegationLifecycleUnproven === 'boolean');
+}
+
+function proposalStillAllowed(record, contract, state = {}) {
+  if (!live(record) || contract?.mode !== 'change' || contract?.level !== 'guard'
+      || contract?.dependencyPolicy !== 'ask') return false;
+  const saved = record.status === 'issued' ? record.approvedAction : record.proposedAction;
+  if (!validDecisionAction(saved)) return saved === undefined;
+  const action = { ...saved, cwd: record.targetCwd || saved.cwd, dependencyIntent: false };
+  try {
+    const result = decide({ contract, action, state, delegation: inspectDelegation(state.delegation) });
+    return result.outcome === 'allow';
+  } catch { return false; }
+}
+
+function isProposalQuestion(action, record) {
+  const questions = action.input?.questions;
+  return Array.isArray(questions) && questions.some(question => {
+    const text = action.name === 'request_user_input' ? question?.question : question?.title;
+    return typeof text === 'string' && (text.startsWith(PROPOSAL_PREFIX)
+      || record && typeof record.eventId === 'string' && text.includes(record.eventId));
+  });
+}
+
+function isSyncOptions(options) {
+  return Array.isArray(options) && options.length === 2
+    && options.every((option, index) => option && typeof option === 'object' && !Array.isArray(option)
+      && Object.keys(option).length === 2 && Object.hasOwn(option, 'label') && Object.hasOwn(option, 'description')
+      && option.label === (index === 0 ? YES : NO)
+      && option.description === (index === 0 ? YES_DESCRIPTION : NO_DESCRIPTION));
+}
+
+function isSyncQuestion(question) {
+  return question && typeof question === 'object' && !Array.isArray(question)
+    && typeof question.id === 'string' && /^[A-Za-z0-9_-]{1,256}$/.test(question.id)
+    && question.header === SYNC_HEADER && typeof question.question === 'string'
+    && Buffer.byteLength(question.question, 'utf8') <= 8192 && isSyncOptions(question.options)
+    && Object.keys(question).sort().join(',') === 'header,id,options,question';
+}
+
+function syncQuestionDigest(question) {
+  if (!isSyncQuestion(question)) return null;
+  const canonical = {
+    id: question.id,
+    header: question.header,
+    question: question.question,
+    options: question.options.map(option => ({ label: option.label, description: option.description }))
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+}
+
+function registerQuestion(record, action) {
+  if (!live(record) || record.status !== 'pending' || !action.id
+      || !/^[A-Za-z0-9_-]{1,256}$/.test(action.id)
+      || !['request_user_input_async', 'request_user_input'].includes(action.name)) return false;
+  const questions = action.input?.questions;
+  if (!Array.isArray(questions) || questions.length !== 1 || Object.keys(action.input).length !== 1) return false;
+  const question = questions[0];
+  let text;
+  if (action.name === 'request_user_input_async') {
+    if (typeof question?.title !== 'string'
+        || JSON.stringify(question?.options) !== JSON.stringify([YES, NO])
+        || Object.keys(question).some(key => !['title', 'options'].includes(key))) return false;
+    text = question.title;
+  } else {
+    if (!isSyncQuestion(question)) return false;
+    text = question.question;
+  }
+  if (!text.startsWith(record.questionPrefix) || !text.endsWith('?')) return false;
+  const requested = text.slice(record.questionPrefix.length, -1);
+  if (!path.isAbsolute(requested) || /[\x00-\x1f\x7f]/.test(requested)) return false;
+  let actual;
+  let registrationCwd = null;
+  try {
+    actual = fs.realpathSync(requested);
+    if (!fs.statSync(actual).isDirectory()) return false;
+    if (action.name === 'request_user_input') {
+      if (typeof action.cwd !== 'string' || !path.isAbsolute(action.cwd)) return false;
+      registrationCwd = fs.realpathSync(action.cwd);
+      if (!fs.statSync(registrationCwd).isDirectory()) return false;
+    }
+  } catch { return false; }
+  if (Buffer.byteLength(text, 'utf8') > 8192) return false;
+  record.question = text;
+  record.requestedCwd = requested;
+  record.targetCwd = actual;
+  record.questionCallId = action.id;
+  record.questionToolName = action.name;
+  record.questionId = action.name === 'request_user_input_async'
+    ? JSON.stringify(['request_user_input_async', action.id, 0])
+    : JSON.stringify(['request_user_input', action.id, question.id]);
+  if (action.name === 'request_user_input') {
+    record.syncQuestionId = question.id;
+    record.syncQuestionDigest = syncQuestionDigest(question);
+    record.syncRegistrationCwd = registrationCwd;
+  }
+  record.status = 'question';
+  return true;
+}
+
+function hostQuestionText(question) {
+  let used = 0;
+  let result = '';
+  for (const char of question) {
+    const size = Buffer.byteLength(char, 'utf8');
+    if (used + size > 512) break;
+    used += size;
+    result += char;
+  }
+  return result.replace(/[\r\n]/g, ' ');
+}
+
+function acceptReply(record, text, now = Date.now()) {
+  if (record?.questionToolName === 'request_user_input') return null;
+  const match = /^<send_user_message_question_reply>\s*([\s\S]*?)\s*<\/send_user_message_question_reply>$/.exec(text);
+  if (!match) return null;
+  let data;
+  try { data = JSON.parse(match[1]); } catch { return null; }
+  if (!Array.isArray(data)) return null;
+  const related = data.some(item => item && typeof item === 'object' && !Array.isArray(item)
+    && (typeof item.question === 'string' && item.question.startsWith(PROPOSAL_PREFIX)
+      || record && item.questionItemId === record.questionId));
+  if (!related) return null;
+  if (!live(record, now) || record.status !== 'question' || typeof record.questionId !== 'string') return { status: 'unavailable' };
+  if (data.length > 32 || data.some(item => !item || typeof item !== 'object' || Array.isArray(item)
+      || Object.keys(item).sort().join(',') !== 'answer,question,questionItemId'
+      || !['questionItemId', 'question', 'answer'].every(key => typeof item[key] === 'string'))) return { status: 'mismatch' };
+  const matches = data.filter(item => item.questionItemId === record.questionId);
+  if (matches.length !== 1 || data.some(item => item.questionItemId !== record.questionId && item.question.startsWith(PROPOSAL_PREFIX))) return { status: 'mismatch' };
+  const item = matches[0];
+  if (item.question !== record.question && item.question !== hostQuestionText(record.question)) return { status: 'mismatch' };
+  if (item.answer === YES) {
+    record.status = 'approved';
+    record.expires = now + PERMIT_TTL_MS;
+    return { status: 'approved', eventId: record.eventId, targetCwd: record.targetCwd };
+  }
+  if (item.answer === NO) {
+    record.status = 'consumed';
+    return { status: 'denied', eventId: record.eventId };
+  }
+  return { status: 'mismatch' };
+}
+
+function nativeQuestionMatches(record, action, now = Date.now()) {
+  if (!live(record, now) || record.status !== 'question'
+      || record.questionToolName !== 'request_user_input' || action?.name !== 'request_user_input'
+      || action.id !== record.questionCallId || action.questionId !== record.syncQuestionId
+      || action.questionDigest !== record.syncQuestionDigest
+      || typeof action.cwd !== 'string' || !path.isAbsolute(action.cwd)) return false;
+  let cwd;
+  try { cwd = fs.realpathSync(action?.cwd); } catch { return false; }
+  return cwd === record.syncRegistrationCwd;
+}
+
+function nativeAnswerMatches(record, action, now = Date.now()) {
+  return [YES, NO].includes(action?.answer) && nativeQuestionMatches(record, action, now);
+}
+
+function acceptNativeAnswer(record, action, now = Date.now()) {
+  if (!nativeAnswerMatches(record, action, now)) return null;
+  if (action.answer === YES) {
+    record.status = 'approved';
+    record.expires = now + PERMIT_TTL_MS;
+    return { status: 'approved', eventId: record.eventId, targetCwd: record.targetCwd };
+  }
+  record.status = 'consumed';
+  return { status: 'denied', eventId: record.eventId };
+}
+
+module.exports = { YES, NO, SYNC_HEADER, digest, newPending, live, proposalStillAllowed, isProposalQuestion, isSyncQuestion, syncQuestionDigest, registerQuestion, acceptReply, nativeQuestionMatches, nativeAnswerMatches, acceptNativeAnswer, hostQuestionText };
+
+},
+"src/shell-analysis.cjs": function(module, exports, __require) {
+'use strict';
+
+const HASH_COMMAND = /\b(?:Get-FileHash|md5sum|sha(?:1|224|256|384|512)sum|shasum|b2sum)\b|\bcertutil\b[^\r\n]*\s-hashfile\b|\bopenssl\s+dgst\b/i;
+const DEPENDENCY_COMMAND = /\b(?:npm|pnpm|yarn)\s+(?:add|install)\b|\bpip(?:3)?\s+install\b|\bcargo\s+add\b|\bdotnet\s+add\b[^\r\n]*\bpackage\b|\bgo\s+get\b|\bcomposer\s+require\b|\bbundle\s+add\b/i;
+
+function classifyGitBranchArguments(args) {
+  let listing = false, positional = false;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--') { positional ||= i + 1 < args.length; break; }
+    if (!arg.startsWith('-')) { positional = true; continue; }
+    if (/^(?:-[a-zA-Z]*[dDmMcCf][a-zA-Z]*|--(?:delete|move|copy|force|edit-description|set-upstream-to|unset-upstream|track|no-track|create-reflog)(?:=.*)?)$/.test(arg)) return 'write';
+    if (arg === '--list' || /^-[alrv]+$/.test(arg)) {
+      listing ||= arg === '--list' || arg.includes('l');
+      continue;
+    }
+    if (/^--(?:contains|no-contains|merged|no-merged)(?:=.*)?$/.test(arg)) {
+      listing = true;
+      if (!arg.includes('=') && args[i + 1] && !args[i + 1].startsWith('-')) i++;
+      continue;
+    }
+    if (/^--(?:points-at|format|sort)(?:=.*)?$/.test(arg)) {
+      listing ||= arg === '--points-at' || arg.startsWith('--points-at=');
+      if (!arg.includes('=')) {
+        if (i + 1 === args.length) return 'unknown';
+        i++;
+      }
+      continue;
+    }
+    if (/^--(?:show-current|all|remotes|verbose|no-color|column|no-column|ignore-case|omit-empty|no-abbrev)$/.test(arg)
+        || /^--(?:color=(?:always|never|auto)|abbrev(?:=\d+)?|column=.+)$/.test(arg)) continue;
+    // Negation and abbreviations can cancel --list or select a mutation.
+    return 'unknown';
+  }
+  return positional && !listing ? 'unknown' : 'read';
+}
+
+const READ_POWERSHELL_COMMANDS = new Set([
+  'get-content', 'get-childitem', 'get-item', 'test-path', 'resolve-path',
+  'select-string', 'select-object', 'measure-object', 'compare-object', 'where-object'
+]);
+const READ_SHELL_COMMANDS = new Set([
+  ...READ_POWERSHELL_COMMANDS,
+  'rg', 'grep', 'findstr', 'cat', 'ls', 'dir', 'pwd', 'head', 'tail', 'wc', 'type'
+]);
+const WRITE_SHELL_COMMANDS = new Set([
+  'remove-item', 'move-item', 'copy-item', 'set-content', 'add-content', 'out-file',
+  'new-item', 'rm', 'del', 'erase', 'rmdir', 'mv', 'cp', 'touch', 'mkdir', 'tee', 'apply_patch'
+]);
+
+// Analyze only static words, literal quotes and simple command chains. The
+// hook does not expose a shell AST. Expansions, script blocks and ambiguous
+// escapes stay unknown instead of being interpreted as Bash or PowerShell.
+function staticShellCommands(text) {
+  const commands = [];
+  let args = [], word = '', inWord = false, quote = null, separator = null;
+  let nativeQuotes = false;
+  const finishWord = () => {
+    if (inWord) args.push(word);
+    word = ''; inWord = false;
+  };
+  const finishCommand = () => {
+    commands.push({ args, nativeQuotes });
+    args = []; nativeQuotes = false;
+  };
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i], next = text[i + 1];
+    // PowerShell recognizes these quotes; Bash treats them as ordinary text.
+    // They are literal only inside a quote of the opposite kind.
+    const smartQuote = /[\u2018-\u201b]/.test(char) ? "'"
+      : /[\u201c-\u201e]/.test(char) ? '"' : null;
+    if (smartQuote && (!quote || quote === smartQuote)) return null;
+    if (quote) {
+      // Legacy PowerShell native argv can split embedded double quotes back
+      // into options. Cmdlets receive the literal argument directly.
+      if (quote === "'" && char === '"' || quote === '"' && char === '"' && next === '"') nativeQuotes = true;
+      if (char === quote) { quote = null; continue; }
+      if (quote === '"' && (char === '$' || char === '`'
+          || char === '\\' && /["$`\\\r\n]/.test(next || ''))) return null;
+      word += char;
+      continue;
+    }
+    if (char === "'" || char === '"') { quote = char; inWord = true; continue; }
+    if (/[ \t]/.test(char)) { finishWord(); continue; }
+    if (char === '>') return { redirected: true };
+    if (/[$`{}()<@%*?\[\]#]/.test(char)) return null;
+    // Bash removes even an escape before an ordinary letter (e.g. --out\put).
+    // Without a shell identity, do not interpret an unquoted backslash.
+    if (char === '\\') return null;
+    if (char === '\r' || char === '\n' || char === ';' || char === '|' || char === '&') {
+      finishWord();
+      // PowerShell also accepts a standalone CR as a command separator.
+      const operator = char === '\r' ? '\n'
+        : (char === '&' || char === '|') && next === char ? char + text[++i] : char;
+      if (operator === '&') return null;
+      if (args.length) finishCommand();
+      else if (operator === '\n') continue;
+      else return null;
+      separator = operator;
+      continue;
+    }
+    if (/\s/.test(char)) return null;
+    word += char; inWord = true;
+  }
+  if (quote) return null;
+  finishWord();
+  if (args.length) finishCommand();
+  else if (['&&', '||', '|'].includes(separator)) return null;
+  return commands.length ? { commands } : null;
+}
+
+// Consume ripgrep option values before interpreting -- or executable options.
+// Otherwise a pattern named -- can hide a later --hostname-bin, or an option
+// name used as a literal pattern can be mistaken for an executable option.
+const RIPGREP_VALUE_OPTIONS = new Set([
+  '--regexp', '--file', '--pre-glob', '--dfa-size-limit', '--encoding', '--engine',
+  '--max-count', '--regex-size-limit', '--threads', '--glob', '--iglob',
+  '--ignore-file', '--max-depth', '--max-filesize', '--type', '--type-not',
+  '--type-add', '--type-clear', '--after-context', '--before-context', '--color',
+  '--colors', '--context', '--context-separator', '--field-context-separator',
+  '--field-match-separator', '--hyperlink-format', '--max-columns',
+  '--path-separator', '--replace', '--sort', '--sortr', '--generate'
+]);
+
+function classifyRipgrepArguments(args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--') break;
+    if (/^--(?:pre|hostname-bin)(?:=|$)/.test(arg)) return shellClassification('unknown', 'shell_execution_option');
+    let consumesValue = RIPGREP_VALUE_OPTIONS.has(arg);
+    if (/^-[^-]/.test(arg)) {
+      // A value can be attached to a short option, including in a flag cluster.
+      const valueFlag = /[efEmjgdtTABCMr]/.exec(arg.slice(1));
+      consumesValue = Boolean(valueFlag && valueFlag.index === arg.length - 2);
+    }
+    if (consumesValue && ++i === args.length) return shellClassification('unknown', 'option_value_missing');
+  }
+  return shellClassification('read');
+}
+
+function shellClassification(mutability, analysisReason) {
+  return { mutability, ...(analysisReason ? { analysisReason } : {}) };
+}
+
+function combineClassifications(classifications) {
+  const kinds = classifications.map(result => result.mutability);
+  const mutability = kinds.includes('write') ? 'write'
+    : kinds.every(kind => kind === 'read') ? 'read' : 'unknown';
+  const decisive = classifications.find(result => result.mutability === mutability);
+  return shellClassification(mutability, decisive?.analysisReason);
+}
+
+function classifyStaticCommand({ args: [program, ...args], nativeQuotes }) {
+  const name = String(program || '').toLowerCase();
+  if (WRITE_SHELL_COMMANDS.has(name)) return shellClassification('write');
+  const cmdlet = READ_POWERSHELL_COMMANDS.has(name);
+  if (nativeQuotes && !cmdlet) return shellClassification('unknown', 'native_quotes_unproven');
+  const classifications = [classifyCommandArguments(name, [...args])];
+  // Legacy PowerShell drops empty native argv entries. A read must remain a
+  // read in both interpretations; cmdlets receive their arguments directly.
+  if (!cmdlet && args.includes('')) classifications.push(classifyCommandArguments(name, args.filter(arg => arg !== '')));
+  const result = combineClassifications(classifications);
+  if (classifications.some(entry => entry.mutability !== result.mutability)) result.analysisReason = 'native_empty_arguments';
+  return result;
+}
+
+// A one-shot dependency approval may only bind one statically parsed direct invocation.
+function directDependencyArguments(command, allowWrapper = true) {
+  if (typeof command !== 'string') return null;
+  const parsed = staticShellCommands(command.trim());
+  if (!parsed || parsed.redirected || parsed.commands.length !== 1 || parsed.commands[0].nativeQuotes) return null;
+  const [program, verb, ...args] = parsed.commands[0].args;
+  // For an unambiguous PowerShell wrapper, authorize only the extracted
+  // direct operation as a new controlled child, never execute the wrapper.
+  if (allowWrapper && /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i.test(String(program || ''))) {
+    const parts = [verb, ...args];
+    let index = 0;
+    while (index < parts.length && /^-(?:nologo|noprofile|noninteractive)$/i.test(parts[index])) index++;
+    if (!/^-command$/i.test(parts[index] || '') || parts.length !== index + 2) return null;
+    return directDependencyArguments(parts[index + 1], false);
+  }
+  const name = String(program || '').toLowerCase(), operation = String(verb || '').toLowerCase();
+  let recognized = false;
+  if (['npm', 'pnpm', 'yarn'].includes(name)) recognized = ['install', 'add'].includes(operation);
+  if (['pip', 'pip3'].includes(name)) recognized = operation === 'install';
+  if (['cargo', 'bundle'].includes(name)) recognized = operation === 'add';
+  if (name === 'composer') recognized = operation === 'require';
+  if (name === 'go') recognized = operation === 'get';
+  if (name === 'dotnet') recognized = operation === 'add' && args.some(value => value.toLowerCase() === 'package');
+  return recognized ? parsed.commands[0].args : null;
+}
+
+function isDirectDependencyCommand(command) {
+  return directDependencyArguments(command) !== null;
+}
+
+function analyzeShell(command) {
+  const text = String(command || '').replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
+  const analysis = staticShellCommands(text);
+  if (!analysis || analysis.redirected) return {
+    ...shellClassification(analysis?.redirected ? 'write' : 'unknown', analysis?.redirected ? 'shell_redirection' : 'shell_syntax_unproven'),
+    hashIntent: HASH_COMMAND.test(text), dependencyIntent: DEPENDENCY_COMMAND.test(text)
+  };
+  const commands = analysis.commands.map(command => ({
+    ...classifyStaticCommand(command), text: command.args.join(' ')
+  }));
+  // Proven reads treat their arguments as data. Keep the existing intent checks
+  // for writes and unproven programs, independently for each command in a chain.
+  return {
+    ...combineClassifications(commands),
+    hashIntent: commands.some(command => command.mutability !== 'read' && HASH_COMMAND.test(command.text)),
+    dependencyIntent: commands.some(command => command.mutability !== 'read' && DEPENDENCY_COMMAND.test(command.text))
+  };
+}
+
+// Required values consume the following argument, even when it is --. Optional
+// values must be attached with =. Unknown options cannot establish a read.
+const GIT_QUERY_VALUE_OPTIONS = new Set([
+  '--word-diff-regex', '--src-prefix', '--dst-prefix', '--line-prefix',
+  '--output-indicator-new', '--output-indicator-old', '--output-indicator-context',
+  '--diff-algorithm', '--anchored', '--ignore-matching-lines', '--diff-filter',
+  '--stat-width', '--stat-name-width', '--stat-graph-width', '--stat-count',
+  '--inter-hunk-context', '--rotate-to', '--skip-to', '--find-object'
+]);
+const GIT_QUERY_FLAGS = new Set([
+  '--short', '--branch', '--show-stash', '--no-index', '--numstat', '--shortstat',
+  '--name-only', '--name-status', '--check', '--summary', '--patch', '--no-patch',
+  '--raw', '--binary', '--cached', '--staged', '--exit-code', '--quiet',
+  '--no-color', '--no-ext-diff', '--no-textconv', '--ignore-all-space',
+  '--ignore-space-change', '--ignore-space-at-eol', '--ignore-cr-at-eol',
+  '--ignore-blank-lines', '--patience', '--histogram', '--minimal',
+  '--oneline', '--all', '--reverse', '--first-parent', '--no-merges', '--merges',
+  '--graph', '--no-decorate', '--topo-order', '--date-order', '--no-renames',
+  '--pickaxe-all', '--pickaxe-regex', '--no-prefix', '--default-prefix',
+  '--show-toplevel', '--show-prefix', '--show-cdup', '--git-dir', '--git-common-dir',
+  '--is-inside-work-tree', '--is-bare-repository', '--verify', '--symbolic-full-name'
+]);
+const GIT_QUERY_OPTIONAL_VALUES = new Set([
+  '--stat', '--color', '--word-diff', '--color-words', '--relative', '--unified',
+  '--abbrev', '--short', '--abbrev-ref', '--porcelain', '--untracked-files', '--ignored',
+  '--find-renames', '--find-copies', '--break-rewrites', '--decorate', '--pretty'
+]);
+const GIT_QUERY_ATTACHED_ONLY = new Set([
+  '--format', '--date', '--since', '--until', '--before', '--after', '--author',
+  '--committer', '--grep', '--max-count', '--skip', '--diff-merges', '--encoding'
+]);
+
+function classifyGitQueryArguments(args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--') break;
+    if (!arg.startsWith('-')) continue;
+    if (/^--output(?:=|$)/.test(arg)) return shellClassification('write', 'git_output_file');
+    const name = arg.split('=', 1)[0];
+    if (GIT_QUERY_VALUE_OPTIONS.has(name)) {
+      if (arg === name && ++i === args.length) return shellClassification('unknown', 'option_value_missing');
+      continue;
+    }
+    if (GIT_QUERY_FLAGS.has(arg) || GIT_QUERY_OPTIONAL_VALUES.has(name)
+        || arg.includes('=') && GIT_QUERY_ATTACHED_ONLY.has(name)) continue;
+    if (/^-[SGOIn]$/.test(arg)) {
+      if (++i === args.length) return shellClassification('unknown', 'option_value_missing');
+      continue;
+    }
+    if (/^-[SGOI].+/.test(arg) || /^-n\d+$/.test(arg) || /^-\d+$/.test(arg)
+        || /^-[pwsbz]+$/.test(arg) || /^-[UMCB](?:\d+%?)?$/.test(arg)
+        || /^-u(?:no|normal|all)?$/.test(arg)) continue;
+    return shellClassification('unknown', 'git_arguments_unproven');
+  }
+  return shellClassification('read');
+}
+
+function classifyCommandArguments(name, args) {
+  if (name === 'git') {
+    // Only these global options preserve the supported command interpretation.
+    while (args.length) {
+      if (args[0] === '--no-pager' || args[0] === '--literal-pathspecs') args.shift();
+      else if (args[0] === '-C' && args.length > 1) args.splice(0, 2);
+      else break;
+    }
+    const subcommand = args.shift();
+    if (['add', 'commit', 'push', 'merge', 'rebase', 'checkout', 'switch', 'reset', 'restore', 'clean', 'tag'].includes(subcommand)) return shellClassification('write');
+    if (subcommand === 'branch') {
+      const mutability = classifyGitBranchArguments(args);
+      return shellClassification(mutability, mutability === 'unknown' ? 'git_arguments_unproven' : undefined);
+    }
+    if (['status', 'diff', 'log', 'show', 'rev-parse'].includes(subcommand)) return classifyGitQueryArguments(args);
+    return shellClassification('unknown', 'git_arguments_unproven');
+  }
+  if (['npm', 'pnpm', 'yarn'].includes(name) && ['add', 'install', 'remove', 'uninstall', 'publish'].includes(args[0])) return shellClassification('write');
+  if (['pip', 'pip3'].includes(name) && args[0] === 'install') return shellClassification('write');
+  if (name === 'gh' && /^(?:pr (?:create|merge|close)|issue (?:create|close)|release create)$/.test(args.slice(0, 2).join(' '))) return shellClassification('write');
+  if (name === 'rg') return classifyRipgrepArguments(args);
+  if (READ_SHELL_COMMANDS.has(name)) return shellClassification('read');
+  if (['node', 'python', 'python3', 'py'].includes(name) && args.length === 1 && args[0] === '--version') return shellClassification('read');
+  return shellClassification('unknown', 'shell_command_unproven');
+}
+
+function classifyShell(command) {
+  return analyzeShell(command).mutability;
+}
+
+// Some installed hook payloads lack command but carry intent text in a legacy
+// field. Keep their mutability unproven while retaining hash/dependency facts.
+function analyzeShellInput(toolInput) {
+  const command = toolInput && toolInput.command;
+  const text = typeof toolInput === 'string' ? toolInput
+    : toolInput && typeof toolInput === 'object'
+      ? String(toolInput.command || toolInput.patch || toolInput.content || toolInput.new_string || '') : '';
+  const analysis = analyzeShell(command);
+  if (text !== String(command || '')) {
+    const intents = analyzeShell(text);
+    analysis.hashIntent = intents.hashIntent;
+    analysis.dependencyIntent = intents.dependencyIntent;
+  }
+  return analysis;
+}
+
+module.exports = { analyzeShell, analyzeShellInput, classifyShell, isDirectDependencyCommand, directDependencyArguments };
+
+},
+"src/dependency-manager.cjs": function(module, exports, __require) {
+'use strict';
+
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+
+function fingerprint(file) {
+  const real = fs.realpathSync(file);
+  const stat = fs.statSync(real);
+  if (!stat.isFile()) throw new Error('Package manager entry is not a file');
+  return { path: real, size: stat.size, mtimeMs: stat.mtimeMs,
+    sha256: crypto.createHash('sha256').update(fs.readFileSync(real)).digest('hex') };
+}
+
+function resolveManager(name) {
+  const search = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  const lower = String(name).toLowerCase();
+  for (const directory of search) {
+    const candidates = [];
+    if (lower === 'pnpm') candidates.push(path.join(directory, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs'));
+    if (lower === 'npm') candidates.push(path.join(directory, 'node_modules', 'npm', 'bin', 'npm-cli.js'));
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) return { kind: 'node', entry: fingerprint(candidate), executable: fingerprint(process.execPath) };
+    }
+    // A POSIX shim may be a symlink to the manager's JS entry. Windows cmd/ps1
+    // shims cannot be executed safely with shell:false and are not accepted.
+    const launchPath = path.join(directory, process.platform === 'win32' ? `${lower}.exe` : lower);
+    if (!fs.existsSync(launchPath)) continue;
+    const entry = fingerprint(launchPath);
+    if (process.platform !== 'win32' && /(?:pnpm\.cjs|npm-cli\.js)$/i.test(entry.path)) {
+      return { kind: 'node', entry, executable: fingerprint(process.execPath) };
+    }
+    if (process.platform !== 'win32' && !(fs.statSync(launchPath).mode & 0o111)) continue;
+    return { kind: 'native', entry, launchPath: path.resolve(launchPath) };
+  }
+  return null;
+}
+
+function unchanged(expected) {
+  try { return JSON.stringify(fingerprint(expected.path)) === JSON.stringify(expected); }
+  catch { return false; }
+}
+
+module.exports = { fingerprint, resolveManager, unchanged };
+
+},
+"src/dependency-handoff.cjs": function(module, exports, __require) {
+'use strict';
+
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const createdHandoffs = new Set();
+
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]));
+}
+
+function bindingPayload(binding) {
+  if (!binding || typeof binding !== 'object' || Array.isArray(binding)
+      || typeof binding.sessionId !== 'string' || !binding.sessionId
+      || !/^evt_[0-9a-f-]{36}$/.test(binding.eventId || '')
+      || !/^[a-f0-9]{64}$/.test(binding.ticket || '')
+      || !/^[a-f0-9]{64}$/.test(binding.actionDigest || '')
+      || binding.agentId !== undefined && binding.agentId !== null
+        && (typeof binding.agentId !== 'string' || !binding.agentId.trim() || Buffer.byteLength(binding.agentId, 'utf8') > 4096)
+      || binding.policyDigest !== undefined && binding.policyDigest !== null && !/^[a-f0-9]{64}$/.test(binding.policyDigest)
+      || typeof binding.targetCwd !== 'string' || !path.isAbsolute(binding.targetCwd)
+      || !Array.isArray(binding.argv) || !binding.argv.every(value => typeof value === 'string')
+      || !binding.manager || typeof binding.manager !== 'object' || Array.isArray(binding.manager)) {
+    throw new Error('Invalid one-time handoff binding');
+  }
+  const payload = {
+    version: 1,
+    sessionId: binding.sessionId,
+    eventId: binding.eventId,
+    ticket: binding.ticket,
+    actionDigest: binding.actionDigest,
+    argv: binding.argv,
+    targetCwd: binding.targetCwd,
+    manager: binding.manager
+  };
+  if (binding.agentId) payload.agentId = binding.agentId;
+  if (binding.policyDigest) payload.policyDigest = binding.policyDigest;
+  return Buffer.from(JSON.stringify(canonical(payload)), 'utf8');
+}
+
+function fileIdentity(stat) {
+  if (!stat || !stat.isFile() || typeof stat.nlink !== 'bigint' || stat.nlink !== 1n
+      || typeof stat.ino !== 'bigint' || stat.ino === 0n
+      || typeof stat.dev !== 'bigint' || typeof stat.birthtimeNs !== 'bigint') return null;
+  return { dev: stat.dev.toString(), ino: stat.ino.toString(), birthtimeNs: stat.birthtimeNs.toString() };
+}
+
+function sameIdentity(left, right) {
+  return left && right && left.dev === right.dev && left.ino === right.ino
+    && left.birthtimeNs === right.birthtimeNs;
+}
+
+function statHasIdentity(stat, identity) {
+  return stat && typeof stat.dev === 'bigint' && typeof stat.ino === 'bigint'
+    && typeof stat.birthtimeNs === 'bigint'
+    && stat.dev.toString() === identity.dev && stat.ino.toString() === identity.ino
+    && stat.birthtimeNs.toString() === identity.birthtimeNs;
+}
+
+function canonicalPath(value) {
+  return process.platform === 'win32' ? value.toLowerCase() : value;
+}
+
+function validMetadata(handoff) {
+  if (!handoff || typeof handoff !== 'object' || Array.isArray(handoff)
+      || handoff.version !== 1 || typeof handoff.path !== 'string' || !path.isAbsolute(handoff.path)
+      || typeof handoff.tempRoot !== 'string' || !path.isAbsolute(handoff.tempRoot)
+      || !/^[a-f0-9]{64}$/.test(handoff.sha256 || '')
+      || !handoff.identity || typeof handoff.identity !== 'object' || Array.isArray(handoff.identity)
+      || !['dev', 'ino', 'birthtimeNs'].every(key => typeof handoff.identity[key] === 'string' && /^\d+$/.test(handoff.identity[key]))) return false;
+  const root = path.resolve(handoff.tempRoot);
+  const file = path.resolve(handoff.path);
+  let expectedRoot;
+  try { expectedRoot = path.join(fs.realpathSync(os.tmpdir()), 'stop-that-shit-handoffs'); }
+  catch { return false; }
+  return canonicalPath(root) === canonicalPath(expectedRoot)
+    && canonicalPath(path.dirname(file)) === canonicalPath(root)
+    && /^\.sts-dependency-[a-f0-9]{64}\.handoff$/.test(path.basename(file));
+}
+
+function systemTempRoot() {
+  const root = fs.realpathSync(os.tmpdir());
+  if (!fs.statSync(root).isDirectory()) throw new Error('One-time handoff temp root is unavailable');
+  return root;
+}
+
+function handoffTempRoot() {
+  const parent = systemTempRoot();
+  const candidate = path.join(parent, 'stop-that-shit-handoffs');
+  fs.mkdirSync(candidate, { recursive: true, mode: 0o700 });
+  const root = fs.realpathSync(candidate);
+  if (canonicalPath(path.dirname(root)) !== canonicalPath(parent)
+      || path.basename(root) !== 'stop-that-shit-handoffs'
+      || !fs.statSync(root).isDirectory()) throw new Error('One-time handoff temp directory is not canonical');
+  return root;
+}
+
+function cleanExpiredHandoffs(root, now = Date.now()) {
+  const cutoff = now - 60 * 60 * 1000;
+  for (const name of fs.readdirSync(root)) {
+    if (!/^\.sts-dependency-[a-f0-9]{64}\.(?:handoff|claim|discard)$/.test(name)) continue;
+    const file = path.join(root, name);
+    try {
+      const stat = fs.lstatSync(file, { bigint: true });
+      if (!stat.isFile() || stat.nlink !== 1n || Number(stat.mtimeMs) >= cutoff) continue;
+      fs.unlinkSync(file);
+    } catch {}
+  }
+}
+
+function readHandle(fd) {
+  const stat = fs.fstatSync(fd, { bigint: true });
+  if (stat.size > 65536n) throw new Error('One-time handoff contents are oversized');
+  const bytes = Buffer.alloc(Number(stat.size));
+  const bytesRead = fs.readSync(fd, bytes, 0, bytes.length, 0);
+  if (BigInt(bytesRead) !== stat.size) throw new Error('One-time handoff contents changed while reading');
+  return bytes;
+}
+
+function createHandoff(binding) {
+  const bytes = bindingPayload(binding);
+  const tempRoot = handoffTempRoot();
+  cleanExpiredHandoffs(tempRoot);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const file = path.join(tempRoot, `.sts-dependency-${crypto.randomBytes(32).toString('hex')}.handoff`);
+    let fd;
+    try {
+      fd = fs.openSync(file, 'wx', 0o600);
+      fs.writeFileSync(fd, bytes);
+      fs.fsyncSync(fd);
+      const opened = fs.fstatSync(fd, { bigint: true });
+      const named = fs.lstatSync(file, { bigint: true });
+      const identity = fileIdentity(opened);
+      if (!identity || !sameIdentity(identity, fileIdentity(named))) throw new Error('One-time handoff file identity is unavailable');
+      const handoff = { version: 1, path: file, tempRoot, sha256: crypto.createHash('sha256').update(bytes).digest('hex'), identity };
+      createdHandoffs.add(file);
+      return handoff;
+    } catch (error) {
+      if (error.code === 'EEXIST') continue;
+      try { fs.unlinkSync(file); } catch {}
+      throw error;
+    } finally {
+      if (fd !== undefined) fs.closeSync(fd);
+    }
+  }
+  throw new Error('Could not allocate a unique one-time handoff file');
+}
+
+function handoffAvailable(handoff, binding) {
+  if (!validMetadata(handoff)) return false;
+  let fd;
+  try {
+    if (canonicalPath(handoffTempRoot()) !== canonicalPath(handoff.tempRoot)) return false;
+    const expected = bindingPayload(binding);
+    if (crypto.createHash('sha256').update(expected).digest('hex') !== handoff.sha256) return false;
+    fd = fs.openSync(handoff.path, 'r');
+    const stat = fs.fstatSync(fd, { bigint: true });
+    if (!sameIdentity(fileIdentity(stat), handoff.identity)) return false;
+    const named = fs.lstatSync(handoff.path, { bigint: true });
+    return !named.isSymbolicLink() && sameIdentity(fileIdentity(named), handoff.identity)
+      && readHandle(fd).equals(expected);
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+function consumeHandoff(handoff, binding) {
+  if (!validMetadata(handoff) || canonicalPath(handoffTempRoot()) !== canonicalPath(handoff.tempRoot)) {
+    throw new Error('One-time handoff is unavailable or invalid');
+  }
+  const expected = bindingPayload(binding);
+  if (crypto.createHash('sha256').update(expected).digest('hex') !== handoff.sha256) {
+    throw new Error('One-time handoff binding digest mismatch');
+  }
+  let fd;
+  let claimedPath;
+  try {
+    const named = fs.lstatSync(handoff.path, { bigint: true });
+    if (named.isSymbolicLink() || !sameIdentity(fileIdentity(named), handoff.identity)) throw new Error('One-time handoff path identity changed');
+    // rename is the atomic winner election. Only its winner opens the claimed
+    // path, so losing contenders do not keep delete-pending handles on Windows.
+    claimedPath = path.join(handoff.tempRoot, `.sts-dependency-${crypto.randomBytes(32).toString('hex')}.claim`);
+    fs.renameSync(handoff.path, claimedPath);
+    const claimed = fs.lstatSync(claimedPath, { bigint: true });
+    if (claimed.isSymbolicLink() || !sameIdentity(fileIdentity(claimed), handoff.identity)) {
+      throw new Error('Claimed handoff path identity changed');
+    }
+    fd = fs.openSync(claimedPath, 'r');
+    const opened = fs.fstatSync(fd, { bigint: true });
+    if (!sameIdentity(fileIdentity(opened), handoff.identity)) throw new Error('Claimed handoff identity changed');
+    const bytes = readHandle(fd);
+    if (!bytes.equals(expected) || crypto.createHash('sha256').update(bytes).digest('hex') !== handoff.sha256) {
+      throw new Error('One-time handoff contents changed');
+    }
+    try {
+      fs.lstatSync(handoff.path);
+      throw new Error('One-time handoff source path was replaced during claim');
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    fs.unlinkSync(claimedPath);
+    const after = fs.fstatSync(fd, { bigint: true });
+    if (!statHasIdentity(after, handoff.identity) || after.nlink !== 0n) {
+      throw new Error('One-time handoff was not atomically unlinked');
+    }
+    fs.closeSync(fd);
+    fd = undefined;
+    for (const file of [handoff.path, claimedPath]) try {
+      fs.lstatSync(file);
+      throw new Error('One-time handoff path was replaced during consumption');
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    createdHandoffs.delete(handoff.path);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') throw new Error('One-time handoff is already consumed or unavailable');
+    throw error;
+  } finally {
+    if (claimedPath) {
+      try {
+        const stat = fs.lstatSync(claimedPath, { bigint: true });
+        if (!stat.isSymbolicLink() && statHasIdentity(stat, handoff.identity)) fs.unlinkSync(claimedPath);
+      } catch {}
+    }
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+function discardHandoff(handoff) {
+  if (!validMetadata(handoff)) return false;
+  let fd;
+  let claimedPath;
+  try {
+    fd = fs.openSync(handoff.path, 'r');
+    const stat = fs.fstatSync(fd, { bigint: true });
+    if (!sameIdentity(fileIdentity(stat), handoff.identity)) return false;
+    const bytes = readHandle(fd);
+    if (crypto.createHash('sha256').update(bytes).digest('hex') !== handoff.sha256) return false;
+    claimedPath = path.join(handoff.tempRoot, `.sts-dependency-${crypto.randomBytes(32).toString('hex')}.discard`);
+    fs.renameSync(handoff.path, claimedPath);
+    const moved = fs.lstatSync(claimedPath, { bigint: true });
+    if (moved.isSymbolicLink() || !sameIdentity(fileIdentity(moved), handoff.identity)) return false;
+    fs.unlinkSync(claimedPath);
+    const discarded = fs.fstatSync(fd, { bigint: true }).nlink === 0n;
+    if (discarded) createdHandoffs.delete(handoff.path);
+    return discarded;
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined && claimedPath) {
+      try {
+        const stat = fs.lstatSync(claimedPath, { bigint: true });
+        if (!stat.isSymbolicLink() && statHasIdentity(stat, handoff.identity)) fs.unlinkSync(claimedPath);
+      } catch {}
+    }
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+function bindingForRecord(sessionId, record, ticket = record?.ticket) {
+  if (!record || typeof record !== 'object') throw new Error('Approval record is unavailable');
+  return { sessionId, agentId: record.scopeAgentId || null, policyDigest: record.policyDigest || null,
+    eventId: record.eventId, ticket, actionDigest: record.digest,
+    argv: record.argv, targetCwd: record.targetCwd, manager: record.manager };
+}
+
+function withCoordinationLock(sessionId, dataDir, callback) {
+  const { dataRoot, withSessionLock } = __require("src/state.cjs");
+  const root = systemTempRoot();
+  const requestedRoot = path.resolve(dataRoot(dataDir));
+  let existing = requestedRoot;
+  const missing = [];
+  let realRoot;
+  while (!realRoot) {
+    try { realRoot = fs.realpathSync(existing); }
+    catch (error) {
+      if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error;
+      const parent = path.dirname(existing);
+      if (parent === existing) throw error;
+      missing.unshift(path.basename(existing));
+      existing = parent;
+    }
+  }
+  const canonicalDataRoot = path.resolve(realRoot, ...missing);
+  const scope = crypto.createHash('sha256').update(`${canonicalDataRoot}\0${String(sessionId)}`).digest('hex');
+  return withSessionLock(`dependency-${scope}`, path.join(root, 'stop-that-shit-coordination'), callback);
+}
+
+function cleanupCreatedHandoffs() {
+  for (const file of createdHandoffs) {
+    try {
+      const stat = fs.lstatSync(file, { bigint: true });
+      if (!stat.isSymbolicLink() && stat.isFile()) fs.unlinkSync(file);
+    } catch {}
+  }
+  createdHandoffs.clear();
+}
+
+module.exports = { bindingForRecord, createHandoff, consumeHandoff, discardHandoff, handoffAvailable,
+  validMetadata, withCoordinationLock, cleanupCreatedHandoffs };
+
+},
+"src/approval-scope.cjs": function(module, exports, __require) {
+'use strict';
+
+const path = require('node:path');
+const stateStore = __require("src/state.cjs");
+const contracts = __require("src/contracts.cjs");
+
+function agentIdFor(event) {
+  const value = event && event.agent && event.agent.agentId;
+  return typeof value === 'string' && value.trim() && Buffer.byteLength(value, 'utf8') <= 4096 ? value : null;
+}
+
+function scopedCapability(sessionId, agentId, dataDir) {
+  if (typeof stateStore.childStatePath !== 'function' || typeof contracts.narrowContract !== 'function') return null;
+  try {
+    const childPath = stateStore.childStatePath(sessionId, agentId, dataDir);
+    const parentPath = stateStore.statePath(sessionId, dataDir);
+    return typeof childPath === 'string' && typeof parentPath === 'string'
+      && path.resolve(childPath) !== path.resolve(parentPath) ? childPath : null;
+  } catch { return null; }
+}
+
+function resolve(event, options) {
+  if (!event || event.agent === undefined || event.agent === null) return { child: false, available: true, agentId: null };
+  const agentId = agentIdFor(event);
+  if (!agentId) return { child: true, available: false, agentId: null };
+  const childPath = scopedCapability(event.sessionId, agentId, options.dataDir);
+  return { child: true, available: Boolean(childPath), agentId, childPath };
+}
+
+function effectiveChildContract(parentContract, childContract) {
+  // Keep the host's child contract semantics. Parent constraints are applied
+  // only to the returned effective contract, never copied into child state.
+  return contracts.narrowContract(parentContract, childContract);
+}
+
+function read(event, options) {
+  const scope = resolve(event, options);
+  if (!scope.child) {
+    const state = stateStore.readState(event.sessionId, options.dataDir);
+    return { ...state, scope, childContract: state.contract, effectiveContract: state.contract };
+  }
+  if (!scope.available) return { scope, storageError: { code: 'CHILD_SCOPE_UNAVAILABLE', message: 'Child-scoped policy state is unavailable.' } };
+  const parent = stateStore.readState(event.sessionId, options.dataDir);
+  const child = stateStore.readState(event.sessionId, options.dataDir, { agentId: scope.agentId });
+  if (parent.storageError || child.storageError) return { ...child, scope, storageError: parent.storageError || child.storageError };
+  let effectiveContract;
+  try { effectiveContract = effectiveChildContract(parent.contract, child.contract); }
+  catch { return { ...child, scope, storageError: { code: 'CHILD_SCOPE_UNAVAILABLE', message: 'Child-scoped policy state is unavailable.' } }; }
+  return { ...child, scope, parentContract: parent.contract, childContract: child.contract, effectiveContract, contract: effectiveContract };
+}
+
+function update(event, options, callback) {
+  const scope = resolve(event, options);
+  if (!scope.child) return stateStore.updateSession(event.sessionId, options.dataDir, callback);
+  if (!scope.available) throw new Error('Child-scoped policy state is unavailable.');
+  const { withCoordinationLock } = __require("src/dependency-handoff.cjs");
+  return withCoordinationLock(event.sessionId, options.dataDir, () => {
+    const parent = stateStore.readState(event.sessionId, options.dataDir);
+    if (parent.storageError) throw new Error('Parent policy state is unavailable.');
+    return stateStore.updateSession(event.sessionId, options.dataDir, child => {
+      const scoped = read(event, options);
+      if (scoped.storageError) throw new Error('Child policy state is unavailable.');
+      scoped.actionApproval = child.actionApproval;
+      scoped.expiredApprovalEventId = child.expiredApprovalEventId;
+      scoped.delegation = child.delegation;
+      const result = callback(scoped, scoped.effectiveContract);
+      child.actionApproval = scoped.actionApproval;
+      child.expiredApprovalEventId = scoped.expiredApprovalEventId;
+      child.delegation = scoped.delegation;
+      child.directiveWarning = scoped.directiveWarning;
+      child.directiveError = scoped.directiveError;
+      child.lastPromptContext = scoped.lastPromptContext;
+      // Contract mutation is intentionally handled by the child prompt path,
+      // which parses against childContract and writes that explicit contract.
+      if (scoped.childContract !== undefined) child.contract = scoped.childContract;
+      return result;
+    }, { agentId: scope.agentId });
+  });
+}
+
+function policyDigest(contract) {
+  if (!contract || typeof contract !== 'object') return null;
+  const bound = {
+    mode: contract.mode,
+    level: contract.level,
+    hashPolicy: contract.hashPolicy,
+    dependencyPolicy: contract.dependencyPolicy,
+    allowedPaths: contract.allowedPaths === null ? null : Array.isArray(contract.allowedPaths) ? [...contract.allowedPaths].sort() : undefined
+  };
+  if (Object.values(bound).some(value => value === undefined)) return null;
+  const crypto = require('node:crypto');
+  return crypto.createHash('sha256').update(JSON.stringify(bound)).digest('hex');
+}
+
+module.exports = { agentIdFor, resolve, read, update, policyDigest, effectiveChildContract };
+
+},
+"src/runner-command.cjs": function(module, exports, __require) {
+'use strict';
+
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+function encode(value) {
+  return Buffer.from(value, 'utf8').toString('base64');
+}
+
+function quotePosix(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function quotePowerShell(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function windowsJobGuardPrelude() {
+  const guardPath = Buffer.from(path.join(__dirname, 'windows-job-guard.cs'), 'utf8').toString('base64');
+  return [
+    `$jobPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${guardPath}'))`,
+    '$jobReady = $false',
+    'try { $jobSource = [IO.File]::ReadAllText($jobPath); Add-Type -TypeDefinition $jobSource -ErrorAction Stop | Out-Null; $jobReady = [StssRunnerJob]::AttachCurrentProcess() } catch { $jobReady = $false }',
+    'if (-not $jobReady) { [Console]::Error.WriteLine("Stop That Shit: Windows process-tree containment is unavailable."); exit 1 }'
+  ].join('; ');
+}
+
+function isShellNeutralWindowsPath(value) {
+  return /^[A-Za-z]:\\[A-Za-z0-9_.~\\-]+$/.test(String(value || ''));
+}
+
+function sameWindowsPath(left, right) {
+  return path.win32.normalize(left).replace(/\\+$/, '').toLowerCase()
+    === path.win32.normalize(right).replace(/\\+$/, '').toLowerCase();
+}
+
+function getWindowsShortPath(powerShellPath) {
+  const encodedPath = Buffer.from(powerShellPath, 'utf16le').toString('base64');
+  const source = [
+    "$native = 'using System; using System.Text; using System.Runtime.InteropServices; public static class StssPath { [DllImport(\"kernel32.dll\", CharSet=CharSet.Unicode, SetLastError=true)] public static extern uint GetShortPathName(string longPath, StringBuilder shortPath, uint capacity); }'",
+    'Add-Type -TypeDefinition $native',
+    `$longPath = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${encodedPath}'))`,
+    '$buffer = New-Object System.Text.StringBuilder 32768',
+    '$length = [StssPath]::GetShortPathName($longPath, $buffer, [uint32]$buffer.Capacity)',
+    'if ($length -eq 0 -or $length -ge $buffer.Capacity) { exit 5 }',
+    '[Console]::Out.Write($buffer.ToString())'
+  ].join('; ');
+  const result = spawnSync(powerShellPath, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', source], {
+    encoding: 'utf8', windowsHide: true, timeout: 5000, shell: false
+  });
+  if (result.error || result.status !== 0) {
+    throw new Error('A safe CMD/PowerShell launcher path is unavailable because Windows did not provide a usable short path.');
+  }
+  return String(result.stdout || '').trim();
+}
+
+function resolveWindowsPowerShell({ systemRoot = process.env.SystemRoot || process.env.WINDIR, fsApi = fs, shortPath = getWindowsShortPath } = {}) {
+  if (typeof systemRoot !== 'string' || !path.win32.isAbsolute(systemRoot)) {
+    throw new Error('A safe CMD/PowerShell launcher path is unavailable because SystemRoot is not an absolute Windows path.');
+  }
+  let canonicalRoot;
+  let canonicalPowerShell;
+  try {
+    canonicalRoot = fsApi.realpathSync(systemRoot);
+    const candidate = path.win32.join(canonicalRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    canonicalPowerShell = fsApi.realpathSync(candidate);
+    if (!fsApi.statSync(canonicalPowerShell).isFile()) throw new Error('not a file');
+  } catch {
+    throw new Error('A safe CMD/PowerShell launcher path is unavailable because the system PowerShell executable could not be verified under SystemRoot.');
+  }
+  const relative = path.win32.relative(canonicalRoot, canonicalPowerShell);
+  if (!relative || relative === '..' || relative.startsWith(`..${path.win32.sep}`) || path.win32.isAbsolute(relative)) {
+    throw new Error('A safe CMD/PowerShell launcher path is unavailable because the PowerShell executable resolves outside SystemRoot.');
+  }
+
+  if (isShellNeutralWindowsPath(canonicalPowerShell)) return canonicalPowerShell;
+
+  let short;
+  try { short = shortPath(canonicalPowerShell); }
+  catch { short = null; }
+  if (!isShellNeutralWindowsPath(short)) {
+    throw new Error('A safe CMD/PowerShell launcher path is unavailable because the system PowerShell path contains shell-sensitive characters and no usable short path exists.');
+  }
+  try {
+    if (!sameWindowsPath(fsApi.realpathSync(short), canonicalPowerShell)) throw new Error('different file');
+  } catch {
+    throw new Error('A safe CMD/PowerShell launcher path is unavailable because the short path could not be verified as the system PowerShell executable.');
+  }
+  return short;
+}
+
+function buildRunnerCommand({ executable, runnerPath, sessionId, dataDir, ticket, agentId, platform = process.platform, windowsPowerShellPath } = {}) {
+  const bootstrap = "require(Buffer.from(process.argv[1],'base64').toString('utf8')).run(Buffer.from(process.argv[2],'base64').toString('utf8'),Buffer.from(process.argv[3],'base64').toString('utf8'),process.argv[4],Buffer.from(process.argv[5]||'','base64').toString('utf8'))";
+  const args = [executable, '-e', bootstrap, encode(runnerPath), encode(sessionId), encode(dataDir), ticket, encode(agentId || '')];
+
+  if (platform === 'win32') {
+    const script = `${windowsJobGuardPrelude()}; & ${args.map(quotePowerShell).join(' ')}; if ($null -eq $LASTEXITCODE) { exit 1 }; exit $LASTEXITCODE`;
+    const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
+    // The absolute system path is either shell-neutral itself or a verified
+    // 8.3 alias. No executable from PATH launches the approved runner.
+    const powershell = windowsPowerShellPath || resolveWindowsPowerShell();
+    if (!isShellNeutralWindowsPath(powershell)) throw new Error('A safe CMD/PowerShell launcher path is unavailable.');
+    return `${powershell} -NoLogo -NoProfile -NonInteractive -EncodedCommand ${encodedScript}`;
+  }
+
+  return args.map(quotePosix).join(' ');
+}
+
+module.exports = { buildRunnerCommand, isShellNeutralWindowsPath, resolveWindowsPowerShell };
+
+},
+"src/dependency-runner.cjs": function(module, exports, __require) {
+'use strict';
+
+const fs = require('node:fs');
+const { spawn } = require('node:child_process');
+const { readState } = __require("src/state.cjs");
+const { live, proposalStillAllowed } = __require("src/action-approval.cjs");
+const { bindingForRecord, consumeHandoff, withCoordinationLock } = __require("src/dependency-handoff.cjs");
+const { unchanged } = __require("src/dependency-manager.cjs");
+const { decide } = __require("src/decision.cjs");
+const { inspectDelegation } = __require("src/delegation-state.cjs");
+const approvalScope = __require("src/approval-scope.cjs");
+
+function claim(sessionId, dataDir, ticket, agentId = '') {
+  return withCoordinationLock(sessionId, dataDir, () => {
+    let state;
+    let contract;
+    if (agentId) {
+      const store = __require("src/state.cjs");
+      const contracts = __require("src/contracts.cjs");
+      if (typeof store.childStatePath !== 'function' || typeof contracts.narrowContract !== 'function'
+          || store.childStatePath(sessionId, agentId, dataDir) === store.statePath(sessionId, dataDir)) {
+        throw new Error('Child-scoped approval is unavailable');
+      }
+      const parent = readState(sessionId, dataDir);
+      state = readState(sessionId, dataDir, { agentId });
+      if (parent.storageError || state.storageError) throw new Error('Approval policy state is unavailable');
+      contract = approvalScope.effectiveChildContract(parent.contract, state.contract);
+    } else {
+      state = readState(sessionId, dataDir);
+      contract = state.contract;
+    }
+    const record = state.actionApproval;
+    if (state.storageError || !live(record) || record.status !== 'issued' || record.ticket !== ticket
+        || (agentId ? record.scopeAgentId !== agentId : record.scopeAgentId !== undefined)
+        || contract.mode !== 'change' || contract.level !== 'guard'
+        || contract.dependencyPolicy !== 'ask'
+        || !proposalStillAllowed(record, contract, state)) throw new Error('Approval is unavailable or expired');
+    if (!record.requestedCwd || !record.targetCwd || fs.realpathSync(record.requestedCwd) !== record.targetCwd
+        || fs.realpathSync(record.targetCwd) !== record.targetCwd || !fs.statSync(record.targetCwd).isDirectory()) throw new Error('Approved directory changed');
+    if (!unchanged(record.manager.entry)
+        || record.manager.kind === 'native' && (!record.manager.launchPath || fs.realpathSync(record.manager.launchPath) !== record.manager.entry.path)
+        || record.manager.kind === 'node' && !unchanged(record.manager.executable)) throw new Error('Approved package manager changed');
+    if (!record.approvedAction || typeof record.approvedAction !== 'object') throw new Error('Approved action facts unavailable');
+    const action = { ...record.approvedAction, cwd: record.targetCwd, dependencyIntent: false };
+    const decision = decide({ contract, action, delegation: inspectDelegation(state.delegation), state });
+    if (decision.outcome !== 'allow') throw new Error(`Approved operation no longer satisfies current policy: ${decision.reasonCode}`);
+    consumeHandoff(record.handoff, bindingForRecord(sessionId, record, ticket));
+    return { cwd: record.targetCwd, manager: record.manager, args: record.argv.slice(1) };
+  });
+}
+
+function main(sessionId, dataDir, ticket, agentId = '') {
+  if (!sessionId || !dataDir || !/^[a-f0-9]{64}$/.test(ticket || '')) throw new Error('Invalid approval ticket');
+  if (agentId && (typeof agentId !== 'string' || !agentId.trim() || Buffer.byteLength(agentId, 'utf8') > 4096)) {
+    throw new Error('Invalid approval scope');
+  }
+  const operation = claim(sessionId, dataDir, ticket, agentId);
+  const executable = operation.manager.kind === 'node' ? operation.manager.executable.path : operation.manager.launchPath;
+  const args = operation.manager.kind === 'node' ? [operation.manager.entry.path, ...operation.args] : operation.args;
+  const child = spawn(executable, args, { cwd: operation.cwd, shell: false, stdio: 'inherit' });
+  const forwardInterrupt = () => child.kill('SIGINT');
+  const forwardTermination = () => child.kill('SIGTERM');
+  process.on('SIGINT', forwardInterrupt);
+  process.on('SIGTERM', forwardTermination);
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      process.off('SIGINT', forwardInterrupt);
+      process.off('SIGTERM', forwardTermination);
+    };
+    child.once('error', error => { cleanup(); reject(error); });
+    child.once('exit', (status, signal) => {
+      cleanup();
+      resolve(Number.isInteger(status) ? status : signal === 'SIGINT' ? 130 : 1);
+    });
+  });
+}
+
+async function run(sessionId, dataDir, ticket, agentId = '') {
+  try { process.exitCode = await main(sessionId, dataDir, ticket, agentId); }
+  catch (error) { process.stderr.write(`Stop That Shit: controlled dependency operation failed: ${error.message}\n`); process.exitCode = 1; }
+}
+
+if (require.main === module) run(...process.argv.slice(2));
+module.exports = { run };
 
 },
 "src/adapters/hermes-tool-classifier.cjs": function(module, exports, __require) {
@@ -2469,298 +4053,6 @@ function patchDependencyIntent(patch) {
 module.exports = { manifestDependencyIntent, manifestEditDependencyIntent, patchDependencyIntent };
 
 },
-"src/shell-analysis.cjs": function(module, exports, __require) {
-'use strict';
-
-const HASH_COMMAND = /\b(?:Get-FileHash|md5sum|sha(?:1|224|256|384|512)sum|shasum|b2sum)\b|\bcertutil\b[^\r\n]*\s-hashfile\b|\bopenssl\s+dgst\b/i;
-const DEPENDENCY_COMMAND = /\b(?:npm|pnpm|yarn)\s+(?:add|install)\b|\bpip(?:3)?\s+install\b|\bcargo\s+add\b|\bdotnet\s+add\b[^\r\n]*\bpackage\b|\bgo\s+get\b|\bcomposer\s+require\b|\bbundle\s+add\b/i;
-
-function classifyGitBranchArguments(args) {
-  let listing = false, positional = false;
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === '--') { positional ||= i + 1 < args.length; break; }
-    if (!arg.startsWith('-')) { positional = true; continue; }
-    if (/^(?:-[a-zA-Z]*[dDmMcCf][a-zA-Z]*|--(?:delete|move|copy|force|edit-description|set-upstream-to|unset-upstream|track|no-track|create-reflog)(?:=.*)?)$/.test(arg)) return 'write';
-    if (arg === '--list' || /^-[alrv]+$/.test(arg)) {
-      listing ||= arg === '--list' || arg.includes('l');
-      continue;
-    }
-    if (/^--(?:contains|no-contains|merged|no-merged)(?:=.*)?$/.test(arg)) {
-      listing = true;
-      if (!arg.includes('=') && args[i + 1] && !args[i + 1].startsWith('-')) i++;
-      continue;
-    }
-    if (/^--(?:points-at|format|sort)(?:=.*)?$/.test(arg)) {
-      listing ||= arg === '--points-at' || arg.startsWith('--points-at=');
-      if (!arg.includes('=')) {
-        if (i + 1 === args.length) return 'unknown';
-        i++;
-      }
-      continue;
-    }
-    if (/^--(?:show-current|all|remotes|verbose|no-color|column|no-column|ignore-case|omit-empty|no-abbrev)$/.test(arg)
-        || /^--(?:color=(?:always|never|auto)|abbrev(?:=\d+)?|column=.+)$/.test(arg)) continue;
-    // Negation and abbreviations can cancel --list or select a mutation.
-    return 'unknown';
-  }
-  return positional && !listing ? 'unknown' : 'read';
-}
-
-const READ_POWERSHELL_COMMANDS = new Set([
-  'get-content', 'get-childitem', 'get-item', 'test-path', 'resolve-path',
-  'select-string', 'select-object', 'measure-object', 'compare-object', 'where-object'
-]);
-const READ_SHELL_COMMANDS = new Set([
-  ...READ_POWERSHELL_COMMANDS,
-  'rg', 'grep', 'findstr', 'cat', 'ls', 'dir', 'pwd', 'head', 'tail', 'wc', 'type'
-]);
-const WRITE_SHELL_COMMANDS = new Set([
-  'remove-item', 'move-item', 'copy-item', 'set-content', 'add-content', 'out-file',
-  'new-item', 'rm', 'del', 'erase', 'rmdir', 'mv', 'cp', 'touch', 'mkdir', 'tee', 'apply_patch'
-]);
-
-// Analyze only static words, literal quotes and simple command chains. The
-// hook does not expose a shell AST. Expansions, script blocks and ambiguous
-// escapes stay unknown instead of being interpreted as Bash or PowerShell.
-function staticShellCommands(text) {
-  const commands = [];
-  let args = [], word = '', inWord = false, quote = null, separator = null;
-  let nativeQuotes = false;
-  const finishWord = () => {
-    if (inWord) args.push(word);
-    word = ''; inWord = false;
-  };
-  const finishCommand = () => {
-    commands.push({ args, nativeQuotes });
-    args = []; nativeQuotes = false;
-  };
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i], next = text[i + 1];
-    // PowerShell recognizes these quotes; Bash treats them as ordinary text.
-    // They are literal only inside a quote of the opposite kind.
-    const smartQuote = /[\u2018-\u201b]/.test(char) ? "'"
-      : /[\u201c-\u201e]/.test(char) ? '"' : null;
-    if (smartQuote && (!quote || quote === smartQuote)) return null;
-    if (quote) {
-      // Legacy PowerShell native argv can split embedded double quotes back
-      // into options. Cmdlets receive the literal argument directly.
-      if (quote === "'" && char === '"' || quote === '"' && char === '"' && next === '"') nativeQuotes = true;
-      if (char === quote) { quote = null; continue; }
-      if (quote === '"' && (char === '$' || char === '`'
-          || char === '\\' && /["$`\\\r\n]/.test(next || ''))) return null;
-      word += char;
-      continue;
-    }
-    if (char === "'" || char === '"') { quote = char; inWord = true; continue; }
-    if (/[ \t]/.test(char)) { finishWord(); continue; }
-    if (char === '>') return { redirected: true };
-    if (/[$`{}()<@%*?\[\]#]/.test(char)) return null;
-    // Bash removes even an escape before an ordinary letter (e.g. --out\put).
-    // Without a shell identity, do not interpret an unquoted backslash.
-    if (char === '\\') return null;
-    if (char === '\r' || char === '\n' || char === ';' || char === '|' || char === '&') {
-      finishWord();
-      // PowerShell also accepts a standalone CR as a command separator.
-      const operator = char === '\r' ? '\n'
-        : (char === '&' || char === '|') && next === char ? char + text[++i] : char;
-      if (operator === '&') return null;
-      if (args.length) finishCommand();
-      else if (operator === '\n') continue;
-      else return null;
-      separator = operator;
-      continue;
-    }
-    if (/\s/.test(char)) return null;
-    word += char; inWord = true;
-  }
-  if (quote) return null;
-  finishWord();
-  if (args.length) finishCommand();
-  else if (['&&', '||', '|'].includes(separator)) return null;
-  return commands.length ? { commands } : null;
-}
-
-// Consume ripgrep option values before interpreting -- or executable options.
-// Otherwise a pattern named -- can hide a later --hostname-bin, or an option
-// name used as a literal pattern can be mistaken for an executable option.
-const RIPGREP_VALUE_OPTIONS = new Set([
-  '--regexp', '--file', '--pre-glob', '--dfa-size-limit', '--encoding', '--engine',
-  '--max-count', '--regex-size-limit', '--threads', '--glob', '--iglob',
-  '--ignore-file', '--max-depth', '--max-filesize', '--type', '--type-not',
-  '--type-add', '--type-clear', '--after-context', '--before-context', '--color',
-  '--colors', '--context', '--context-separator', '--field-context-separator',
-  '--field-match-separator', '--hyperlink-format', '--max-columns',
-  '--path-separator', '--replace', '--sort', '--sortr', '--generate'
-]);
-
-function classifyRipgrepArguments(args) {
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === '--') break;
-    if (/^--(?:pre|hostname-bin)(?:=|$)/.test(arg)) return shellClassification('unknown', 'shell_execution_option');
-    let consumesValue = RIPGREP_VALUE_OPTIONS.has(arg);
-    if (/^-[^-]/.test(arg)) {
-      // A value can be attached to a short option, including in a flag cluster.
-      const valueFlag = /[efEmjgdtTABCMr]/.exec(arg.slice(1));
-      consumesValue = Boolean(valueFlag && valueFlag.index === arg.length - 2);
-    }
-    if (consumesValue && ++i === args.length) return shellClassification('unknown', 'option_value_missing');
-  }
-  return shellClassification('read');
-}
-
-function shellClassification(mutability, analysisReason) {
-  return { mutability, ...(analysisReason ? { analysisReason } : {}) };
-}
-
-function combineClassifications(classifications) {
-  const kinds = classifications.map(result => result.mutability);
-  const mutability = kinds.includes('write') ? 'write'
-    : kinds.every(kind => kind === 'read') ? 'read' : 'unknown';
-  const decisive = classifications.find(result => result.mutability === mutability);
-  return shellClassification(mutability, decisive?.analysisReason);
-}
-
-function classifyStaticCommand({ args: [program, ...args], nativeQuotes }) {
-  const name = String(program || '').toLowerCase();
-  if (WRITE_SHELL_COMMANDS.has(name)) return shellClassification('write');
-  const cmdlet = READ_POWERSHELL_COMMANDS.has(name);
-  if (nativeQuotes && !cmdlet) return shellClassification('unknown', 'native_quotes_unproven');
-  const classifications = [classifyCommandArguments(name, [...args])];
-  // Legacy PowerShell drops empty native argv entries. A read must remain a
-  // read in both interpretations; cmdlets receive their arguments directly.
-  if (!cmdlet && args.includes('')) classifications.push(classifyCommandArguments(name, args.filter(arg => arg !== '')));
-  const result = combineClassifications(classifications);
-  if (classifications.some(entry => entry.mutability !== result.mutability)) result.analysisReason = 'native_empty_arguments';
-  return result;
-}
-
-function analyzeShell(command) {
-  const text = String(command || '').replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
-  const analysis = staticShellCommands(text);
-  if (!analysis || analysis.redirected) return {
-    ...shellClassification(analysis?.redirected ? 'write' : 'unknown', analysis?.redirected ? 'shell_redirection' : 'shell_syntax_unproven'),
-    hashIntent: HASH_COMMAND.test(text), dependencyIntent: DEPENDENCY_COMMAND.test(text)
-  };
-  const commands = analysis.commands.map(command => ({
-    ...classifyStaticCommand(command), text: command.args.join(' ')
-  }));
-  // Proven reads treat their arguments as data. Keep the existing intent checks
-  // for writes and unproven programs, independently for each command in a chain.
-  return {
-    ...combineClassifications(commands),
-    hashIntent: commands.some(command => command.mutability !== 'read' && HASH_COMMAND.test(command.text)),
-    dependencyIntent: commands.some(command => command.mutability !== 'read' && DEPENDENCY_COMMAND.test(command.text))
-  };
-}
-
-// Required values consume the following argument, even when it is --. Optional
-// values must be attached with =. Unknown options cannot establish a read.
-const GIT_QUERY_VALUE_OPTIONS = new Set([
-  '--word-diff-regex', '--src-prefix', '--dst-prefix', '--line-prefix',
-  '--output-indicator-new', '--output-indicator-old', '--output-indicator-context',
-  '--diff-algorithm', '--anchored', '--ignore-matching-lines', '--diff-filter',
-  '--stat-width', '--stat-name-width', '--stat-graph-width', '--stat-count',
-  '--inter-hunk-context', '--rotate-to', '--skip-to', '--find-object'
-]);
-const GIT_QUERY_FLAGS = new Set([
-  '--short', '--branch', '--show-stash', '--no-index', '--numstat', '--shortstat',
-  '--name-only', '--name-status', '--check', '--summary', '--patch', '--no-patch',
-  '--raw', '--binary', '--cached', '--staged', '--exit-code', '--quiet',
-  '--no-color', '--no-ext-diff', '--no-textconv', '--ignore-all-space',
-  '--ignore-space-change', '--ignore-space-at-eol', '--ignore-cr-at-eol',
-  '--ignore-blank-lines', '--patience', '--histogram', '--minimal',
-  '--oneline', '--all', '--reverse', '--first-parent', '--no-merges', '--merges',
-  '--graph', '--no-decorate', '--topo-order', '--date-order', '--no-renames',
-  '--pickaxe-all', '--pickaxe-regex', '--no-prefix', '--default-prefix',
-  '--show-toplevel', '--show-prefix', '--show-cdup', '--git-dir', '--git-common-dir',
-  '--is-inside-work-tree', '--is-bare-repository', '--verify', '--symbolic-full-name'
-]);
-const GIT_QUERY_OPTIONAL_VALUES = new Set([
-  '--stat', '--color', '--word-diff', '--color-words', '--relative', '--unified',
-  '--abbrev', '--short', '--abbrev-ref', '--porcelain', '--untracked-files', '--ignored',
-  '--find-renames', '--find-copies', '--break-rewrites', '--decorate', '--pretty'
-]);
-const GIT_QUERY_ATTACHED_ONLY = new Set([
-  '--format', '--date', '--since', '--until', '--before', '--after', '--author',
-  '--committer', '--grep', '--max-count', '--skip', '--diff-merges', '--encoding'
-]);
-
-function classifyGitQueryArguments(args) {
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === '--') break;
-    if (!arg.startsWith('-')) continue;
-    if (/^--output(?:=|$)/.test(arg)) return shellClassification('write', 'git_output_file');
-    const name = arg.split('=', 1)[0];
-    if (GIT_QUERY_VALUE_OPTIONS.has(name)) {
-      if (arg === name && ++i === args.length) return shellClassification('unknown', 'option_value_missing');
-      continue;
-    }
-    if (GIT_QUERY_FLAGS.has(arg) || GIT_QUERY_OPTIONAL_VALUES.has(name)
-        || arg.includes('=') && GIT_QUERY_ATTACHED_ONLY.has(name)) continue;
-    if (/^-[SGOIn]$/.test(arg)) {
-      if (++i === args.length) return shellClassification('unknown', 'option_value_missing');
-      continue;
-    }
-    if (/^-[SGOI].+/.test(arg) || /^-n\d+$/.test(arg) || /^-\d+$/.test(arg)
-        || /^-[pwsbz]+$/.test(arg) || /^-[UMCB](?:\d+%?)?$/.test(arg)
-        || /^-u(?:no|normal|all)?$/.test(arg)) continue;
-    return shellClassification('unknown', 'git_arguments_unproven');
-  }
-  return shellClassification('read');
-}
-
-function classifyCommandArguments(name, args) {
-  if (name === 'git') {
-    // Only these global options preserve the supported command interpretation.
-    while (args.length) {
-      if (args[0] === '--no-pager' || args[0] === '--literal-pathspecs') args.shift();
-      else if (args[0] === '-C' && args.length > 1) args.splice(0, 2);
-      else break;
-    }
-    const subcommand = args.shift();
-    if (['add', 'commit', 'push', 'merge', 'rebase', 'checkout', 'switch', 'reset', 'restore', 'clean', 'tag'].includes(subcommand)) return shellClassification('write');
-    if (subcommand === 'branch') {
-      const mutability = classifyGitBranchArguments(args);
-      return shellClassification(mutability, mutability === 'unknown' ? 'git_arguments_unproven' : undefined);
-    }
-    if (['status', 'diff', 'log', 'show', 'rev-parse'].includes(subcommand)) return classifyGitQueryArguments(args);
-    return shellClassification('unknown', 'git_arguments_unproven');
-  }
-  if (['npm', 'pnpm', 'yarn'].includes(name) && ['add', 'install', 'remove', 'uninstall', 'publish'].includes(args[0])) return shellClassification('write');
-  if (['pip', 'pip3'].includes(name) && args[0] === 'install') return shellClassification('write');
-  if (name === 'gh' && /^(?:pr (?:create|merge|close)|issue (?:create|close)|release create)$/.test(args.slice(0, 2).join(' '))) return shellClassification('write');
-  if (name === 'rg') return classifyRipgrepArguments(args);
-  if (READ_SHELL_COMMANDS.has(name)) return shellClassification('read');
-  if (['node', 'python', 'python3', 'py'].includes(name) && args.length === 1 && args[0] === '--version') return shellClassification('read');
-  return shellClassification('unknown', 'shell_command_unproven');
-}
-
-function classifyShell(command) {
-  return analyzeShell(command).mutability;
-}
-
-// Some installed hook payloads lack command but carry intent text in a legacy
-// field. Keep their mutability unproven while retaining hash/dependency facts.
-function analyzeShellInput(toolInput) {
-  const command = toolInput && toolInput.command;
-  const text = typeof toolInput === 'string' ? toolInput
-    : toolInput && typeof toolInput === 'object'
-      ? String(toolInput.command || toolInput.patch || toolInput.content || toolInput.new_string || '') : '';
-  const analysis = analyzeShell(command);
-  if (text !== String(command || '')) {
-    const intents = analyzeShell(text);
-    analysis.hashIntent = intents.hashIntent;
-    analysis.dependencyIntent = intents.dependencyIntent;
-  }
-  return analysis;
-}
-
-module.exports = { analyzeShell, analyzeShellInput, classifyShell };
-
-},
 "src/adapters/codex-tool-classifier.cjs": function(module, exports, __require) {
 'use strict';
 
@@ -2771,7 +4063,7 @@ const { detectHashIntent } = __require("src/hash-intent.cjs");
 
 const WRITE_NAME = /(?:^|__|_)(?:add|append|apply|archive|close|commit|copy|create|delete|deploy|edit|install|merge|move|patch|post|publish|push|remove|rename|send|set|submit|update|upload|write)(?:$|__|_)/i;
 const READ_NAME = /(?:^|__|_)(?:cat|check|diff|fetch|find|get|inspect|list|load|open|read|review|search|show|status|view)(?:$|__|_)/i;
-const CONTROL_TOOLS = new Set(['update_plan', 'request_user_input', 'wait', 'wait_agent', 'interrupt_agent', 'close_agent']);
+const CONTROL_TOOLS = new Set(['update_plan', 'request_user_input', 'request_user_input_async', 'wait', 'wait_agent', 'interrupt_agent', 'close_agent']);
 // Match the host's known flattened namespaces exactly; do not strip arbitrary
 // prefixes from MCP or third-party tool names.
 const CODEX_TOOL_NAMES = new Map([

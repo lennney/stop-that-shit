@@ -10,6 +10,7 @@ const test = require('node:test');
 const root = path.join(__dirname, '..');
 const pluginRoot = path.join(root, '.hermes-plugin');
 const runtimePath = path.join(pluginRoot, 'runtime', 'stop-that-shit.cjs');
+const windowsJobGuardPath = path.join(pluginRoot, 'runtime', 'windows-job-guard.cs');
 const pythonCommand = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
 
 function pythonPluginEnv(extra = {}) {
@@ -69,9 +70,11 @@ test('Hermes installation docs explain CLI and Gateway activation lifecycle', ()
 
 test('Hermes runtime is self-contained and handles an existing prompt envelope', () => {
   assert.ok(fs.statSync(runtimePath).isFile(), 'generated Hermes runtime must exist');
+  assert.ok(fs.statSync(windowsJobGuardPath).isFile(), 'generated Windows runner helper must sit beside the bundled runtime');
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-hermes-runtime-'));
   const copied = path.join(tempHome, 'stop-that-shit.cjs');
   fs.copyFileSync(runtimePath, copied);
+  fs.copyFileSync(windowsJobGuardPath, path.join(tempHome, 'windows-job-guard.cs'));
   const input = JSON.stringify({ hook_event_name: 'pre_llm_call', session_id: 'bundle-test-session', extra: { user_message: 'review this read-only task' } });
   const result = spawnSync(process.execPath, [copied], { input: `${input}\n`, encoding: 'utf8', env: { ...process.env, HERMES_HOME: tempHome } });
   assert.equal(result.status, 0, result.stderr);
@@ -83,6 +86,22 @@ test('hermes:check detects a modified generated runtime', () => {
   const result = spawnSync(process.execPath, ['scripts/build-hermes-plugin.cjs', '--check'], { cwd: root, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /unchanged|up to date|deterministic/i);
+});
+
+test('hermes:check detects a missing generated Windows runner helper', t => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-hermes-helper-check-'));
+  t.after(() => fs.rmSync(tempRoot, { recursive: true, force: true }));
+  fs.cpSync(path.join(root, 'src'), path.join(tempRoot, 'src'), { recursive: true });
+  fs.mkdirSync(path.join(tempRoot, 'scripts'), { recursive: true });
+  fs.mkdirSync(path.join(tempRoot, '.hermes-plugin', 'runtime'), { recursive: true });
+  fs.copyFileSync(path.join(root, 'package.json'), path.join(tempRoot, 'package.json'));
+  fs.copyFileSync(path.join(root, 'scripts', 'build-hermes-plugin.cjs'), path.join(tempRoot, 'scripts', 'build-hermes-plugin.cjs'));
+  fs.copyFileSync(runtimePath, path.join(tempRoot, '.hermes-plugin', 'runtime', 'stop-that-shit.cjs'));
+  const result = spawnSync(process.execPath, ['scripts/build-hermes-plugin.cjs', '--check'], {
+    cwd: tempRoot, encoding: 'utf8'
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /stale/i);
 });
 
 test('hermes:check is invariant to CRLF checkout conversion', (t) => {
@@ -100,6 +119,10 @@ test('hermes:check is invariant to CRLF checkout conversion', (t) => {
   fs.copyFileSync(
     runtimePath,
     path.join(tempRoot, '.hermes-plugin', 'runtime', 'stop-that-shit.cjs')
+  );
+  fs.copyFileSync(
+    windowsJobGuardPath,
+    path.join(tempRoot, '.hermes-plugin', 'runtime', 'windows-job-guard.cs')
   );
 
   const convertTreeToCrlf = (target) => {
