@@ -2834,6 +2834,7 @@ function classifyCodexTool(toolName, toolInput) {
     return classifyShell(toolInput && toolInput.command);
   }
   if (name === 'Agent' || name === 'spawn_agent') return 'delegate';
+  if (name === 'mcp__codex_app__wait_threads') return 'read';
   if (CONTROL_TOOLS.has(name)) return 'control';
   if (WRITE_NAME.test(name)) return 'write';
   if (READ_NAME.test(name)) return 'read';
