@@ -15,8 +15,10 @@
 </p>
 
 <p align="center">
-  Skill + Guard，帮 AI coding agent 停止无用防御和任务越界。<br>
-  Codex · Claude Code · OpenCode · Hermes Agent CLI · Pi<br>
+<!-- sts:stable-summary:start -->
+  <strong>正式版 0.2.5</strong> — 用 Skill、Guard 和 STSS，帮助 AI 完成当前任务，删去没有用途的额外工作和防御性文字。<br>
+  Codex · Claude Code · OpenCode · Hermes Agent CLI · Pi · Oh My Pi<br>
+<!-- sts:stable-summary:end -->
   <a href="#shit-是哪四种">SHIT 哲学</a> ·
   <a href="#前后对比">看个例子</a> ·
   <a href="#快速安装">安装</a> ·

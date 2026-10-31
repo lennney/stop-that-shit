@@ -1910,7 +1910,7 @@ module.exports = {
     "hermes:build": "node scripts/build-hermes-plugin.cjs",
     "hermes:check": "node scripts/build-hermes-plugin.cjs --check",
     "test": "node scripts/test.cjs",
-    "check": "npm test && npm run eval && npm run release:check",
+    "check": "npm run content:check && npm test && npm run eval && npm run release:check",
     "sts": "node scripts/sts.cjs",
     "eval": "node scripts/evaluate-cases.cjs",
     "eval:selftest": "node --test test/case-bundle.test.cjs test/paired-eval.test.cjs",
@@ -1922,7 +1922,9 @@ module.exports = {
     "test:omp": "node --test test/omp-adapter.test.cjs test/omp-extension.test.cjs test/omp-package.test.cjs",
     "test:hosts": "node scripts/test-hosts.cjs",
     "codex:build": "node scripts/build-codex-plugin.cjs",
-    "codex:check": "node scripts/build-codex-plugin.cjs --check"
+    "codex:check": "node scripts/build-codex-plugin.cjs --check",
+    "content:check": "node scripts/project-content.cjs",
+    "content:build": "node scripts/project-content.cjs --write"
   },
   "engines": {
     "node": ">=18",
@@ -4277,7 +4279,7 @@ __modules["package.json"] = function(module) { module.exports = {
     "hermes:build": "node scripts/build-hermes-plugin.cjs",
     "hermes:check": "node scripts/build-hermes-plugin.cjs --check",
     "test": "node scripts/test.cjs",
-    "check": "npm test && npm run eval && npm run release:check",
+    "check": "npm run content:check && npm test && npm run eval && npm run release:check",
     "sts": "node scripts/sts.cjs",
     "eval": "node scripts/evaluate-cases.cjs",
     "eval:selftest": "node --test test/case-bundle.test.cjs test/paired-eval.test.cjs",
@@ -4289,7 +4291,9 @@ __modules["package.json"] = function(module) { module.exports = {
     "test:omp": "node --test test/omp-adapter.test.cjs test/omp-extension.test.cjs test/omp-package.test.cjs",
     "test:hosts": "node scripts/test-hosts.cjs",
     "codex:build": "node scripts/build-codex-plugin.cjs",
-    "codex:check": "node scripts/build-codex-plugin.cjs --check"
+    "codex:check": "node scripts/build-codex-plugin.cjs --check",
+    "content:check": "node scripts/project-content.cjs",
+    "content:build": "node scripts/project-content.cjs --write"
   },
   "engines": {
     "node": ">=18",

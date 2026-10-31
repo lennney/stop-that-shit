@@ -1,0 +1,246 @@
+{
+  "schemaVersion": 1,
+  "id": "stop-that-shit",
+  "repositoryUrl": "https://github.com/lennney/stop-that-shit",
+  "reviewedAt": "2026-10-31",
+  "release": {
+    "version": "0.2.5",
+    "tag": "0.2.5",
+    "commit": "8bc1ac558167121e7f28d9fb0bec05c039952206",
+    "publishedAt": "2026-10-15T12:31:31Z"
+  },
+  "evidence": [
+    "INSTALL.md",
+    "EVIDENCE.md",
+    "package.json",
+    "skills/stop-that-shit/SKILL.md",
+    "skills/stss/SKILL.md"
+  ],
+  "hosts": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "adapter": "Plugin + packaged Hooks"
+    },
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "adapter": "Plugin + native lifecycle Hooks"
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode",
+      "adapter": "V1 / V2 plugins + before-action checks"
+    },
+    {
+      "id": "hermes",
+      "name": "Hermes Agent CLI",
+      "adapter": "Native plugin callbacks"
+    },
+    {
+      "id": "pi",
+      "name": "Pi",
+      "adapter": "Native Extension + before-action checks"
+    },
+    {
+      "id": "omp",
+      "name": "Oh My Pi",
+      "adapter": "Explicit OMP Extension + native /sts controls"
+    }
+  ],
+  "locales": {
+    "zh": {
+      "metaTitle": "Stop That Shit：Codex 插件、任务边界与 STSS 指南",
+      "tagline": "把任务做完，也知道何时停下。",
+      "limitations": "它只能检查 Host 已提供、并且输入足够明确的 Hook 事件，不是安全沙箱，也不会看到 migration、retry 或 cache 就自动判定多余。Guard 返回拒绝只说明它发出了拒绝响应，不证明已观察到 Host 的最终执行结果。",
+      "installationDescription": "Codex 安装命令固定到下方版本。重启后，在 CLI TUI 的 /hooks 中对照该 tag 的 Hook 清单检查并信任命令；完整变更见 GitHub Release。STSS Skill 也可以单独安装。",
+      "installationNote": "完成 Hook 检查后，在新任务里用 $stop-that-shit review 或 $stop-that-shit change 写明授权。",
+      "faq": [
+        {
+          "question": "这是什么工具？",
+          "group": "start",
+          "answerKey": "description"
+        },
+        {
+          "question": "STSS 是什么？",
+          "group": "source",
+          "answerKey": "stss"
+        },
+        {
+          "question": "是 Skill，还是插件？",
+          "group": "start",
+          "answer": "两者都是。独立 Skill 提供 Stop Ladder 和 review/change 等任务模式，属于建议性指导；完整插件还包含 Guard 与 Host Adapter，能在受支持的 Hook 路径上检查明确边界。"
+        },
+        {
+          "question": "源码和版本记录在哪里？",
+          "group": "source",
+          "answer": "公开源码、Release 和版本化下载文档都在 GitHub 仓库 github.com/lennney/stop-that-shit；本页是 lennney 维护的双语产品说明。核对代码、版本或安装步骤时，以 GitHub tag 和 Release 为准。"
+        },
+        {
+          "question": "怎样在 Codex 中安装？",
+          "group": "start",
+          "answer": "从 GitHub Release 查看当前 tag，并按该 tag 的 INSTALL.md 安装或更新。Codex 需要 Node.js 18+；将 marketplace 固定到安装区所示 tag，重启后在 CLI TUI 的 /hooks 中对照该 tag 的 Hook 清单检查并信任命令。新任务用 review 或 change 声明授权。"
+        },
+        {
+          "question": "与 AGENTS.md 有什么区别？",
+          "group": "boundaries",
+          "answer": "AGENTS.md 适合记录仓库长期有效的架构、命令和约定。Stop That Shit 不替代这些上下文；它让用户为当前任务声明 review/change、文件、依赖、hash 和 subagent 边界，并在受支持的 Hook 路径上检查明确动作。"
+        },
+        {
+          "question": "SHIT 指什么？",
+          "group": "boundaries",
+          "answer": "SHIT 不是单独的执行模式，而是四类任务漂移的缩写：Scope creep（范围膨胀）、Hashing and hypothetical hardening（无消费者的摘要与假设性防御）、Intent violation（意图越界）和 Task thrashing（任务打转）。真正的任务模式是 review、answer、monitor 和 change 等。"
+        },
+        {
+          "question": "有哪些局限？",
+          "group": "boundaries",
+          "answerKey": "limitations"
+        },
+        {
+          "question": "适合哪些工作流？",
+          "group": "start",
+          "answer": "先在临时仓库做一次 review/change smoke，再用成对的 Bad Case 与 Good Case 判断误放和误拦。EVIDENCE.md 区分测试、适配器行为与宿主最终效果；这些记录不证明模型整体更听话。"
+        },
+        {
+          "question": "它会禁止所有 Hash 或 checksum 吗？",
+          "group": "boundaries",
+          "answer": "不会。发布验证需要读取摘要，缺少它就无法通过验收，这是有消费者的 checksum。对可识别的新 hash 动作，当前任务可以用 hash=allow 明确授权；是否需要它仍要看请求和消费者。"
+        },
+        {
+          "question": "支持哪些编码助手？",
+          "group": "start",
+          "answer": "当前稳定版提供下方 Host 列表中的 Adapter，包括 Oh My Pi 独立 Extension；OpenCode 包含 V1 与 V2。各 Host 的安装、信任、重启与事件覆盖不同。Pi 的独立子进程不继承父任务合同；完整要求见安装区与版本化 INSTALL.md。"
+        }
+      ],
+      "shortDescription": "用 Skill、Guard 和 STSS，帮助 AI 完成当前任务，删去没有用途的额外工作和防御性文字。",
+      "description": "Stop That Shit 是面向 AI coding agent 的任务边界 Skill + Guard。Skill 用 Stop Ladder 指导实现与验收；Guard 在受支持的 Host 路径上检查明确的任务、文件、依赖、hash 和 subagent 边界。STSS 为提案、文章、案例和图注提供重写、审稿与新稿生成指导。",
+      "metaDescription": "Stop That Shit（别再造史了）的稳定版说明、{count} 种 Host 接入、Codex 安装与 STSS 指南，说明 Skill、Guard 的能力、运行要求和验证边界。",
+      "requirements": "核心 Guard 需要 Node.js 18+。Pi 0.84.4 自身需要 Node.js 22.19+；Oh My Pi 18.4.4 的已记录验证使用 Bun 1.3.14。各 Host 的要求和安装步骤见版本化 INSTALL.md。",
+      "hostsTitle": "同一套任务边界，{count} 种 Host 接入",
+      "stss": "STSS 是独立写作 Skill。它为提案、文章、案例、图注和新稿生成提供指导；rewrite 修改文字，audit 报告问题。Sentence Consumer Test、Claim Ledger 和 Claim Diff 帮助删改无用途的免责声明、堆叠保留与自我辩护，并保留影响读者判断的条件、来源和责任。",
+      "guardCaption": "Skill 提供实现与验收的判断建议；Guard 默认观察，明确任务模式启用后才检查受支持的 Host 动作路径。",
+      "ladder": {
+        "title": "沿着 Stop Ladder，把当前责任做完整。",
+        "description": "先明确结果与已有承诺，再选直接方案，补具体缺口，判断防御的实际作用，验证充分后结束。",
+        "questions": [
+          "当前要交付什么，已有边界与支持承诺是什么？",
+          "已有代码、标准库、平台能力或已安装依赖够用吗？",
+          "还有哪个具体缺口需要补齐？",
+          "这层防御检测什么，会怎样拒绝、恢复或诊断？",
+          "结果与必要后续是否完成，相关验证是否充分？"
+        ],
+        "decision": "完成请求和必要后续；没有当前用途的额外工作就停下。"
+      }
+    },
+    "en": {
+      "metaTitle": "Stop That Shit — Codex Plugin, Task Boundaries, and STSS",
+      "tagline": "Finish the task. Know when to stop.",
+      "limitations": "It can inspect only Hook events that the Host exposes with enough input. It is not a security sandbox and does not label every migration, retry, or cache as unnecessary. A returned denial records the Guard response; it is not observation of the Host's final effect.",
+      "installationDescription": "The Codex commands below pin a release tag. After restart, compare /hooks in the CLI TUI with that tag's Hook manifest and trust the commands you reviewed. GitHub Release has the complete changes. STSS can also be installed on its own.",
+      "installationNote": "After Hook review, use $stop-that-shit review or $stop-that-shit change in a new task to make authority explicit.",
+      "faq": [
+        {
+          "question": "What does it do?",
+          "group": "start",
+          "answerKey": "description"
+        },
+        {
+          "question": "What is STSS?",
+          "group": "source",
+          "answerKey": "stss"
+        },
+        {
+          "question": "Is it a Skill or a plugin?",
+          "group": "start",
+          "answer": "It is both. The standalone Skill provides the Stop Ladder and task modes such as review and change as advisory guidance. The complete plugin also packages the Guard and Host adapters, which check explicit boundaries on supported Hook paths."
+        },
+        {
+          "question": "Where are the source and releases?",
+          "group": "source",
+          "answer": "The public source, releases, and versioned download documentation are at github.com/lennney/stop-that-shit. This page is the bilingual product guide maintained by lennney; use the GitHub tag and release as the source of truth for code, versions, and installation steps."
+        },
+        {
+          "question": "How do I install it in Codex?",
+          "group": "start",
+          "answer": "Use the current GitHub Release and that tag's INSTALL.md to install or update. Codex requires Node.js 18+: pin the marketplace to the tag shown in the install section, restart, and compare /hooks in a fresh CLI TUI with the packaged Hook manifest before trusting it. Use review or change to declare authority in a new task."
+        },
+        {
+          "question": "How does it differ from AGENTS.md?",
+          "group": "boundaries",
+          "answer": "AGENTS.md is the right place for durable repository architecture, commands, and conventions. Stop That Shit does not replace that context. It lets the user declare per-task review/change, file, dependency, hash, and subagent boundaries and checks explicit actions on supported Hook paths."
+        },
+        {
+          "question": "What does SHIT stand for?",
+          "group": "boundaries",
+          "answer": "SHIT is not one execution mode. It names four kinds of task drift: Scope creep, Hashing and hypothetical hardening, Intent violation, and Task thrashing. The actual task modes include review, answer, monitor, and change."
+        },
+        {
+          "question": "What are its limitations?",
+          "group": "boundaries",
+          "answerKey": "limitations"
+        },
+        {
+          "question": "Which workflows is it useful for?",
+          "group": "start",
+          "answer": "Run a review/change smoke in a disposable repository, then use paired Bad and Good Cases to judge false allows and false denials. EVIDENCE.md separates tests, adapter behavior, and final Host effects; those records do not prove a general improvement in model behavior."
+        },
+        {
+          "question": "Does it ban every hash or checksum?",
+          "group": "boundaries",
+          "answer": "No. A release checksum read by a verifier has a consumer and is necessary for that acceptance path. The current task can authorize an identifiable new hash action with hash=allow; the request and consumer still determine whether it belongs."
+        },
+        {
+          "question": "Which coding agents are supported?",
+          "group": "start",
+          "answer": "The stable release provides the adapters listed in the installation section, including the explicit Oh My Pi Extension and OpenCode V1 and V2. Installation, trust, restart, and event coverage differ by Host. Separate Pi child processes do not inherit the parent contract; see the installation section and versioned INSTALL.md."
+        }
+      ],
+      "shortDescription": "A Skill, Guard, and STSS for completing the current task and removing unused work and defensive prose.",
+      "description": "Stop That Shit is a task-boundary Skill + Guard for AI coding agents. The Skill uses the Stop Ladder to guide implementation and acceptance; the Guard checks explicit task, file, dependency, hash, and subagent boundaries on supported Host paths. STSS guides rewriting, auditing, and drafting proposals, articles, case studies, and captions.",
+      "metaDescription": "Read the stable Stop That Shit guide: {count} Host adapters, Codex installation, STSS, runtime requirements, and the coverage and limits of the Skill and Guard.",
+      "requirements": "The core Guard needs Node.js 18+. Pi 0.84.4 itself needs Node.js 22.19+; the recorded Oh My Pi 18.4.4 checks used Bun 1.3.14. See the versioned INSTALL.md for each Host’s requirements and installation steps.",
+      "hostsTitle": "One task boundary, {count} Host adapters",
+      "stss": "STSS is a standalone writing Skill for proposals, articles, case studies, captions, and new drafts. Use rewrite to edit text and audit to report problems. Its Sentence Consumer Test, Claim Ledger, and Claim Diff help remove unused disclaimers, hedge stacks, and self-defense while preserving conditions, attribution, and responsibility that affect the reader’s decision.",
+      "guardCaption": "The Skill guides implementation and acceptance. The Guard observes by default and checks supported Host action paths after an explicit task mode is armed.",
+      "ladder": {
+        "title": "Follow the Stop Ladder. Complete the current responsibility.",
+        "description": "Establish the result and existing guarantees, start with a direct solution, close concrete gaps, judge defenses by their effect, then verify and finish.",
+        "questions": [
+          "What result, boundaries, and existing guarantees must the task satisfy?",
+          "Can existing code, standard libraries, platform features, or installed dependencies do it?",
+          "Which concrete gap still needs to be closed?",
+          "What does this defense detect, and how does rejection, recovery, or diagnosis change the result?",
+          "Are the result and necessary follow-through complete, with sufficient relevant verification?"
+        ],
+        "decision": "Complete the requested work and necessary follow-through. Stop extra work that has no current purpose."
+      }
+    },
+    "ko": {
+      "metaTitle": "Stop That Shit: Claude Code·Codex 설치와 STSS 안내",
+      "tagline": "부탁한 작업을 끝내고, 불필요한 일은 멈추세요.",
+      "limitations": "Guard는 호스트가 충분한 입력과 함께 제공한 이벤트만 검사합니다. 보안 샌드박스가 아니며 거부 응답만으로 호스트의 최종 실행 결과를 관찰했다고 볼 수 없습니다. 기록된 테스트는 일반적인 모델 성능 향상이나 모든 호스트 경로를 입증하지 않습니다.",
+      "installationDescription": "설치 기준은 공개 안정 릴리스입니다. 호스트별 설치·신뢰·재시작 단계는 해당 버전 INSTALL.md를 확인하세요.",
+      "installationNote": "Codex를 다시 시작한 뒤 CLI TUI의 /hooks에서 해당 태그의 Hook 목록을 확인하고 신뢰하세요. 새 작업에서는 review 또는 change로 권한을 명시하세요.",
+      "faq": [],
+      "shortDescription": "Skill, Guard, STSS로 현재 작업을 완성하고 불필요한 추가 작업과 방어적인 문장을 줄입니다.",
+      "description": "Stop That Shit는 AI 코딩 에이전트의 작업 범위를 관리하는 Skill + Guard입니다. Skill은 Stop Ladder로 구현과 검증을 안내하고, Guard는 지원되는 호스트 경로에서 작업 모드, 파일, 의존성, 해시, 하위 에이전트 경계를 확인합니다. STSS는 제안서, 기사, 사례, 캡션의 수정·검토와 새 초안 작성을 돕습니다.",
+      "metaDescription": "Stop That Shit 안정 릴리스의 {count}개 호스트, Claude Code·Codex 설치, STSS, 실행 환경 요구사항과 Skill·Guard의 검증 범위를 안내합니다.",
+      "requirements": "핵심 Guard는 Node.js 18 이상이 필요합니다. Pi 0.84.4 자체는 Node.js 22.19 이상이 필요하며, 기록된 Oh My Pi 18.4.4 검증에는 Bun 1.3.14를 사용했습니다. 호스트별 요구사항과 설치 방법은 해당 버전 INSTALL.md를 확인하세요.",
+      "hostsTitle": "하나의 작업 경계, {count}개 호스트",
+      "stss": "STSS는 제안서, 기사, 사례, 캡션과 새 초안 작성을 위한 독립적인 글쓰기 Skill입니다. rewrite는 문장을 수정하고 audit는 문제를 보고합니다. Sentence Consumer Test, Claim Ledger, Claim Diff로 불필요한 면책 문구와 겹친 유보, 자기변호를 줄이되 독자 판단에 필요한 조건, 출처, 책임은 보존합니다.",
+      "guardCaption": "Skill은 구현과 검증의 판단을 돕습니다. Guard는 기본적으로 관찰하며 명시적인 작업 모드가 설정된 뒤 지원되는 호스트 실행 경로를 확인합니다.",
+      "ladder": {
+        "title": "Stop Ladder로 현재 책임을 완성하세요.",
+        "description": "결과와 기존 보장을 확인하고 직접적인 해결책부터 시작합니다. 구체적인 부족분을 채우고 방어 장치의 효과를 판단한 뒤 검증하고 마칩니다.",
+        "questions": [
+          "요청한 결과, 작업 경계와 기존 지원 약속은 무엇인가?",
+          "기존 코드, 표준 라이브러리, 플랫폼 기능이나 설치된 의존성으로 충분한가?",
+          "추가로 채워야 할 구체적인 부족분은 무엇인가?",
+          "이 방어 장치는 무엇을 감지하며 거부·복구·진단으로 어떤 결과를 바꾸는가?",
+          "결과와 필요한 후속 작업을 완성했고 관련 검증도 충분한가?"
+        ],
+        "decision": "요청과 필요한 후속 작업을 완성하고 현재 용도가 없는 추가 작업은 멈춥니다."
+      }
+    }
+  }
+}

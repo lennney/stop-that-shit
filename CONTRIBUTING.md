@@ -20,6 +20,7 @@ Include the host name and version so maintainers can identify its adapter.
 | If you want to change | Start here |
 | --- | --- |
 | Agent guidance or the Stop Ladder | `skills/stop-that-shit/SKILL.md` |
+| Reviewed stable project introductions and website facts | [`project-content/README.md`](project-content/README.md) |
 | Hook discovery and lifecycle events | `hooks/` |
 | Task directives and contract parsing | `src/contracts.cjs`, `test/contracts.test.cjs` |
 | Authorization decisions | `src/decision.cjs`, `test/decision.test.cjs` |

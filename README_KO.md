@@ -6,8 +6,10 @@
 
 <p align="center">
   <strong>수정은 끝났는데, AI는 아직도 확인 중인가요?</strong><br>
-  AI 코딩 에이전트가 요청한 작업의 범위를 지키도록 돕는 Skill + Guard 플러그인입니다.<br>
-  Claude Code · Codex · OpenCode · Hermes Agent CLI · Pi · Oh My Pi 지원<br>
+<!-- sts:stable-summary:start -->
+  <strong>안정 릴리스 0.2.5</strong> — Skill, Guard, STSS로 현재 작업을 완성하고 불필요한 추가 작업과 방어적인 문장을 줄입니다.<br>
+  Codex · Claude Code · OpenCode · Hermes Agent CLI · Pi · Oh My Pi<br>
+<!-- sts:stable-summary:end -->
   <a href="#설치">설치</a> · <a href="#사용법">사용법</a> ·
   <a href="EVIDENCE.md">평가 기록</a> · <a href="README.md">中文</a> ·
   <a href="README_EN.md">English</a>
@@ -40,12 +42,15 @@ Task thrashing의 약자입니다. 각각 작업 범위 확대, 불필요한 해
 
 ## 작동 방식
 
-**Skill**은 추가 작업을 하기 전에 네 가지를 확인하도록 안내합니다.
+<!-- sts:stable-ladder:start -->
+**Skill** — 결과와 기존 보장을 확인하고 직접적인 해결책부터 시작합니다. 구체적인 부족분을 채우고 방어 장치의 효과를 판단한 뒤 검증하고 마칩니다.
 
-1. 사용자가 요청했는가?
-2. 현재 요청을 완료하는 데 필요한가?
-3. 실제 코드, 데이터, 배포 조건, 완료 기준 중 무엇이 그 필요성을 뒷받침하는가?
-4. 생략하면 현재 작업의 어느 부분이 실패하는가?
+1. 요청한 결과, 작업 경계와 기존 지원 약속은 무엇인가?
+2. 기존 코드, 표준 라이브러리, 플랫폼 기능이나 설치된 의존성으로 충분한가?
+3. 추가로 채워야 할 구체적인 부족분은 무엇인가?
+4. 이 방어 장치는 무엇을 감지하며 거부·복구·진단으로 어떤 결과를 바꾸는가?
+5. 결과와 필요한 후속 작업을 완성했고 관련 검증도 충분한가?
+<!-- sts:stable-ladder:end -->
 
 **Guard**는 `review`, `change` 같은 모드와 파일·의존성·해시·하위 에이전트 제한을
 Hook에서 확인합니다. 명시된 경계를 넘었다고 판단할 수 있으면 거부 응답을 반환합니다.
