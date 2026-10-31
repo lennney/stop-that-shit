@@ -62,6 +62,8 @@ function recordDecision(facts, options = {}) {
       policyOutcome: String(decision.outcome || 'allow'),
       family: decision.family || null,
       reasonCode: String(decision.reasonCode || 'WITHIN_CONTRACT'),
+      ...(typeof facts.storageErrorCode === 'string' && /^[A-Z][A-Z0-9_]*$/.test(facts.storageErrorCode)
+        ? { storageErrorCode: facts.storageErrorCode } : {}),
       responseOutcome: String(facts.responseOutcome || 'none'),
       hostEffect: 'unobserved'
     }

@@ -8,6 +8,75 @@ const { readRuntime, recordDecision } = require('./runtime-audit.cjs');
 const { recordAnnotation } = require('./runtime-annotations.cjs');
 const { readState, recoveryState, updateSession } = require('./state.cjs');
 
+const STATE_STORAGE_ERROR_CODES = new Set([
+  'STS_LOCK_TIMEOUT', 'EACCES', 'EDQUOT', 'EBUSY', 'EIO', 'EMFILE', 'ENFILE',
+  'ENOSPC', 'EPERM', 'EROFS'
+]);
+
+function isStateStorageError(error) {
+  return Boolean(error && STATE_STORAGE_ERROR_CODES.has(error.code));
+}
+
+function storageErrorCode(error) {
+  return error && error.code && /^[A-Z][A-Z0-9_]*$/.test(error.code)
+    ? error.code : 'STATE_UNAVAILABLE';
+}
+
+function temporaryStateDenial(event, options, error, state = null) {
+  const result = {
+    outcome: 'deny_and_explain',
+    family: 'S',
+    reasonCode: 'SESSION_STATE_UNAVAILABLE',
+    explanation: 'The session state could not be verified or updated, so this delegated action was denied temporarily.',
+    nextStep: 'Retry after session state storage is available.'
+  };
+  const responseOutcome = 'permission_deny_returned';
+  const auditEvent = recordDecision({
+    sessionId: event.sessionId,
+    action: { ...event.action, delegationCount: Number.isInteger(event.action.delegationCount) ? event.action.delegationCount : 1 },
+    contract: state ? state.contract : { mode: 'unconfirmed', level: 'watch' },
+    delegation: state && state.delegation,
+    decision: result,
+    responseOutcome,
+    storageErrorCode: storageErrorCode(error)
+  }, options);
+  const lines = [
+    `${result.reasonCode} (${storageErrorCode(error)}): ${result.explanation}`,
+    `Next: ${result.nextStep}`
+  ];
+  if (auditEvent) lines.push(`Event: ${auditEvent.eventId}`);
+  return {
+    kind: 'deny',
+    decision: result,
+    eventId: auditEvent && auditEvent.eventId,
+    message: lines.join('\n')
+  };
+}
+
+function contractUpdateFailure(error) {
+  return context(`CONTRACT_UPDATE_FAILED (${storageErrorCode(error)}): the requested contract change was not applied because session state could not be saved. Retry the directive and check $stop-that-shit status before continuing.`);
+}
+
+function handlePromptStorageFailure(event, options, error) {
+  let state;
+  try {
+    state = readState(event.sessionId, options.dataDir);
+  } catch (readError) {
+    if (!isStateStorageError(readError)) throw readError;
+    return context(`SESSION_STATE_UNAVAILABLE (${storageErrorCode(readError)}): this prompt result could not be confirmed. Check $stop-that-shit status before relying on a contract change.`);
+  }
+  if (state.storageError) return context(`${state.storageError.code}: ${state.storageError.message}`);
+  const parsed = parseContractPrompt(event.prompt, state.contract);
+  if (parsed.error) return { kind: 'prompt-error', error: parsed.error, message: parsed.error.message };
+  if (parsed.changed) return contractUpdateFailure(error);
+  if (parsed.directive || parsed.correction) {
+    return context(`CONTRACT_UPDATE_FAILED (${storageErrorCode(error)}): the requested contract could not be confirmed as saved. Check $stop-that-shit status before continuing.`);
+  }
+  // An ordinary prompt did not request a contract change. Preserve its normal
+  // response based on the last persisted contract instead of claiming failure.
+  return handlePrompt(event, state);
+}
+
 function none() {
   return { kind: 'none' };
 }
@@ -210,11 +279,35 @@ function handleBeforeAction(event, options) {
   // Separate host processes can issue independent agent launches close together.
   // Serialize delegation reservations across Hook processes. Prompt updates
   // and completion handlers use the same lock; pure reads stay unlocked.
-  const { state, result } = options.recoveryError
-    ? evaluate(recoveryState(options.recoveryError))
-    : changesDelegation
-      ? updateSession(event.sessionId, options.dataDir, evaluate)
-      : evaluate(readState(event.sessionId, options.dataDir));
+  let evaluated;
+  if (options.recoveryError) {
+    evaluated = evaluate(recoveryState(options.recoveryError));
+  } else if (changesDelegation) {
+    try {
+      evaluated = updateSession(event.sessionId, options.dataDir, evaluate);
+    } catch (error) {
+      if (!isStateStorageError(error)) throw error;
+      let state;
+      try {
+        state = readState(event.sessionId, options.dataDir);
+      } catch (readError) {
+        if (!isStateStorageError(readError)) throw readError;
+        return temporaryStateDenial(event, options, readError);
+      }
+      if (state.storageError) return temporaryStateDenial(event, options, error, state);
+      // Preserve the default and explicitly non-enforcing modes. A failed
+      // ledger update cannot safely establish a reservation, but these modes
+      // do not promise to block the action.
+      if (state.contract.mode === 'unconfirmed' || ['watch', 'off'].includes(state.contract.level)) {
+        evaluated = evaluate(state);
+      } else {
+        return temporaryStateDenial(event, options, error, state);
+      }
+    }
+  } else {
+    evaluated = evaluate(readState(event.sessionId, options.dataDir));
+  }
+  const { state, result } = evaluated;
 
   const denied = result.outcome === 'deny_and_explain' || result.outcome === 'require_user_approval';
   const responseOutcome = denied
@@ -283,9 +376,13 @@ function handleControlEvent(rawEvent, options = {}) {
   switch (event.kind) {
     case 'prompt.submit': {
       const command = runtimeCommand(event.prompt);
-      return command
-        ? handleRuntimeCommand(command, event, readState(event.sessionId, options.dataDir), options)
-        : updateSession(event.sessionId, options.dataDir, state => handlePrompt(event, state));
+      if (command) return handleRuntimeCommand(command, event, readState(event.sessionId, options.dataDir), options);
+      try {
+        return updateSession(event.sessionId, options.dataDir, state => handlePrompt(event, state));
+      } catch (error) {
+        if (!isStateStorageError(error)) throw error;
+        return handlePromptStorageFailure(event, options, error);
+      }
     }
     case 'action.before':
       return handleBeforeAction(event, options);
