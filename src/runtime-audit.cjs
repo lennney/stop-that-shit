@@ -58,6 +58,7 @@ function recordDecision(facts, options = {}) {
       dependencyPolicy: String(contract.dependencyPolicy || 'ask'),
       allowedPathCount: Array.isArray(contract.allowedPaths) ? contract.allowedPaths.length : 0
     },
+    ...(facts.approval ? { approval: facts.approval } : {}),
     decision: {
       policyOutcome: String(decision.outcome || 'allow'),
       family: decision.family || null,

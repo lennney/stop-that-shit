@@ -5,6 +5,8 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const outputPath = path.join(root, '.hermes-plugin', 'runtime', 'stop-that-shit.cjs');
+const jobGuardPath = path.join(root, 'src', 'windows-job-guard.cs');
+const outputJobGuardPath = path.join(root, '.hermes-plugin', 'runtime', 'windows-job-guard.cs');
 const entryPath = path.join(root, 'src', 'adapters', 'hermes-hooks.cjs');
 const packagePath = path.join(root, 'package.json');
 
@@ -60,7 +62,9 @@ function build() {
 const output = build();
 if (process.argv.includes('--check')) {
   const current = fs.existsSync(outputPath) ? normalizeNewlines(fs.readFileSync(outputPath, 'utf8')) : '';
-  if (current !== output) {
+  const currentJobGuard = fs.existsSync(outputJobGuardPath) ? normalizeNewlines(fs.readFileSync(outputJobGuardPath, 'utf8')) : '';
+  const expectedJobGuard = normalizeNewlines(fs.readFileSync(jobGuardPath, 'utf8'));
+  if (current !== output || currentJobGuard !== expectedJobGuard) {
     console.error('Hermes runtime bundle is stale; run npm run hermes:build');
     process.exit(1);
   }
@@ -68,5 +72,6 @@ if (process.argv.includes('--check')) {
 } else {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, output);
+  fs.writeFileSync(outputJobGuardPath, normalizeNewlines(fs.readFileSync(jobGuardPath, 'utf8')));
   console.log(`Built ${path.relative(root, outputPath)}`);
 }
