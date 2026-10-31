@@ -14,7 +14,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "^(?:spawn_agent|Agent|wait_agent|multi_agent_v1wait_agent|collaborationspawn_agent|collaborationwait_agent)$",
+        "matcher": "^(?:spawn_agent|Agent|wait_agent|multi_agent_v1wait_agent|collaborationspawn_agent|collaborationwait_agent|request_user_input)$",
         "hooks": [
           {
             "type": "command",

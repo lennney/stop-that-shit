@@ -51,6 +51,17 @@ function assertControlEvent(event) {
   }
   nonEmptyString(event.sessionId, 'sessionId');
 
+  if (event.agent !== undefined && event.agent !== null) {
+    if (!event.agent || typeof event.agent !== 'object' || Array.isArray(event.agent)) {
+      throw new TypeError('ControlEvent agent must be an object when provided.');
+    }
+    nonEmptyString(event.agent.agentId, 'agent.agentId');
+    if (event.agent.agentType !== undefined && event.agent.agentType !== null
+        && typeof event.agent.agentType !== 'string') {
+      throw new TypeError('ControlEvent agent.agentType must be a string when provided.');
+    }
+  }
+
   if (event.kind === 'prompt.submit' && typeof event.prompt !== 'string') {
     throw new TypeError('ControlEvent prompt.submit requires a string prompt.');
   }
@@ -64,6 +75,9 @@ function assertControlEvent(event) {
     }
     if (event.action.analysisReason !== undefined && !isShellAnalysisReason(event.action.analysisReason)) {
       throw new TypeError('Unsupported action analysis reason.');
+    }
+    if (event.action.delegationTargetId !== undefined) {
+      nonEmptyString(event.action.delegationTargetId, 'action.delegationTargetId');
     }
     if (event.action.mutability === 'delegate' || event.action.delegationLifecycleUnproven) nonEmptyString(event.action.id, 'action.id');
     if (

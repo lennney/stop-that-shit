@@ -150,7 +150,8 @@ if (!fs.existsSync(path.join(root, 'omp', 'stop-that-shit.ts'))) fail('OMP Exten
 const hermesManifest = './.hermes-plugin/plugin.yaml';
 const hermesEntrypoint = './.hermes-plugin/__init__.py';
 const hermesRuntime = './.hermes-plugin/runtime/stop-that-shit.cjs';
-for (const hermesPath of [hermesManifest, hermesEntrypoint, hermesRuntime]) {
+const hermesWindowsJobGuard = './.hermes-plugin/runtime/windows-job-guard.cs';
+for (const hermesPath of [hermesManifest, hermesEntrypoint, hermesRuntime, hermesWindowsJobGuard]) {
   if (!fs.existsSync(path.join(root, hermesPath))) {
     fail(`Hermes release path is missing: ${hermesPath}`);
   }

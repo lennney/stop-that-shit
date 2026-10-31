@@ -17,6 +17,8 @@ function freshState() {
       unresolved: {},
       acceptedActions: {}
     },
+    actionApproval: null,
+    expiredApprovalEventId: null,
     directiveWarning: null,
     directiveError: null,
     lastPromptContext: null
@@ -121,6 +123,10 @@ function normalizeState(parsed) {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     contract,
     delegation,
+    actionApproval: require('./action-approval.cjs').live(source.actionApproval) ? source.actionApproval : null,
+    expiredApprovalEventId: !require('./action-approval.cjs').live(source.actionApproval)
+      && /^evt_[0-9a-f-]{36}$/.test(source.actionApproval?.eventId || '') ? source.actionApproval.eventId
+      : /^evt_[0-9a-f-]{36}$/.test(source.expiredApprovalEventId || '') ? source.expiredApprovalEventId : null,
     directiveWarning,
     directiveError,
     lastPromptContext: migrated ? null : source.lastPromptContext ?? null

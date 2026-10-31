@@ -170,12 +170,26 @@ call; that uncertainty persists if a later directive sets a finite Guard limit.
 
 `interrupt_agent` and `close_agent` are control operations and remain available
 in review mode. Their previous-status responses do not release reservations.
-The native `PostToolUse` matcher selects only spawn and wait results, including
-the supported namespaced names and the `Agent` alias. Ordinary tool results do
-not launch that hook. The adapter also ignores ordinary results from older
-configurations. Waits without supported completion facts do not enter the state
-writer. Spawn results still record missing completion evidence, and proven UUID
-wait results still update reservations under the lock.
+The native `PostToolUse` matcher selects spawn and wait results, including the
+supported namespaced names and the `Agent` alias, plus `request_user_input` for
+one-time dependency approval. Ordinary tool results do not launch that hook.
+The adapter also ignores ordinary results from older configurations. Waits
+without supported completion facts do not enter the state writer. Spawn results
+still record missing completion evidence, and proven UUID wait results still
+update reservations under the lock. For synchronous approval, the adapter
+accepts only a one-question result shaped as `answers: {questionId: {answers:
+[selectedOption]}}`, where the selected option is one of the fixed allow or deny
+labels. A completed result with exactly `answers: {}` retires only the matching
+unanswered registration; it never records an allow or denial. Extra question
+IDs, multiple selections, and arbitrary text are ignored. An answer must match
+the registered tool call, full question digest, question ID, and canonical cwd
+of the question invocation before it can change the pending permit. The
+canonical target directory displayed in the question remains separately bound
+and is the cwd used for the approved retry. Runner claiming uses the private
+record plus a single-use identity-bound handoff in the host's existing temp
+root; the runner reads private state and does not write the private session
+store from inside the sandbox. This is a Guard correlation check, not a
+security boundary supplied by the host.
 
 Audit records use the same requested delegation count as admission decisions.
 A rejected single-agent request records one requested unit and zero newly

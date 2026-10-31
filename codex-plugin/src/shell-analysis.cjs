@@ -164,6 +164,36 @@ function classifyStaticCommand({ args: [program, ...args], nativeQuotes }) {
   return result;
 }
 
+// A one-shot dependency approval may only bind one statically parsed direct invocation.
+function directDependencyArguments(command, allowWrapper = true) {
+  if (typeof command !== 'string') return null;
+  const parsed = staticShellCommands(command.trim());
+  if (!parsed || parsed.redirected || parsed.commands.length !== 1 || parsed.commands[0].nativeQuotes) return null;
+  const [program, verb, ...args] = parsed.commands[0].args;
+  // For an unambiguous PowerShell wrapper, authorize only the extracted
+  // direct operation as a new controlled child, never execute the wrapper.
+  if (allowWrapper && /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i.test(String(program || ''))) {
+    const parts = [verb, ...args];
+    let index = 0;
+    while (index < parts.length && /^-(?:nologo|noprofile|noninteractive)$/i.test(parts[index])) index++;
+    if (!/^-command$/i.test(parts[index] || '') || parts.length !== index + 2) return null;
+    return directDependencyArguments(parts[index + 1], false);
+  }
+  const name = String(program || '').toLowerCase(), operation = String(verb || '').toLowerCase();
+  let recognized = false;
+  if (['npm', 'pnpm', 'yarn'].includes(name)) recognized = ['install', 'add'].includes(operation);
+  if (['pip', 'pip3'].includes(name)) recognized = operation === 'install';
+  if (['cargo', 'bundle'].includes(name)) recognized = operation === 'add';
+  if (name === 'composer') recognized = operation === 'require';
+  if (name === 'go') recognized = operation === 'get';
+  if (name === 'dotnet') recognized = operation === 'add' && args.some(value => value.toLowerCase() === 'package');
+  return recognized ? parsed.commands[0].args : null;
+}
+
+function isDirectDependencyCommand(command) {
+  return directDependencyArguments(command) !== null;
+}
+
 function analyzeShell(command) {
   const text = String(command || '').replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
   const analysis = staticShellCommands(text);
@@ -286,4 +316,4 @@ function analyzeShellInput(toolInput) {
   return analysis;
 }
 
-module.exports = { analyzeShell, analyzeShellInput, classifyShell };
+module.exports = { analyzeShell, analyzeShellInput, classifyShell, isDirectDependencyCommand, directDependencyArguments };

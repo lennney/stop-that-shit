@@ -41,3 +41,5 @@ through another path.
 
 Removing the plugin does not necessarily remove host-owned plugin data. Users
 may delete that plugin data through their normal host data-management workflow.
+
+A pending one-time dependency approval is stored in private session state and may wait up to 24 hours for a reply, then is eligible for ten minutes after approval; expired records are discarded on the next state update. It contains an action digest, the question shown to the user (including the approved argument vector, resolved package manager path and working directory), the action and question identifiers, and approval state. It does not change the session dependency policy. Review session state before sharing it; the public runtime decision log does not include the input or question.
