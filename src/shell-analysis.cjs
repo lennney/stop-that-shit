@@ -164,6 +164,19 @@ function classifyStaticCommand({ args: [program, ...args], nativeQuotes }) {
   return result;
 }
 
+const FILE_CONTENT_WRITERS = new Set([
+  'set-content', 'add-content', 'out-file', 'tee'
+]);
+
+function commandMatchesIntent(command, regex) {
+  if (command.mutability === 'read') return false;
+  const program = String(command.args?.[0] || '').toLowerCase();
+  // Known file content writers treat their payload arguments as data rather
+  // than executable subcommands, preventing diagnostic text from falsely triggering intent.
+  if (FILE_CONTENT_WRITERS.has(program)) return false;
+  return regex.test(command.text);
+}
+
 // A one-shot dependency approval may only bind one statically parsed direct invocation.
 function directDependencyArguments(command, allowWrapper = true) {
   if (typeof command !== 'string') return null;
@@ -202,14 +215,14 @@ function analyzeShell(command) {
     hashIntent: HASH_COMMAND.test(text), dependencyIntent: DEPENDENCY_COMMAND.test(text)
   };
   const commands = analysis.commands.map(command => ({
-    ...classifyStaticCommand(command), text: command.args.join(' ')
+    ...classifyStaticCommand(command), args: command.args, text: command.args.join(' ')
   }));
   // Proven reads treat their arguments as data. Keep the existing intent checks
   // for writes and unproven programs, independently for each command in a chain.
   return {
     ...combineClassifications(commands),
-    hashIntent: commands.some(command => command.mutability !== 'read' && HASH_COMMAND.test(command.text)),
-    dependencyIntent: commands.some(command => command.mutability !== 'read' && DEPENDENCY_COMMAND.test(command.text))
+    hashIntent: commands.some(cmd => commandMatchesIntent(cmd, HASH_COMMAND)),
+    dependencyIntent: commands.some(cmd => commandMatchesIntent(cmd, DEPENDENCY_COMMAND))
   };
 }
 
