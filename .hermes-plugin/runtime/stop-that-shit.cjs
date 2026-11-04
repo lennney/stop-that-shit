@@ -1943,7 +1943,7 @@ module.exports = {
   },
   "dependencies": {
     "@opencode/schema": "2.1.3",
-    "effect": "4.0.0-rc.112"
+    "effect": "4.1.0"
   }
 };
 },
@@ -4312,7 +4312,7 @@ __modules["package.json"] = function(module) { module.exports = {
   },
   "dependencies": {
     "@opencode/schema": "2.1.3",
-    "effect": "4.0.0-rc.112"
+    "effect": "4.1.0"
   }
 }; };
 const __cache = new Map();
