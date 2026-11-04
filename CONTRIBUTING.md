@@ -160,9 +160,23 @@ belong in separate contributions.
 
 For OpenCode adapter or release-package changes, set `STS_OPENCODE_V1_BIN`
 and `STS_OPENCODE_V2_BIN` to the installed executables, then run
-`npm run test:hosts`. Both hosts are required. These packed-plugin checks use
-a local model stand-in and do not establish model effectiveness. Ordinary
-`npm test` skips the native smoke checks when the binaries are absent.
+`npm run test:hosts`. Both hosts are required; this command fails if either
+executable is missing, the wrong major version is supplied, or either check is
+skipped, incomplete, or fails. CI runs this acceptance separately on Linux x64
+using OpenCode 1.18.18 and 2.0.18 archives pinned by version and SHA-512 digest.
+
+The packed-plugin checks verify review denial, a permitted read, and a fresh
+process resuming the same session without a new contract. The resumed prompt
+asks about a quoted `change` command; it is not authorization. The saved review
+contract must remain unchanged, another write must be denied, and a fresh read
+must succeed before a separate explicit `change` permits writing. This does not
+test the separate editable-host promotion path for ordinary root prompts.
+
+These checks use a local model stand-in and do not establish model effectiveness.
+Hosts load a local empty model catalog with automatic catalog fetch disabled;
+package downloads still require network access.
+Ordinary `npm test` still skips native smoke checks when binaries are absent;
+a passing unit-test job is not evidence of host acceptance.
 
 Any public effectiveness claim must state:
 
