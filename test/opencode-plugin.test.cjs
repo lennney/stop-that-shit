@@ -693,6 +693,30 @@ test('a quoted directive mention does not advance the review contract', async (t
   );
 });
 
+test('a reloaded V1 session keeps review authority until a new explicit change', async (t) => {
+  const sessions = { root: { id: 'root' } };
+  const messages = {
+    review: message('root', 'review', '$stop-that-shit review -- inspect only'),
+    restart: message('root', 'restart', 'Explain the quoted command "$stop-that-shit change" while checking the files.'),
+    change: message('root', 'change', '$stop-that-shit change -- Write allowed.txt.')
+  };
+  const initial = await plugin(t, sessions, messages);
+  await sendPartEvent(initial.hooks, messages.review.parts[0]);
+  const previous = readState('root', initial.dataDir).contract;
+  const reloaded = await plugin(t, sessions, messages, { dataDir: initial.dataDir });
+  await sendPartEvent(reloaded.hooks, messages.restart.parts[0]);
+  const before = (tool, callID) => reloaded.hooks['tool.execute.before'](
+    { tool, sessionID: 'root', callID },
+    { args: { filePath: '/repo/a.txt', ...(tool === 'write' ? { content: 'changed' } : {}) } }
+  );
+  await assert.rejects(before('write', 'restart-write'), /MODE_FORBIDS_MUTATION/);
+  await before('read', 'restart-read');
+  assert.deepEqual(readState('root', initial.dataDir).contract, previous);
+  await sendPartEvent(reloaded.hooks, messages.change.parts[0]);
+  await before('write', 'authorized-write');
+  assert.equal(readState('root', initial.dataDir).contract.mode, 'change');
+});
+
 test('a quoted command cannot arm a fresh OpenCode session', async (t) => {
   const sessions = { root: { id: 'root' } };
   const messages = {

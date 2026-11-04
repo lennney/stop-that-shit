@@ -330,7 +330,12 @@ Contract state and runtime evidence retain their existing format.
 Maintainers can run the packed-host checks with `STS_OPENCODE_V1_BIN` and
 `STS_OPENCODE_V2_BIN` set to the respective executables:
 `npm run test:hosts`. The checks use a local model
-stand-in and verify denial, continued reading, and explicit change after restart.
+stand-in and verify denial, continued reading, and persistence of the same
+review contract after restarting without new authorization, followed by an
+explicit change. The resumed prompt asks about a quoted command; ordinary root
+prompts under an editable host agent follow the separate host-promotion rules.
+Both host checks must pass without skips. CI runs pinned Linux x64 hosts in a
+separate acceptance job; ordinary `npm test` alone does not establish this.
 
 ## Hermes Agent CLI
 
