@@ -27,9 +27,6 @@ jobs:
     name: OpenCode host acceptance
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      STS_OPENCODE_V1_BIN: ${{ runner.temp }}/sts-opencode-v1/package/bin/opencode
-      STS_OPENCODE_V2_BIN: ${{ runner.temp }}/sts-opencode-v2/package/bin/opencode
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,3 +46,6 @@ jobs:
           tar -xzf "$RUNNER_TEMP/sts-opencode-v1/host.tgz" -C "$RUNNER_TEMP/sts-opencode-v1"
           tar -xzf "$RUNNER_TEMP/sts-opencode-v2/host.tgz" -C "$RUNNER_TEMP/sts-opencode-v2"
       - run: npm run test:hosts
+        env:
+          STS_OPENCODE_V1_BIN: ${{ runner.temp }}/sts-opencode-v1/package/bin/opencode
+          STS_OPENCODE_V2_BIN: ${{ runner.temp }}/sts-opencode-v2/package/bin/opencode
