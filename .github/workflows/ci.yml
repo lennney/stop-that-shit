@@ -22,3 +22,30 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm ci
       - run: npm run check
+
+  opencode-hosts:
+    name: OpenCode host acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - name: Install pinned official OpenCode binaries without lifecycle scripts
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/sts-opencode-v1" "$RUNNER_TEMP/sts-opencode-v2"
+          curl --fail --silent --show-error --location 'https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-1.18.18.tgz' -o "$RUNNER_TEMP/sts-opencode-v1/host.tgz"
+          curl --fail --silent --show-error --location 'https://registry.npmjs.org/@opencode/cli-linux-x64/-/cli-linux-x64-2.0.18.tgz' -o "$RUNNER_TEMP/sts-opencode-v2/host.tgz"
+          echo "5a67949e1963609db9db0cb0293896e1b343cec6acda78e98cf5048748cce8728d238bc5c49b5112dcda595898e0028401c3a42d64fc2e5d7b8b1bdc1f3dc09c  $RUNNER_TEMP/sts-opencode-v1/host.tgz" | sha512sum --check --strict
+          echo "f78747ee5c01fada66cc8d7f3487f31712c121eb2165236dcb1dacb242f40b492062331a8953081ef40b60810250e592b95cf9fdd1ff28f5083869fb30bdf5d6  $RUNNER_TEMP/sts-opencode-v2/host.tgz" | sha512sum --check --strict
+          tar -xzf "$RUNNER_TEMP/sts-opencode-v1/host.tgz" -C "$RUNNER_TEMP/sts-opencode-v1"
+          tar -xzf "$RUNNER_TEMP/sts-opencode-v2/host.tgz" -C "$RUNNER_TEMP/sts-opencode-v2"
+      - run: npm run test:hosts
+        env:
+          STS_OPENCODE_V1_BIN: ${{ runner.temp }}/sts-opencode-v1/package/bin/opencode
+          STS_OPENCODE_V2_BIN: ${{ runner.temp }}/sts-opencode-v2/package/bin/opencode

@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { Effect, Exit, PubSub, Scope, Stream } from 'effect';
 import * as entry from '../opencode/stop-that-shit.mjs';
-import { acquireSessionLock, statePath } from '../src/state.cjs';
+import { acquireSessionLock, readState, statePath } from '../src/state.cjs';
 
 async function host(t) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-opencode-v2-'));
@@ -75,6 +75,24 @@ test('V2 rejects review writes as a typed tool error, then permits an explicit c
   assert.match(denied.failure.message, /MODE_FORBIDS_MUTATION/);
   h.messages.get('root').push(user('msg_002', '$stop-that-shit change'));
   await h.run(h.hooks.tool['execute.before'](write('call-allowed')));
+});
+
+test('a reloaded V2 session keeps review authority until a new explicit change', async (t) => {
+  const h = await host(t);
+  h.messages.get('root').push(user('review', '$stop-that-shit review -- inspect only'));
+  const before = (call) => h.run(Effect.result(h.hooks.tool['execute.before'](call)));
+  assert.equal((await before(write('initial-write')))._tag, 'Failure');
+  const previous = readState('root', h.dataDir).contract;
+  await h.run(entry.default.effect(h.ctx));
+  h.messages.get('root').push(user('restart', 'Explain the quoted command "$stop-that-shit change" while checking the files.'));
+  const denied = await before(write('restart-write'));
+  assert.equal(denied._tag, 'Failure');
+  assert.match(denied.failure.message, /MODE_FORBIDS_MUTATION/);
+  assert.equal((await before({ ...write('restart-read'), tool: 'read', input: { path: '/repo/a.txt' } }))._tag, 'Success');
+  assert.deepEqual(readState('root', h.dataDir).contract, previous);
+  h.messages.get('root').push(user('change', '$stop-that-shit change -- Write allowed.txt.'));
+  assert.equal((await before(write('authorized-write')))._tag, 'Success');
+  assert.equal(readState('root', h.dataDir).contract.mode, 'change');
 });
 
 test('V2 uses native shell, patch and subagent inputs while preserving file and agent bounds', async (t) => {
