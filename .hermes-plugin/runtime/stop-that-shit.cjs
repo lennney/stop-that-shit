@@ -293,12 +293,12 @@ module.exports = {
 "src/controller.cjs": function(module, exports, __require) {
 'use strict';
 
-const { DEFAULT_AGENT_LIMIT, parseContractPrompt } = __require("src/contracts.cjs");
+const { DEFAULT_AGENT_LIMIT, boundaryContains, parseContractPrompt } = __require("src/contracts.cjs");
 const { SHELL_ANALYSIS_REASONS, isShellAnalysisReason, assertControlEvent, supportsLifecycleFacts } = __require("src/control-protocol.cjs");
 const delegationState = __require("src/delegation-state.cjs");
 const { inspectDelegation, applyDelegationFact } = delegationState;
 const { decide } = __require("src/decision.cjs");
-const { readRuntime, recordDecision } = __require("src/runtime-audit.cjs");
+const { readRuntime, recordDecision, recordModeChange } = __require("src/runtime-audit.cjs");
 const { recordAnnotation } = __require("src/runtime-annotations.cjs");
 const { readState, recoveryState, updateSession, dataRoot } = __require("src/state.cjs");
 const path = require('node:path');
@@ -309,6 +309,76 @@ const { buildRunnerCommand } = __require("src/runner-command.cjs");
 const { bindingForRecord, createHandoff, handoffAvailable, withCoordinationLock } = __require("src/dependency-handoff.cjs");
 // Keep the executable helper in the hook's statically discoverable dependency graph.
 __require("src/dependency-runner.cjs");
+
+const STATE_STORAGE_ERROR_CODES = new Set([
+  'STS_LOCK_TIMEOUT', 'EACCES', 'EDQUOT', 'EBUSY', 'EIO', 'EMFILE', 'ENFILE',
+  'ENOSPC', 'EPERM', 'EROFS'
+]);
+
+function isStateStorageError(error) {
+  return error instanceof approvalScope.ScopedStateUnavailableError
+    || Boolean(error && STATE_STORAGE_ERROR_CODES.has(error.code));
+}
+
+function storageErrorCode(error) {
+  return error && error.code && /^[A-Z][A-Z0-9_]*$/.test(error.code)
+    ? error.code : 'STATE_UNAVAILABLE';
+}
+
+function temporaryStateDenial(event, options, error, state = null) {
+  const result = {
+    outcome: 'deny_and_explain',
+    family: 'S',
+    reasonCode: 'SESSION_STATE_UNAVAILABLE',
+    explanation: 'The session state could not be verified or updated, so this delegated action was denied temporarily.',
+    nextStep: 'Retry after session state storage is available.'
+  };
+  const responseOutcome = 'permission_deny_returned';
+  const auditEvent = recordDecision({
+    sessionId: event.sessionId,
+    action: { ...event.action, delegationCount: Number.isInteger(event.action.delegationCount) ? event.action.delegationCount : 1 },
+    contract: state ? state.contract : { mode: 'unconfirmed', level: 'watch' },
+    delegation: state && state.delegation,
+    decision: result,
+    responseOutcome,
+    storageErrorCode: storageErrorCode(error)
+  }, options);
+  const lines = [
+    `${result.reasonCode} (${storageErrorCode(error)}): ${result.explanation}`,
+    `Next: ${result.nextStep}`
+  ];
+  if (auditEvent) lines.push(`Event: ${auditEvent.eventId}`);
+  return {
+    kind: 'deny',
+    decision: result,
+    eventId: auditEvent && auditEvent.eventId,
+    message: lines.join('\n')
+  };
+}
+
+function contractUpdateFailure(error) {
+  return context(`CONTRACT_UPDATE_FAILED (${storageErrorCode(error)}): the requested contract change was not applied because session state could not be saved. Retry the directive and check $stop-that-shit status before continuing.`);
+}
+
+function handlePromptStorageFailure(event, options, error) {
+  let state;
+  try {
+    state = readState(event.sessionId, options.dataDir);
+  } catch (readError) {
+    if (!isStateStorageError(readError)) throw readError;
+    return context(`SESSION_STATE_UNAVAILABLE (${storageErrorCode(readError)}): this prompt result could not be confirmed. Check $stop-that-shit status before relying on a contract change.`);
+  }
+  if (state.storageError) return context(`${state.storageError.code}: ${state.storageError.message}`);
+  const parsed = parseContractPrompt(event.prompt, state.contract);
+  if (parsed.error) return { kind: 'prompt-error', error: parsed.error, message: parsed.error.message };
+  if (parsed.changed) return contractUpdateFailure(error);
+  if (parsed.directive || parsed.correction) {
+    return context(`CONTRACT_UPDATE_FAILED (${storageErrorCode(error)}): the requested contract could not be confirmed as saved. Check $stop-that-shit status before continuing.`);
+  }
+  // An ordinary prompt did not request a contract change. Preserve its normal
+  // response based on the last persisted contract instead of claiming failure.
+  return handlePrompt(event, state);
+}
 
 function none() {
   return { kind: 'none' };
@@ -426,6 +496,7 @@ function handleRuntimeCommand(command, event, state, options) {
     const summary = inspectDelegation(state.delegation);
     return context([
       'Stop That Shit status',
+      ...(event.agent ? [`Agent: ${event.agent.agentId}`] : []),
       `State: ${activeControlState(state.contract)} / ${state.contract.mode}`,
       contractFields(state.contract, summary),
       `Authority source: ${state.contract.source || 'unconfirmed'}`,
@@ -438,7 +509,9 @@ function handleRuntimeCommand(command, event, state, options) {
     ].join('\n'));
   }
   if (command.name === 'runtime') {
-    const query = command.all ? {} : { sessionId: event.sessionId };
+    const query = command.all ? {} : event.agent
+      ? { sessionId: event.sessionId, agentId: event.agent.agentId }
+      : { sessionId: event.sessionId };
     return context(runtimeSummaryText(readRuntime(query, options)));
   }
   const runtime = readRuntime({ eventId: command.eventId }, options);
@@ -463,6 +536,12 @@ function handleRuntimeCommand(command, event, state, options) {
   ].join('\n'));
 }
 
+function widensFileBoundary(previous, next) {
+  if (previous === null) return false;
+  if (!Array.isArray(next)) return true;
+  return next.some(pattern => !previous.some(container => boundaryContains(container, pattern)));
+}
+
 function handlePrompt(event, state) {
   if (state.storageError) return context(`${state.storageError.code}: ${state.storageError.message}`);
   const previousContract = state.scope?.child ? state.childContract : state.contract;
@@ -472,6 +551,15 @@ function handlePrompt(event, state) {
     state.directiveWarning = null;
     state.lastPromptContext = null;
     return { kind: 'prompt-error', error: parsed.error, message: parsed.error.message };
+  }
+  if (state.scope?.child && widensFileBoundary(state.contract.allowedPaths, parsed.contract.allowedPaths)
+      && parsed.contract.allowedPaths !== previousContract.allowedPaths) {
+    state.directiveError = { code: 'FILE_BOUNDARY_WIDEN',
+      message: 'A subagent can narrow its inherited files= boundary, but cannot widen it.' };
+    state.directiveWarning = null;
+    state.lastPromptContext = null;
+    return { kind: 'prompt-error', error: state.directiveError,
+      message: `${state.directiveError.code}: ${state.directiveError.message}` };
   }
   if (state.scope?.child) {
     if (parsed.directive || parsed.correction) state.childContract = parsed.contract;
@@ -508,6 +596,28 @@ function handlePrompt(event, state) {
   return repeatedContext ? none() : context(promptContext);
 }
 
+function updatePromptAndAudit(event, options, update) {
+  let modeChange = null;
+  const response = update(state => {
+    const previousMode = state.contract.mode;
+    const result = handlePrompt(event, state);
+    if (previousMode !== state.contract.mode) {
+      modeChange = { previousMode, contract: { ...state.contract } };
+    }
+    return result;
+  });
+  // A mode transition is evidence of a committed contract, not an attempted
+  // update. Emit it only after the state transaction succeeds.
+  if (modeChange) {
+    try { recordModeChange(event, modeChange.previousMode, modeChange.contract, options); }
+    catch {
+      const warning = 'MODE_AUDIT_UNAVAILABLE: mode transition metadata could not be recorded.';
+      return context(response.kind === 'context' ? `${response.text}\n${warning}` : warning);
+    }
+  }
+  return response;
+}
+
 function handleScopedPrompt(event, options) {
   const scope = approvalScope.resolve(event, options);
   if (!scope.available) {
@@ -524,7 +634,7 @@ function handleScopedPrompt(event, options) {
     return none();
   }
   try {
-    return approvalScope.update(event, options, state => handlePrompt(event, state));
+    return updatePromptAndAudit(event, options, update => approvalScope.update(event, options, update));
   } catch {
     return { kind: 'prompt-error', error: { code: 'CHILD_SCOPE_UNAVAILABLE' },
       message: 'Stop That Shit: child-scoped policy state is unavailable; no parent state was changed.' };
@@ -743,25 +853,46 @@ function handleBeforeAction(event, options) {
   // Serialize delegation reservations across Hook processes. Prompt updates
   // and completion handlers use the same lock; pure reads stay unlocked.
   let evaluated;
-  if (options.recoveryError) evaluated = evaluate(recoveryState(options.recoveryError));
-  else if (event.agent) {
-    const scoped = approvalScope.resolve(event, options);
-    if (!scoped.available) {
-      // Keep the standalone PR120 behavior for non-approval child tools when
-      // PR109's scoped-state APIs are absent. Preserve PR120's shared
-      // delegation budget and serialize reservations, but don't write a child
-      // contract or approval record into the parent ledger.
-      evaluated = changesDelegation
-        ? coordinatedUpdate(event, options, evaluate)
-        : evaluate(readState(event.sessionId, options.dataDir));
-    } else if (changesDelegation) evaluated = approvalScope.update(event, options, evaluate);
-    else {
-      const state = approvalScope.read(event, options);
-      if (state.storageError) return { kind: 'deny', message: 'Stop That Shit: child-scoped policy state is unavailable; action denied.' };
-      evaluated = evaluate(state);
+  try {
+    if (options.recoveryError) evaluated = evaluate(recoveryState(options.recoveryError));
+    else if (event.agent) {
+      const scoped = approvalScope.resolve(event, options);
+      if (!scoped.available) {
+        // Keep the standalone PR120 behavior for non-approval child tools when
+        // PR109's scoped-state APIs are absent. Preserve PR120's shared
+        // delegation budget and serialize reservations, but don't write a child
+        // contract or approval record into the parent ledger.
+        evaluated = changesDelegation
+          ? coordinatedUpdate(event, options, evaluate)
+          : evaluate(readState(event.sessionId, options.dataDir));
+      } else if (changesDelegation) evaluated = approvalScope.update(event, options, evaluate);
+      else {
+        const state = approvalScope.read(event, options);
+        if (state.storageError) return { kind: 'deny', message: 'Stop That Shit: child-scoped policy state is unavailable; action denied.' };
+        evaluated = evaluate(state);
+      }
+    } else if (changesDelegation) evaluated = coordinatedUpdate(event, options, evaluate);
+    else evaluated = evaluate(readState(event.sessionId, options.dataDir));
+  } catch (error) {
+    if (!changesDelegation || !isStateStorageError(error)) throw error;
+    let state;
+    try {
+      state = event.agent && approvalScope.resolve(event, options).available
+        ? approvalScope.read(event, options) : readState(event.sessionId, options.dataDir);
+    } catch (readError) {
+      if (!isStateStorageError(readError)) throw readError;
+      return temporaryStateDenial(event, options, readError);
     }
-  } else if (changesDelegation) evaluated = coordinatedUpdate(event, options, evaluate);
-  else evaluated = evaluate(readState(event.sessionId, options.dataDir));
+    if (state.storageError) return temporaryStateDenial(event, options, error, state);
+    // Preserve the default and explicitly non-enforcing modes. A failed
+    // ledger update cannot safely establish a reservation, but these modes
+    // do not promise to block the action.
+    if (state.contract.mode === 'unconfirmed' || ['watch', 'off'].includes(state.contract.level)) {
+      evaluated = evaluate(state);
+    } else {
+      return temporaryStateDenial(event, options, error, state);
+    }
+  }
   const { state, result } = evaluated;
 
   const denied = result.outcome === 'deny_and_explain' || result.outcome === 'require_user_approval';
@@ -862,6 +993,10 @@ function handleLifecycleContext(event, options) {
   // without waiting for another writer or rewriting state during shutdown.
   const readOnly = event.kind === 'session.start'
     || event.kind === 'session.end' && event.allDelegationsStopped !== true;
+  const scope = approvalScope.resolve(event, options);
+  if (scope.child && scope.available) {
+    return readOnly ? update(approvalScope.read(event, options)) : approvalScope.update(event, options, update);
+  }
   return readOnly ? update(readState(event.sessionId, options.dataDir))
     : coordinatedUpdate(event, options, update);
 }
@@ -880,9 +1015,15 @@ function handleControlEvent(rawEvent, options = {}) {
           ? approvalScope.read(event, options) : readState(event.sessionId, options.dataDir);
         return handleRuntimeCommand(command, event, state, options);
       }
-      return event.agent
+      try {
+        return event.agent
           ? handleScopedPrompt(event, options)
-          : coordinatedUpdate(event, options, state => handlePrompt(event, state));
+          : updatePromptAndAudit(event, options, update => coordinatedUpdate(event, options, update));
+      } catch (error) {
+        if (!isStateStorageError(error)) throw error;
+        if (event.agent) return contractUpdateFailure(error);
+        return handlePromptStorageFailure(event, options, error);
+      }
     }
     case 'action.before':
       return handleBeforeAction(event, options);
@@ -1056,7 +1197,8 @@ function naturalCorrection(prompt, previous) {
   if (/^(?:stop|stop now|停止|停下来)[.!。！\s]*$/i.test(text)) {
     return { mode: 'answer', source: 'explicit-stop' };
   }
-  if (/\breview only\b|\b(?:do not|don't) (?:edit|change|fix) (?:anything|the (?:repo|repository|files?|code))\b|只审查|只看不改|不要修改(?:任何|代码|文件)/i.test(text)) {
+  if (/\breview only\b|\b(?:do not|don't) (?:edit|change|fix) (?:anything|the (?:repo|repository|files?|code))\b/i.test(text)
+      || /(?:^|[\n，,。.!！；;])[ \t]*(?:(?:请你|你|请|注意[：:]?|这次|本次|现在|接下来|先)[ \t]*)*(?:只审查|只看不改|不要修改(?:任何|代码|文件))/u.test(text)) {
     return { mode: 'review', source: 'natural-explicit' };
   }
   if (/\banswer only\b|只回答/i.test(text)) {
@@ -1083,7 +1225,7 @@ function unarmedDirectiveWarning(prompt) {
   // Host-generated prefixes and user introductions cannot be distinguished
   // from this text alone, so neither is removed to make a directive eligible.
   const prose = correctionProse(prompt);
-  if (!/^ {0,3}\$stop-that-shit(?=$|[\s,:])/im.test(prose)) return null;
+  if (!/^ {0,3}\$stop-that-shit(?=$|[\s,:])/im.test(prose) && !/\$stop-that-shit(?:\s|:)[^\r\n]*\bdeps=(?:allow|ask|deny)\b/i.test(prompt)) return null;
   return {
     code: 'DIRECTIVE_NOT_ARMED',
     message: 'DIRECTIVE_NOT_ARMED: a Stop That Shit directive was not applied because it does not start the first non-empty line of the received prompt. Send the directive first in a separate message and check $stop-that-shit status before continuing.'
@@ -1110,6 +1252,71 @@ function normalizeContract(previousContract) {
   delete previous.concurrentAgentBudget;
   delete previous.agentsUsed;
   return previous;
+}
+
+const MODE_AUTHORITY = new Map([
+  ['answer', 0], ['review', 0], ['monitor', 0],
+  // Unconfirmed is absence of a child mode restriction, never a Guard bypass.
+  ['change', 2], ['open', 2], ['unconfirmed', 3]
+]);
+const LEVEL_AUTHORITY = new Map([
+  ['lock', 0], ['guard', 1], ['watch', 2], ['off', 3]
+]);
+const POLICY_AUTHORITY = new Map([
+  ['deny', 0], ['ask', 1], ['allow', 2]
+]);
+
+function narrowerScalar(parent, child, authority) {
+  const parentRank = authority.get(parent);
+  const childRank = authority.get(child);
+  if (parentRank === undefined) return child;
+  if (childRank === undefined) return parent;
+  if (childRank === parentRank) return parent;
+  return childRank <= parentRank ? child : parent;
+}
+
+function narrowerPaths(parent, child) {
+  if (parent === null) return child;
+  if (child === null) return parent;
+  return [...new Set([...child.filter(candidate => parent.some(container => boundaryContains(container, candidate))),
+    ...parent.filter(candidate => child.some(container => boundaryContains(container, candidate)))])];
+}
+
+function normalizeBoundaryPattern(value) {
+  return require('node:path').posix.normalize(String(value || '').replace(/\\/g, '/')).replace(/^\.\//, '').replace(/\/+$/, '');
+}
+
+function boundaryContains(container, candidate) {
+  container = normalizeBoundaryPattern(container);
+  candidate = normalizeBoundaryPattern(candidate);
+  if (container === '**') return true;
+  if (!container || !candidate || candidate === '**') return false;
+  const containerPrefix = container.endsWith('/**') ? container.slice(0, -3) : null;
+  const candidatePrefix = candidate.endsWith('/**') ? candidate.slice(0, -3) : null;
+  if (containerPrefix === null) return candidatePrefix === null && container === candidate;
+  if (!candidatePrefix) return candidate === containerPrefix || candidate.startsWith(`${containerPrefix}/`);
+  return candidatePrefix === containerPrefix || candidatePrefix.startsWith(`${containerPrefix}/`);
+}
+
+function narrowContract(parentContract, childContract) {
+  const parent = normalizeContract(parentContract);
+  const child = normalizeContract(childContract);
+  if (parent.level === 'off') return { ...parent };
+  // A pristine child has not added policy. Default root protections are not
+  // implicit child restrictions on explicitly authorized parent work.
+  const defaults = defaultContract();
+  if (child.source === 'default' && Object.keys(defaults).every(key => child[key] === defaults[key])) {
+    return { ...parent };
+  }
+  return {
+    ...child,
+    mode: narrowerScalar(parent.mode, child.mode, MODE_AUTHORITY),
+    level: narrowerScalar(parent.level, child.level, LEVEL_AUTHORITY),
+    agentBudget: Math.min(parent.agentBudget, child.agentBudget),
+    hashPolicy: narrowerScalar(parent.hashPolicy, child.hashPolicy, POLICY_AUTHORITY),
+    allowedPaths: narrowerPaths(parent.allowedPaths, child.allowedPaths),
+    dependencyPolicy: narrowerScalar(parent.dependencyPolicy, child.dependencyPolicy, POLICY_AUTHORITY)
+  };
 }
 
 function parseContractPrompt(prompt, previousContract = defaultContract()) {
@@ -1196,6 +1403,8 @@ module.exports = {
   MODES,
   DEFAULT_AGENT_LIMIT,
   defaultContract,
+  boundaryContains,
+  narrowContract,
   normalizeContract,
   parseContractPrompt
 };
@@ -1216,6 +1425,12 @@ function seenAgentIds(state) {
 
 function stoppedAgentIds(state) {
   return Array.isArray(state && state.stoppedAgentIds) ? state.stoppedAgentIds : [];
+}
+
+function isActiveAgent(state, agentId) {
+  if (typeof agentId !== 'string' || !agentId || stoppedAgentIds(state).includes(agentId)) return false;
+  return Object.values(reservationsOf(state)).some((reservation) =>
+    Array.isArray(reservation.agentIds) && reservation.agentIds.includes(agentId));
 }
 
 function acceptedActions(state) {
@@ -1454,6 +1669,7 @@ module.exports = {
   activeDelegationCount,
   bindSubagent,
   clearDelegations,
+  isActiveAgent,
   markReservationAsync,
   releaseReservation,
   releaseSubagent,
@@ -1721,6 +1937,30 @@ function eventPath(sessionId, options) {
   return path.join(runtimeRoot(options), `${sessionKey(sessionId)}.jsonl`);
 }
 
+function recordModeChange(event, previousMode, contract, options = {}) {
+  // Separate from decision events so existing runtime readers retain their schema.
+  // Never persist prompts or host-provided free text.
+  const record = {
+    schemaVersion: 1,
+    occurredAt: new Date().toISOString(),
+    previousMode,
+    nextMode: contract.mode,
+    source: contract.source,
+    eventKind: 'prompt.submit',
+    hostFamily: ['codex', 'claude-code', 'deepseek-harness', 'opencode', 'pi', 'omp', 'hermes-agent'].includes(event.host?.family) ? event.host.family : 'other'
+  };
+  appendJsonl(path.join(runtimeRoot(options), 'mode-changes', `${sessionKey(event.sessionId)}.jsonl`), record);
+}
+
+function runtimeAgent(event) {
+  return event && event.agent && typeof event.agent.agentId === 'string' ? event.agent.agentId : null;
+}
+
+function agentEventPath(sessionId, agentKey, options) {
+  return path.join(runtimeRoot(options), 'children',
+    sessionKey(sessionId), `${agentKey}.jsonl`);
+}
+
 function recordDecision(facts, options = {}) {
   const contract = facts && facts.contract || {};
   const delegation = facts && facts.delegation || {};
@@ -1750,6 +1990,7 @@ function recordDecision(facts, options = {}) {
       dependencyIntent: Boolean(action.dependencyIntent),
       unboundedDelegation: Boolean(action.unboundedDelegation)
     },
+    ...(runtimeAgent(facts) ? { agent: { agentKey: sessionKey(runtimeAgent(facts)) } } : {}),
     contract: {
       mode: String(contract.mode || 'unconfirmed'),
       level: String(contract.level || 'watch'),
@@ -1765,13 +2006,17 @@ function recordDecision(facts, options = {}) {
       policyOutcome: String(decision.outcome || 'allow'),
       family: decision.family || null,
       reasonCode: String(decision.reasonCode || 'WITHIN_CONTRACT'),
+      ...(typeof facts.storageErrorCode === 'string' && /^[A-Z][A-Z0-9_]*$/.test(facts.storageErrorCode)
+        ? { storageErrorCode: facts.storageErrorCode } : {}),
       responseOutcome: String(facts.responseOutcome || 'none'),
       hostEffect: 'unobserved'
     }
   };
 
   try {
-    appendJsonl(eventPath(facts.sessionId, options), event);
+    appendJsonl(runtimeAgent(facts)
+      ? agentEventPath(facts.sessionId, sessionKey(runtimeAgent(facts)), options)
+      : eventPath(facts.sessionId, options), event);
     return event;
   } catch {
     return null;
@@ -1782,9 +2027,32 @@ function eventFiles(query, options) {
   const root = runtimeRoot(options);
   if (query.sessionId) return [eventPath(query.sessionId, options)];
   if (query.sessionKey) return [path.join(root, `${query.sessionKey}.jsonl`)];
+  const files = [];
+  for (const directory of [root, path.join(root, 'children')]) {
+    if (!fs.existsSync(directory)) continue;
+    for (const name of fs.readdirSync(directory)) {
+      const entry = path.join(directory, name);
+      if (directory === root && name.endsWith('.jsonl') && name !== 'annotations.jsonl') {
+        files.push(entry);
+      } else if (directory !== root && fs.statSync(entry).isDirectory()) {
+        for (const child of fs.readdirSync(entry)) {
+          if (child.endsWith('.jsonl')) files.push(path.join(entry, child));
+        }
+      }
+    }
+  }
+  return files.sort();
+}
+
+function childEventFiles(query, options) {
+  const agentId = query.agentId;
+  if (agentId) return [agentEventPath(query.sessionId, sessionKey(agentId), options)];
+  if (query.agentKey) return [agentEventPath(query.sessionId, query.agentKey, options)];
+  if (!query.sessionId) return [];
+  const directory = path.join(runtimeRoot(options), 'children', sessionKey(query.sessionId));
   try {
-    return fs.readdirSync(root).filter((name) => name.endsWith('.jsonl') && name !== 'annotations.jsonl')
-      .sort().map((name) => path.join(root, name));
+    return fs.readdirSync(directory).filter(name => name.endsWith('.jsonl'))
+      .sort().map(name => path.join(directory, name));
   } catch (error) {
     if (error && error.code === 'ENOENT') return [];
     throw error;
@@ -1830,7 +2098,10 @@ function isRuntimeEvent(event) {
 function readRuntime(query = {}, options = {}) {
   let events = [];
   let damagedRecords = 0;
-  for (const file of eventFiles(query, options)) {
+  const files = query.agentId || query.agentKey
+    ? childEventFiles(query, options)
+    : [...eventFiles(query, options), ...childEventFiles(query, options)];
+  for (const file of files) {
     const parsed = scanJsonl(file, event => {
       if (!isRuntimeEvent(event)) {
         damagedRecords += 1;
@@ -1853,7 +2124,7 @@ function readRuntime(query = {}, options = {}) {
   return { schemaVersion: 1, ...result, annotations };
 }
 
-module.exports = { readRuntime, recordDecision };
+module.exports = { readRuntime, recordDecision, recordModeChange };
 
 },
 "package.json": function(module, exports, __require) {
@@ -2096,12 +2367,17 @@ function sessionKey(sessionId) {
   return crypto.createHash('sha256').update(String(sessionId || 'unknown')).digest('hex').slice(0, 24);
 }
 
-function statePath(sessionId, override) {
+function statePath(sessionId, override, scope = {}) {
+  const agentKey = scope.agentId ? sessionKey(scope.agentId) : scope.agentKey;
+  if (agentKey) {
+    return path.join(dataRoot(override), 'sessions', 'children',
+      sessionKey(sessionId), `${agentKey}.json`);
+  }
   return path.join(dataRoot(override), 'sessions', `${sessionKey(sessionId)}.json`);
 }
 
-function readState(sessionId, override) {
-  const file = statePath(sessionId, override);
+function readState(sessionId, override, scope = {}) {
+  const file = statePath(sessionId, override, scope);
   // Ordinary tool checks do not acquire the session lock. They must still
   // see a failed legacy lock migration instead of trusting stale authority.
   try {
@@ -2127,8 +2403,8 @@ function readState(sessionId, override) {
   }
 }
 
-function writeState(sessionId, state, override) {
-  const file = statePath(sessionId, override);
+function writeState(sessionId, state, override, scope = {}) {
+  const file = statePath(sessionId, override, scope);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
   // Do not replace an atomic rename with a partial overwrite on Windows.
@@ -2149,8 +2425,8 @@ function writeState(sessionId, state, override) {
 }
 
 
-function lockPath(sessionId, override) {
-  return `${statePath(sessionId, override)}.lock`;
+function lockPath(sessionId, override, scope = {}) {
+  return `${statePath(sessionId, override, scope)}.lock`;
 }
 
 function sleepSync(milliseconds) {
@@ -2224,8 +2500,8 @@ function reclaimSessionLock(file, staleMs) {
   }
 }
 
-function acquireSessionLock(sessionId, override, options = {}) {
-  const file = lockPath(sessionId, override);
+function acquireSessionLock(sessionId, override, options = {}, scope = {}) {
+  const file = lockPath(sessionId, override, scope);
   const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 1500;
   const staleMs = Number.isFinite(options.staleMs) ? options.staleMs : LOCK_STALE_MS;
   const started = Date.now();
@@ -2264,41 +2540,58 @@ function acquireSessionLock(sessionId, override, options = {}) {
   }
 }
 
-function withSessionLock(sessionId, override, fn, options) {
-  const release = acquireSessionLock(sessionId, override, options);
+function withSessionLock(sessionId, override, fn, options, scope = {}) {
+  const release = acquireSessionLock(sessionId, override, options, scope);
   try {
     return fn();
   } finally {
-    release();
+    // Cleanup cannot undo a completed critical section. Preserve its result
+    // (or its original error); a leftover owner still blocks future writers.
+    try { release(); } catch {}
   }
 }
 
-function updateSession(sessionId, override, update) {
+function updateSession(sessionId, override, update, scope = {}) {
   let release;
   try {
-    release = acquireSessionLock(sessionId, override);
+    release = acquireSessionLock(sessionId, override, {}, scope);
   } catch (error) {
     if (error.code !== 'STS_LOCK_DAMAGED') throw error;
     return update(recoveryState({ code: error.code, message: error.message }));
   }
   try {
-    const state = readState(sessionId, override);
+    const state = readState(sessionId, override, scope);
     const damaged = Boolean(state.storageError);
     const result = update(state);
-    if (!damaged) writeState(sessionId, state, override);
+    if (!damaged) writeState(sessionId, state, override, scope);
     return result;
   } finally {
-    release();
+    // Cleanup cannot undo a completed critical section. Preserve its result
+    // (or its original error); a leftover owner still blocks future writers.
+    try { release(); } catch {}
+  }
+}
+
+function childStatePath(sessionId, agentId, override) {
+  return statePath(sessionId, override, { agentId });
+}
+
+function removeChildState(sessionId, agentId, override) {
+  for (const file of [childStatePath(sessionId, agentId, override), `${childStatePath(sessionId, agentId, override)}.lock`]) {
+    try { fs.rmSync(file, { recursive: true, force: true }); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
 }
 
 module.exports = {
   updateSession,
   acquireSessionLock,
+  childStatePath,
   dataRoot,
   freshState,
   recoveryState,
   readState,
+  removeChildState,
   sessionKey,
   statePath,
   withSessionLock,
@@ -2832,7 +3125,7 @@ const WRITE_SHELL_COMMANDS = new Set([
 function staticShellCommands(text) {
   const commands = [];
   let args = [], word = '', inWord = false, quote = null, separator = null;
-  let nativeQuotes = false;
+  let nativeQuotes = false, hasPipe = false;
   const finishWord = () => {
     if (inWord) args.push(word);
     word = ''; inWord = false;
@@ -2871,6 +3164,7 @@ function staticShellCommands(text) {
       const operator = char === '\r' ? '\n'
         : (char === '&' || char === '|') && next === char ? char + text[++i] : char;
       if (operator === '&') return null;
+      if (operator === '|') hasPipe = true;
       if (args.length) finishCommand();
       else if (operator === '\n') continue;
       else return null;
@@ -2884,7 +3178,7 @@ function staticShellCommands(text) {
   finishWord();
   if (args.length) finishCommand();
   else if (['&&', '||', '|'].includes(separator)) return null;
-  return commands.length ? { commands } : null;
+  return commands.length ? { commands, hasPipe } : null;
 }
 
 // Consume ripgrep option values before interpreting -- or executable options.
@@ -2980,14 +3274,17 @@ function analyzeShell(command) {
     hashIntent: HASH_COMMAND.test(text), dependencyIntent: DEPENDENCY_COMMAND.test(text)
   };
   const commands = analysis.commands.map(command => ({
-    ...classifyStaticCommand(command), text: command.args.join(' ')
+    ...classifyStaticCommand(command), text: command.args.join(' '),
+    // Static PowerShell content cmdlets receive their literal arguments as data.
+    // Dynamic syntax is rejected by staticShellCommands before this point.
+    literalContent: analysis.commands.length === 1 && !analysis.hasPipe && ['set-content', 'add-content'].includes(String(command.args[0] || '').toLowerCase())
   }));
   // Proven reads treat their arguments as data. Keep the existing intent checks
   // for writes and unproven programs, independently for each command in a chain.
   return {
     ...combineClassifications(commands),
-    hashIntent: commands.some(command => command.mutability !== 'read' && HASH_COMMAND.test(command.text)),
-    dependencyIntent: commands.some(command => command.mutability !== 'read' && DEPENDENCY_COMMAND.test(command.text))
+    hashIntent: commands.some(command => command.mutability !== 'read' && !command.literalContent && HASH_COMMAND.test(command.text)),
+    dependencyIntent: commands.some(command => command.mutability !== 'read' && !command.literalContent && DEPENDENCY_COMMAND.test(command.text))
   };
 }
 
@@ -3458,6 +3755,14 @@ const path = require('node:path');
 const stateStore = __require("src/state.cjs");
 const contracts = __require("src/contracts.cjs");
 
+class ScopedStateUnavailableError extends Error {
+  constructor(storageError = { code: 'CHILD_SCOPE_UNAVAILABLE', message: 'Child-scoped policy state is unavailable.' }) {
+    super(storageError.message);
+    this.name = 'ScopedStateUnavailableError';
+    this.code = storageError.code;
+  }
+}
+
 function agentIdFor(event) {
   const value = event && event.agent && event.agent.agentId;
   return typeof value === 'string' && value.trim() && Buffer.byteLength(value, 'utf8') <= 4096 ? value : null;
@@ -3506,14 +3811,14 @@ function read(event, options) {
 function update(event, options, callback) {
   const scope = resolve(event, options);
   if (!scope.child) return stateStore.updateSession(event.sessionId, options.dataDir, callback);
-  if (!scope.available) throw new Error('Child-scoped policy state is unavailable.');
+  if (!scope.available) throw new ScopedStateUnavailableError();
   const { withCoordinationLock } = __require("src/dependency-handoff.cjs");
   return withCoordinationLock(event.sessionId, options.dataDir, () => {
     const parent = stateStore.readState(event.sessionId, options.dataDir);
-    if (parent.storageError) throw new Error('Parent policy state is unavailable.');
+    if (parent.storageError) throw new ScopedStateUnavailableError(parent.storageError);
     return stateStore.updateSession(event.sessionId, options.dataDir, child => {
       const scoped = read(event, options);
-      if (scoped.storageError) throw new Error('Child policy state is unavailable.');
+      if (scoped.storageError) throw new ScopedStateUnavailableError(scoped.storageError);
       scoped.actionApproval = child.actionApproval;
       scoped.expiredApprovalEventId = child.expiredApprovalEventId;
       scoped.delegation = child.delegation;
@@ -3546,7 +3851,7 @@ function policyDigest(contract) {
   return crypto.createHash('sha256').update(JSON.stringify(bound)).digest('hex');
 }
 
-module.exports = { agentIdFor, resolve, read, update, policyDigest, effectiveChildContract };
+module.exports = { ScopedStateUnavailableError, agentIdFor, resolve, read, update, policyDigest, effectiveChildContract };
 
 },
 "src/runner-command.cjs": function(module, exports, __require) {
@@ -4065,7 +4370,7 @@ const { detectHashIntent } = __require("src/hash-intent.cjs");
 
 const WRITE_NAME = /(?:^|__|_)(?:add|append|apply|archive|close|commit|copy|create|delete|deploy|edit|install|merge|move|patch|post|publish|push|remove|rename|send|set|submit|update|upload|write)(?:$|__|_)/i;
 const READ_NAME = /(?:^|__|_)(?:cat|check|diff|fetch|find|get|inspect|list|load|open|read|review|search|show|status|view)(?:$|__|_)/i;
-const CONTROL_TOOLS = new Set(['update_plan', 'request_user_input', 'request_user_input_async', 'wait', 'wait_agent', 'interrupt_agent', 'close_agent']);
+const CONTROL_TOOLS = new Set(['send_input', 'update_plan', 'request_user_input', 'request_user_input_async', 'wait', 'wait_agent', 'interrupt_agent', 'close_agent']);
 // Match the host's known flattened namespaces exactly; do not strip arbitrary
 // prefixes from MCP or third-party tool names.
 const CODEX_TOOL_NAMES = new Map([

@@ -1,0 +1,27 @@
+{
+  "id": "STS-S-008-B",
+  "kind": "bad",
+  "family": "S",
+  "title": "Effective child file boundary rejects traversal outside scope",
+  "input": {
+    "contract": {
+      "mode": "change",
+      "level": "guard",
+      "allowedPaths": [
+        "src/**"
+      ],
+      "agentBudget": 1
+    },
+    "action": {
+      "mutability": "write",
+      "affectedPaths": [
+        "src/../private/config.cjs"
+      ]
+    }
+  },
+  "expected": {
+    "outcome": "deny_and_explain",
+    "family": "S",
+    "reasonCode": "PATH_OUTSIDE_CONTRACT"
+  }
+}

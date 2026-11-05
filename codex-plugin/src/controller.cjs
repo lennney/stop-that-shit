@@ -1,11 +1,11 @@
 'use strict';
 
-const { DEFAULT_AGENT_LIMIT, parseContractPrompt } = require('./contracts.cjs');
+const { DEFAULT_AGENT_LIMIT, boundaryContains, parseContractPrompt } = require('./contracts.cjs');
 const { SHELL_ANALYSIS_REASONS, isShellAnalysisReason, assertControlEvent, supportsLifecycleFacts } = require('./control-protocol.cjs');
 const delegationState = require('./delegation-state.cjs');
 const { inspectDelegation, applyDelegationFact } = delegationState;
 const { decide } = require('./decision.cjs');
-const { readRuntime, recordDecision } = require('./runtime-audit.cjs');
+const { readRuntime, recordDecision, recordModeChange } = require('./runtime-audit.cjs');
 const { recordAnnotation } = require('./runtime-annotations.cjs');
 const { readState, recoveryState, updateSession, dataRoot } = require('./state.cjs');
 const path = require('node:path');
@@ -16,6 +16,76 @@ const { buildRunnerCommand } = require('./runner-command.cjs');
 const { bindingForRecord, createHandoff, handoffAvailable, withCoordinationLock } = require('./dependency-handoff.cjs');
 // Keep the executable helper in the hook's statically discoverable dependency graph.
 require('./dependency-runner.cjs');
+
+const STATE_STORAGE_ERROR_CODES = new Set([
+  'STS_LOCK_TIMEOUT', 'EACCES', 'EDQUOT', 'EBUSY', 'EIO', 'EMFILE', 'ENFILE',
+  'ENOSPC', 'EPERM', 'EROFS'
+]);
+
+function isStateStorageError(error) {
+  return error instanceof approvalScope.ScopedStateUnavailableError
+    || Boolean(error && STATE_STORAGE_ERROR_CODES.has(error.code));
+}
+
+function storageErrorCode(error) {
+  return error && error.code && /^[A-Z][A-Z0-9_]*$/.test(error.code)
+    ? error.code : 'STATE_UNAVAILABLE';
+}
+
+function temporaryStateDenial(event, options, error, state = null) {
+  const result = {
+    outcome: 'deny_and_explain',
+    family: 'S',
+    reasonCode: 'SESSION_STATE_UNAVAILABLE',
+    explanation: 'The session state could not be verified or updated, so this delegated action was denied temporarily.',
+    nextStep: 'Retry after session state storage is available.'
+  };
+  const responseOutcome = 'permission_deny_returned';
+  const auditEvent = recordDecision({
+    sessionId: event.sessionId,
+    action: { ...event.action, delegationCount: Number.isInteger(event.action.delegationCount) ? event.action.delegationCount : 1 },
+    contract: state ? state.contract : { mode: 'unconfirmed', level: 'watch' },
+    delegation: state && state.delegation,
+    decision: result,
+    responseOutcome,
+    storageErrorCode: storageErrorCode(error)
+  }, options);
+  const lines = [
+    `${result.reasonCode} (${storageErrorCode(error)}): ${result.explanation}`,
+    `Next: ${result.nextStep}`
+  ];
+  if (auditEvent) lines.push(`Event: ${auditEvent.eventId}`);
+  return {
+    kind: 'deny',
+    decision: result,
+    eventId: auditEvent && auditEvent.eventId,
+    message: lines.join('\n')
+  };
+}
+
+function contractUpdateFailure(error) {
+  return context(`CONTRACT_UPDATE_FAILED (${storageErrorCode(error)}): the requested contract change was not applied because session state could not be saved. Retry the directive and check $stop-that-shit status before continuing.`);
+}
+
+function handlePromptStorageFailure(event, options, error) {
+  let state;
+  try {
+    state = readState(event.sessionId, options.dataDir);
+  } catch (readError) {
+    if (!isStateStorageError(readError)) throw readError;
+    return context(`SESSION_STATE_UNAVAILABLE (${storageErrorCode(readError)}): this prompt result could not be confirmed. Check $stop-that-shit status before relying on a contract change.`);
+  }
+  if (state.storageError) return context(`${state.storageError.code}: ${state.storageError.message}`);
+  const parsed = parseContractPrompt(event.prompt, state.contract);
+  if (parsed.error) return { kind: 'prompt-error', error: parsed.error, message: parsed.error.message };
+  if (parsed.changed) return contractUpdateFailure(error);
+  if (parsed.directive || parsed.correction) {
+    return context(`CONTRACT_UPDATE_FAILED (${storageErrorCode(error)}): the requested contract could not be confirmed as saved. Check $stop-that-shit status before continuing.`);
+  }
+  // An ordinary prompt did not request a contract change. Preserve its normal
+  // response based on the last persisted contract instead of claiming failure.
+  return handlePrompt(event, state);
+}
 
 function none() {
   return { kind: 'none' };
@@ -133,6 +203,7 @@ function handleRuntimeCommand(command, event, state, options) {
     const summary = inspectDelegation(state.delegation);
     return context([
       'Stop That Shit status',
+      ...(event.agent ? [`Agent: ${event.agent.agentId}`] : []),
       `State: ${activeControlState(state.contract)} / ${state.contract.mode}`,
       contractFields(state.contract, summary),
       `Authority source: ${state.contract.source || 'unconfirmed'}`,
@@ -145,7 +216,9 @@ function handleRuntimeCommand(command, event, state, options) {
     ].join('\n'));
   }
   if (command.name === 'runtime') {
-    const query = command.all ? {} : { sessionId: event.sessionId };
+    const query = command.all ? {} : event.agent
+      ? { sessionId: event.sessionId, agentId: event.agent.agentId }
+      : { sessionId: event.sessionId };
     return context(runtimeSummaryText(readRuntime(query, options)));
   }
   const runtime = readRuntime({ eventId: command.eventId }, options);
@@ -170,6 +243,12 @@ function handleRuntimeCommand(command, event, state, options) {
   ].join('\n'));
 }
 
+function widensFileBoundary(previous, next) {
+  if (previous === null) return false;
+  if (!Array.isArray(next)) return true;
+  return next.some(pattern => !previous.some(container => boundaryContains(container, pattern)));
+}
+
 function handlePrompt(event, state) {
   if (state.storageError) return context(`${state.storageError.code}: ${state.storageError.message}`);
   const previousContract = state.scope?.child ? state.childContract : state.contract;
@@ -179,6 +258,15 @@ function handlePrompt(event, state) {
     state.directiveWarning = null;
     state.lastPromptContext = null;
     return { kind: 'prompt-error', error: parsed.error, message: parsed.error.message };
+  }
+  if (state.scope?.child && widensFileBoundary(state.contract.allowedPaths, parsed.contract.allowedPaths)
+      && parsed.contract.allowedPaths !== previousContract.allowedPaths) {
+    state.directiveError = { code: 'FILE_BOUNDARY_WIDEN',
+      message: 'A subagent can narrow its inherited files= boundary, but cannot widen it.' };
+    state.directiveWarning = null;
+    state.lastPromptContext = null;
+    return { kind: 'prompt-error', error: state.directiveError,
+      message: `${state.directiveError.code}: ${state.directiveError.message}` };
   }
   if (state.scope?.child) {
     if (parsed.directive || parsed.correction) state.childContract = parsed.contract;
@@ -215,6 +303,28 @@ function handlePrompt(event, state) {
   return repeatedContext ? none() : context(promptContext);
 }
 
+function updatePromptAndAudit(event, options, update) {
+  let modeChange = null;
+  const response = update(state => {
+    const previousMode = state.contract.mode;
+    const result = handlePrompt(event, state);
+    if (previousMode !== state.contract.mode) {
+      modeChange = { previousMode, contract: { ...state.contract } };
+    }
+    return result;
+  });
+  // A mode transition is evidence of a committed contract, not an attempted
+  // update. Emit it only after the state transaction succeeds.
+  if (modeChange) {
+    try { recordModeChange(event, modeChange.previousMode, modeChange.contract, options); }
+    catch {
+      const warning = 'MODE_AUDIT_UNAVAILABLE: mode transition metadata could not be recorded.';
+      return context(response.kind === 'context' ? `${response.text}\n${warning}` : warning);
+    }
+  }
+  return response;
+}
+
 function handleScopedPrompt(event, options) {
   const scope = approvalScope.resolve(event, options);
   if (!scope.available) {
@@ -231,7 +341,7 @@ function handleScopedPrompt(event, options) {
     return none();
   }
   try {
-    return approvalScope.update(event, options, state => handlePrompt(event, state));
+    return updatePromptAndAudit(event, options, update => approvalScope.update(event, options, update));
   } catch {
     return { kind: 'prompt-error', error: { code: 'CHILD_SCOPE_UNAVAILABLE' },
       message: 'Stop That Shit: child-scoped policy state is unavailable; no parent state was changed.' };
@@ -450,25 +560,46 @@ function handleBeforeAction(event, options) {
   // Serialize delegation reservations across Hook processes. Prompt updates
   // and completion handlers use the same lock; pure reads stay unlocked.
   let evaluated;
-  if (options.recoveryError) evaluated = evaluate(recoveryState(options.recoveryError));
-  else if (event.agent) {
-    const scoped = approvalScope.resolve(event, options);
-    if (!scoped.available) {
-      // Keep the standalone PR120 behavior for non-approval child tools when
-      // PR109's scoped-state APIs are absent. Preserve PR120's shared
-      // delegation budget and serialize reservations, but don't write a child
-      // contract or approval record into the parent ledger.
-      evaluated = changesDelegation
-        ? coordinatedUpdate(event, options, evaluate)
-        : evaluate(readState(event.sessionId, options.dataDir));
-    } else if (changesDelegation) evaluated = approvalScope.update(event, options, evaluate);
-    else {
-      const state = approvalScope.read(event, options);
-      if (state.storageError) return { kind: 'deny', message: 'Stop That Shit: child-scoped policy state is unavailable; action denied.' };
-      evaluated = evaluate(state);
+  try {
+    if (options.recoveryError) evaluated = evaluate(recoveryState(options.recoveryError));
+    else if (event.agent) {
+      const scoped = approvalScope.resolve(event, options);
+      if (!scoped.available) {
+        // Keep the standalone PR120 behavior for non-approval child tools when
+        // PR109's scoped-state APIs are absent. Preserve PR120's shared
+        // delegation budget and serialize reservations, but don't write a child
+        // contract or approval record into the parent ledger.
+        evaluated = changesDelegation
+          ? coordinatedUpdate(event, options, evaluate)
+          : evaluate(readState(event.sessionId, options.dataDir));
+      } else if (changesDelegation) evaluated = approvalScope.update(event, options, evaluate);
+      else {
+        const state = approvalScope.read(event, options);
+        if (state.storageError) return { kind: 'deny', message: 'Stop That Shit: child-scoped policy state is unavailable; action denied.' };
+        evaluated = evaluate(state);
+      }
+    } else if (changesDelegation) evaluated = coordinatedUpdate(event, options, evaluate);
+    else evaluated = evaluate(readState(event.sessionId, options.dataDir));
+  } catch (error) {
+    if (!changesDelegation || !isStateStorageError(error)) throw error;
+    let state;
+    try {
+      state = event.agent && approvalScope.resolve(event, options).available
+        ? approvalScope.read(event, options) : readState(event.sessionId, options.dataDir);
+    } catch (readError) {
+      if (!isStateStorageError(readError)) throw readError;
+      return temporaryStateDenial(event, options, readError);
     }
-  } else if (changesDelegation) evaluated = coordinatedUpdate(event, options, evaluate);
-  else evaluated = evaluate(readState(event.sessionId, options.dataDir));
+    if (state.storageError) return temporaryStateDenial(event, options, error, state);
+    // Preserve the default and explicitly non-enforcing modes. A failed
+    // ledger update cannot safely establish a reservation, but these modes
+    // do not promise to block the action.
+    if (state.contract.mode === 'unconfirmed' || ['watch', 'off'].includes(state.contract.level)) {
+      evaluated = evaluate(state);
+    } else {
+      return temporaryStateDenial(event, options, error, state);
+    }
+  }
   const { state, result } = evaluated;
 
   const denied = result.outcome === 'deny_and_explain' || result.outcome === 'require_user_approval';
@@ -569,6 +700,10 @@ function handleLifecycleContext(event, options) {
   // without waiting for another writer or rewriting state during shutdown.
   const readOnly = event.kind === 'session.start'
     || event.kind === 'session.end' && event.allDelegationsStopped !== true;
+  const scope = approvalScope.resolve(event, options);
+  if (scope.child && scope.available) {
+    return readOnly ? update(approvalScope.read(event, options)) : approvalScope.update(event, options, update);
+  }
   return readOnly ? update(readState(event.sessionId, options.dataDir))
     : coordinatedUpdate(event, options, update);
 }
@@ -587,9 +722,15 @@ function handleControlEvent(rawEvent, options = {}) {
           ? approvalScope.read(event, options) : readState(event.sessionId, options.dataDir);
         return handleRuntimeCommand(command, event, state, options);
       }
-      return event.agent
+      try {
+        return event.agent
           ? handleScopedPrompt(event, options)
-          : coordinatedUpdate(event, options, state => handlePrompt(event, state));
+          : updatePromptAndAudit(event, options, update => coordinatedUpdate(event, options, update));
+      } catch (error) {
+        if (!isStateStorageError(error)) throw error;
+        if (event.agent) return contractUpdateFailure(error);
+        return handlePromptStorageFailure(event, options, error);
+      }
     }
     case 'action.before':
       return handleBeforeAction(event, options);

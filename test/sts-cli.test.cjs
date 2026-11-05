@@ -162,6 +162,27 @@ test('CLI rejects missing option values and unknown options before reading runti
   assert.match(typo.stderr, /unknown option: --data-dri/);
 });
 
+test('children lists isolated child contracts without exposing raw identifiers', (t) => {
+  const dataDir = temporaryDirectory(t);
+  const { handleControlEvent } = require('../src/controller.cjs');
+  const { childStatePath, sessionKey } = require('../src/state.cjs');
+  const base = { protocolVersion: 2, lifecycleVersion: 2, sessionId: 'parent-private-id' };
+  handleControlEvent({ ...base, kind: 'prompt.submit',
+    prompt: '$stop-that-shit lock change files=src/** -- parent task' }, { dataDir });
+  handleControlEvent({ ...base, kind: 'prompt.submit', agent: { agentId: 'child-private-id' },
+    prompt: '$stop-that-shit answer -- child task' }, { dataDir });
+
+  const result = run(['children', 'parent-private-id', '--data-dir', dataDir]);
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.deepEqual(output.children.map(child => [child.mode, child.allowedPaths]),
+    [['answer', ['src/**']]]);
+  assert.match(output.children[0].agentKey, /^[a-f0-9]{24}$/);
+  assert.equal(JSON.stringify(output).includes('child-private-id'), false);
+  assert.equal(Object.hasOwn(output, 'sessionKey'), true);
+  assert.ok(fs.existsSync(path.dirname(childStatePath('parent-private-id', 'unused', dataDir))));
+});
+
 test('case new creates a deliberately incomplete reviewable skeleton', (t) => {
   const root = temporaryDirectory(t);
   const output = path.join(root, 'sample');

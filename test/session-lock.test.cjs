@@ -259,3 +259,21 @@ test('a failed owner-marker write leaves no lock behind', (t) => {
   }
   acquireSessionLock('write-failure', dir)();
 });
+
+test('lock cleanup never masks the original critical-section failure', (t) => {
+  const { updateSession, withSessionLock } = require('../src/state.cjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-lock-primary-error-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const original = fs.rmdirSync;
+  const failure = Object.assign(new Error('primary failure'), { code: 'ENOSPC' });
+  fs.rmdirSync = function (directory, ...args) {
+    if (String(directory).startsWith(dir)) throw Object.assign(new Error('cleanup failure'), { code: 'EIO' });
+    return original.call(this, directory, ...args);
+  };
+  try {
+    assert.throws(() => updateSession('update', dir, () => { throw failure; }), error => error === failure);
+    assert.throws(() => withSessionLock('critical', dir, () => { throw failure; }), error => error === failure);
+  } finally {
+    fs.rmdirSync = original;
+  }
+});

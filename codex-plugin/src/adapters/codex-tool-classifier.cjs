@@ -7,7 +7,7 @@ const { detectHashIntent } = require('../hash-intent.cjs');
 
 const WRITE_NAME = /(?:^|__|_)(?:add|append|apply|archive|close|commit|copy|create|delete|deploy|edit|install|merge|move|patch|post|publish|push|remove|rename|send|set|submit|update|upload|write)(?:$|__|_)/i;
 const READ_NAME = /(?:^|__|_)(?:cat|check|diff|fetch|find|get|inspect|list|load|open|read|review|search|show|status|view)(?:$|__|_)/i;
-const CONTROL_TOOLS = new Set(['update_plan', 'request_user_input', 'request_user_input_async', 'wait', 'wait_agent', 'interrupt_agent', 'close_agent']);
+const CONTROL_TOOLS = new Set(['send_input', 'update_plan', 'request_user_input', 'request_user_input_async', 'wait', 'wait_agent', 'interrupt_agent', 'close_agent']);
 // Match the host's known flattened namespaces exactly; do not strip arbitrary
 // prefixes from MCP or third-party tool names.
 const CODEX_TOOL_NAMES = new Map([

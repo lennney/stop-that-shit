@@ -69,6 +69,10 @@ OMP Extension         ----> OMP Adapter ----------/           |
   age alone does not invalidate a live lock. Empty directories can be reclaimed,
   and delayed initializers must verify ownership again. Failed state writes
   remove their temporary file and leave the previous saved state intact.
+  A lock-cleanup error does not undo a completed state write or replace its
+  result: a committed reservation still admits its launch. Failed writes retain
+  their original error. Leftover locks keep the same conservative owner and
+  stale-lock recovery rules; cleanup failure never releases active capacity.
   A stale legacy file lock without a valid owner is preserved and reported as
   `STS_LOCK_DAMAGED`. Both ordinary reads and locked updates enter in-memory
   read-only recovery, so an unsaved prompt cannot leave old write authority
@@ -104,6 +108,19 @@ Codex maps `UserPromptSubmit` to `prompt.submit`, `PreToolUse` to
 Its supported UUID spawn results bind a child; confirmed matching wait results
 release it. The plugin does not register `SubagentStart` or `SubagentStop` for
 Codex. Payloads from older configurations remain ignored.
+
+Codex child state stores only the child's additional restrictions and its own
+delegation ledger. Each child prompt, query, and action resolves an effective
+contract from the latest parent contract plus those restrictions. The stricter
+mode, level, agent budget, file boundary, hash policy, and dependency policy
+wins. A child can therefore narrow authority but cannot promote it, and a later
+parent restriction applies without rewriting every child state file. An unconfirmed
+child mode is absence of an additional mode restriction, not a way to disable
+parent Guard. A pristine default child adds no restrictions and inherits the
+latest parent contract; an explicit partial directive still adds its restrictions.
+File-boundary comparisons normalize dot segments before computing
+intersection. Child delegation history survives prompts, queries and parent
+session end; stopping a child does not prove its descendants have joined.
 
 Claude Code retains line boundaries when normalizing its native slash form.
 It uses its `Agent` tool's `tool_use_id` and completed result, and injects context

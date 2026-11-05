@@ -152,7 +152,8 @@ function naturalCorrection(prompt, previous) {
   if (/^(?:stop|stop now|停止|停下来)[.!。！\s]*$/i.test(text)) {
     return { mode: 'answer', source: 'explicit-stop' };
   }
-  if (/\breview only\b|\b(?:do not|don't) (?:edit|change|fix) (?:anything|the (?:repo|repository|files?|code))\b|只审查|只看不改|不要修改(?:任何|代码|文件)/i.test(text)) {
+  if (/\breview only\b|\b(?:do not|don't) (?:edit|change|fix) (?:anything|the (?:repo|repository|files?|code))\b/i.test(text)
+      || /(?:^|[\n，,。.!！；;])[ \t]*(?:(?:请你|你|请|注意[：:]?|这次|本次|现在|接下来|先)[ \t]*)*(?:只审查|只看不改|不要修改(?:任何|代码|文件))/u.test(text)) {
     return { mode: 'review', source: 'natural-explicit' };
   }
   if (/\banswer only\b|只回答/i.test(text)) {
@@ -179,7 +180,7 @@ function unarmedDirectiveWarning(prompt) {
   // Host-generated prefixes and user introductions cannot be distinguished
   // from this text alone, so neither is removed to make a directive eligible.
   const prose = correctionProse(prompt);
-  if (!/^ {0,3}\$stop-that-shit(?=$|[\s,:])/im.test(prose)) return null;
+  if (!/^ {0,3}\$stop-that-shit(?=$|[\s,:])/im.test(prose) && !/\$stop-that-shit(?:\s|:)[^\r\n]*\bdeps=(?:allow|ask|deny)\b/i.test(prompt)) return null;
   return {
     code: 'DIRECTIVE_NOT_ARMED',
     message: 'DIRECTIVE_NOT_ARMED: a Stop That Shit directive was not applied because it does not start the first non-empty line of the received prompt. Send the directive first in a separate message and check $stop-that-shit status before continuing.'
@@ -206,6 +207,71 @@ function normalizeContract(previousContract) {
   delete previous.concurrentAgentBudget;
   delete previous.agentsUsed;
   return previous;
+}
+
+const MODE_AUTHORITY = new Map([
+  ['answer', 0], ['review', 0], ['monitor', 0],
+  // Unconfirmed is absence of a child mode restriction, never a Guard bypass.
+  ['change', 2], ['open', 2], ['unconfirmed', 3]
+]);
+const LEVEL_AUTHORITY = new Map([
+  ['lock', 0], ['guard', 1], ['watch', 2], ['off', 3]
+]);
+const POLICY_AUTHORITY = new Map([
+  ['deny', 0], ['ask', 1], ['allow', 2]
+]);
+
+function narrowerScalar(parent, child, authority) {
+  const parentRank = authority.get(parent);
+  const childRank = authority.get(child);
+  if (parentRank === undefined) return child;
+  if (childRank === undefined) return parent;
+  if (childRank === parentRank) return parent;
+  return childRank <= parentRank ? child : parent;
+}
+
+function narrowerPaths(parent, child) {
+  if (parent === null) return child;
+  if (child === null) return parent;
+  return [...new Set([...child.filter(candidate => parent.some(container => boundaryContains(container, candidate))),
+    ...parent.filter(candidate => child.some(container => boundaryContains(container, candidate)))])];
+}
+
+function normalizeBoundaryPattern(value) {
+  return require('node:path').posix.normalize(String(value || '').replace(/\\/g, '/')).replace(/^\.\//, '').replace(/\/+$/, '');
+}
+
+function boundaryContains(container, candidate) {
+  container = normalizeBoundaryPattern(container);
+  candidate = normalizeBoundaryPattern(candidate);
+  if (container === '**') return true;
+  if (!container || !candidate || candidate === '**') return false;
+  const containerPrefix = container.endsWith('/**') ? container.slice(0, -3) : null;
+  const candidatePrefix = candidate.endsWith('/**') ? candidate.slice(0, -3) : null;
+  if (containerPrefix === null) return candidatePrefix === null && container === candidate;
+  if (!candidatePrefix) return candidate === containerPrefix || candidate.startsWith(`${containerPrefix}/`);
+  return candidatePrefix === containerPrefix || candidatePrefix.startsWith(`${containerPrefix}/`);
+}
+
+function narrowContract(parentContract, childContract) {
+  const parent = normalizeContract(parentContract);
+  const child = normalizeContract(childContract);
+  if (parent.level === 'off') return { ...parent };
+  // A pristine child has not added policy. Default root protections are not
+  // implicit child restrictions on explicitly authorized parent work.
+  const defaults = defaultContract();
+  if (child.source === 'default' && Object.keys(defaults).every(key => child[key] === defaults[key])) {
+    return { ...parent };
+  }
+  return {
+    ...child,
+    mode: narrowerScalar(parent.mode, child.mode, MODE_AUTHORITY),
+    level: narrowerScalar(parent.level, child.level, LEVEL_AUTHORITY),
+    agentBudget: Math.min(parent.agentBudget, child.agentBudget),
+    hashPolicy: narrowerScalar(parent.hashPolicy, child.hashPolicy, POLICY_AUTHORITY),
+    allowedPaths: narrowerPaths(parent.allowedPaths, child.allowedPaths),
+    dependencyPolicy: narrowerScalar(parent.dependencyPolicy, child.dependencyPolicy, POLICY_AUTHORITY)
+  };
 }
 
 function parseContractPrompt(prompt, previousContract = defaultContract()) {
@@ -292,6 +358,8 @@ module.exports = {
   MODES,
   DEFAULT_AGENT_LIMIT,
   defaultContract,
+  boundaryContains,
+  narrowContract,
   normalizeContract,
   parseContractPrompt
 };
