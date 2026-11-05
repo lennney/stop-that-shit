@@ -7,9 +7,34 @@ const test = require('node:test');
 const { decide } = require('../src/decision.cjs');
 
 const casesRoot = path.join(__dirname, '..', 'cases', '0.0.1');
+const caseFiles = fs.readdirSync(casesRoot).filter(name => name.endsWith('.json')).sort();
+const cases = caseFiles.map(file => JSON.parse(fs.readFileSync(path.join(casesRoot, file), 'utf8')));
 
-for (const file of fs.readdirSync(casesRoot).filter((name) => name.endsWith('.json')).sort()) {
-  const testCase = JSON.parse(fs.readFileSync(path.join(casesRoot, file), 'utf8'));
+test('policy fixtures require complete Bad/Good pairs with explicit opposite decisions', () => {
+  assert.ok(cases.length > 0, 'the paired policy corpus must not be empty');
+  const pairs = new Map();
+  for (const [index, testCase] of cases.entries()) {
+    assert.equal(`${testCase.id}.json`, caseFiles[index], 'case identity must match its filename');
+    const match = /^(STS-([SHIT])-\d+)-([BG])$/.exec(testCase.id);
+    assert.ok(match, `${testCase.id}: expected a family, pair ID and B/G arm`);
+    assert.equal(testCase.family, match[2], `${testCase.id}: family mismatch`);
+    assert.equal(testCase.kind, match[3] === 'B' ? 'bad' : 'good', `${testCase.id}: arm kind mismatch`);
+    const expected = testCase.expected;
+    assert.ok(expected && typeof expected.reasonCode === 'string' && expected.reasonCode.length > 0,
+      `${testCase.id}: expected decision must include a reason code`);
+    if (testCase.kind === 'good') assert.equal(expected.outcome, 'allow', `${testCase.id}: Good must proceed`);
+    else assert.ok(['deny_and_explain', 'require_user_approval', 'report_and_defer'].includes(expected.outcome),
+      `${testCase.id}: Bad must block, escalate or defer`);
+    const arms = pairs.get(match[1]) || [];
+    arms.push(testCase.kind);
+    pairs.set(match[1], arms);
+  }
+  for (const [id, arms] of pairs) {
+    assert.deepEqual(arms.sort(), ['bad', 'good'], `${id}: exactly one Bad and one Good arm are required`);
+  }
+});
+
+for (const testCase of cases) {
   test(`${testCase.id}: ${testCase.title}`, () => {
     const actual = decide(testCase.input);
     for (const [key, value] of Object.entries(testCase.expected)) {

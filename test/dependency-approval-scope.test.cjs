@@ -25,11 +25,41 @@ test.after(() => {
   fs.rmSync(managerFixture, { recursive: true, force: true });
 });
 
-function supportsScopedState(sessionId, agentId, dataDir) {
-  return typeof stateStore.childStatePath === 'function'
-    && typeof contracts.narrowContract === 'function'
-    && stateStore.childStatePath(sessionId, agentId, dataDir) !== stateStore.statePath(sessionId, dataDir);
+function assertScopedState(sessionId, agentId, dataDir) {
+  assert.equal(typeof stateStore.childStatePath, 'function', 'current core must export childStatePath');
+  assert.equal(typeof contracts.narrowContract, 'function', 'current core must export narrowContract');
+  assert.notEqual(path.resolve(stateStore.childStatePath(sessionId, agentId, dataDir)),
+    path.resolve(stateStore.statePath(sessionId, dataDir)), 'child state must not alias the parent ledger');
 }
+
+// Compatibility is an explicit fixture, never a reason to skip current-core
+// coverage. These synchronous tests restore exports before the next test runs.
+function testWithoutScopedState(name, run) {
+  const variants = {
+    'missing childStatePath': () => { stateStore.childStatePath = undefined; },
+    'missing narrowContract': () => { contracts.narrowContract = undefined; },
+    'child path aliases parent': () => {
+      stateStore.childStatePath = (sessionId, agentId, dataDir) => stateStore.statePath(sessionId, dataDir);
+    }
+  };
+  for (const [variant, setup] of Object.entries(variants)) {
+    test(`${name} (${variant})`, t => {
+      const { childStatePath } = stateStore;
+      const { narrowContract } = contracts;
+      try {
+        setup();
+        run(t);
+      } finally {
+        stateStore.childStatePath = childStatePath;
+        contracts.narrowContract = narrowContract;
+      }
+    });
+  }
+}
+
+test('current core requires isolated child state and contract narrowing APIs', () => {
+  assertScopedState('parent', 'child', os.tmpdir());
+});
 
 test('approval policy digest binds only decision-relevant effective contract fields', () => {
   const contract = { mode: 'change', level: 'guard', hashPolicy: 'deny', dependencyPolicy: 'ask',
@@ -39,13 +69,11 @@ test('approval policy digest binds only decision-relevant effective contract fie
   assert.notEqual(policyDigest({ ...contract, dependencyPolicy: 'deny' }), initial);
   assert.notEqual(policyDigest({ ...contract, allowedPaths: ['src'] }), initial);
   assert.equal(policyDigest({ ...contract, allowedPaths: ['test', 'src'] }), initial);
-  if (typeof contracts.narrowContract === 'function') {
-    const childWithPartialDirective = { ...contract, mode: 'unconfirmed', dependencyPolicy: 'deny', source: 'directive' };
-    const parent = { ...contract, mode: 'change', dependencyPolicy: 'allow' };
-    assert.deepEqual(approvalScope.effectiveChildContract(parent, childWithPartialDirective),
-      contracts.narrowContract(parent, childWithPartialDirective),
-      'effective child policy uses the host contract API without special defaults');
-  }
+  const childWithPartialDirective = { ...contract, mode: 'unconfirmed', dependencyPolicy: 'deny', source: 'directive' };
+  const parent = { ...contract, mode: 'change', dependencyPolicy: 'allow' };
+  assert.deepEqual(approvalScope.effectiveChildContract(parent, childWithPartialDirective),
+    contracts.narrowContract(parent, childWithPartialDirective),
+    'effective child policy uses the host contract API without special defaults');
 });
 
 test('root dependency digest retains the d0 byte-compatible shape while child digest adds identity', () => {
@@ -57,7 +85,7 @@ test('root dependency digest retains the d0 byte-compatible shape while child di
   assert.notEqual(digest({ ...event, agent: { agentId: 'child-agent-scope' } }), legacyDigest);
 });
 
-test('child dependency and contract events never fall back to the parent when scoped state is unavailable', t => {
+test('child dependency and contract events stay isolated from the parent', t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-approval-scope-'));
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   const sessionId = 'parent-allow-child-deny';
@@ -68,9 +96,7 @@ test('child dependency and contract events never fall back to the parent when sc
     hook_event_name: 'UserPromptSubmit', prompt: text }, { dataDir });
   const before = (id, scope = {}) => handleHook({ ...base, ...scope, hook_event_name: 'PreToolUse',
     tool_name: 'Bash', tool_use_id: id, tool_input: input }, { dataDir });
-  const scopedStateAvailable = typeof stateStore.childStatePath === 'function'
-    && typeof contracts.narrowContract === 'function'
-    && stateStore.childStatePath(sessionId, agentId, dataDir) !== stateStore.statePath(sessionId, dataDir);
+  assertScopedState(sessionId, agentId, dataDir);
 
   prompt('$stop-that-shit change deps=allow -- parent install');
   const parentFile = stateStore.statePath(sessionId, dataDir);
@@ -83,51 +109,56 @@ test('child dependency and contract events never fall back to the parent when sc
   const parentAfterPrompt = stateStore.readState(sessionId, dataDir);
   assert.equal(parentAfterPrompt.contract.mode, 'change', 'child prompt must not replace the parent mode');
   assert.equal(parentAfterPrompt.contract.dependencyPolicy, 'allow', 'child prompt must not replace the parent dependency policy');
-  if (!scopedStateAvailable) {
-    const parentFile = stateStore.statePath(sessionId, dataDir);
-    const aged = new Date(Date.now() - 120000);
-    fs.utimesSync(parentFile, aged, aged);
-    const beforeRead = fs.statSync(parentFile).mtimeMs;
-    const ordinaryAsync = handleHook({ ...base, agent_id: agentId, hook_event_name: 'PreToolUse',
-      tool_name: 'request_user_input_async', tool_use_id: 'child-ordinary-async-question',
-      tool_input: { questions: [{ title: 'What should I inspect next?', options: ['Read the docs', 'Check the tests'] }] } }, { dataDir });
-    assert.equal(ordinaryAsync, null, 'lack of child APIs must not block an ordinary async clarification');
-    assert.equal(fs.statSync(parentFile).mtimeMs, beforeRead, 'ordinary async clarification does not write the parent ledger');
-    const ordinaryRead = handleHook({ ...base, agent_id: agentId, hook_event_name: 'PreToolUse',
-      tool_name: 'Read', tool_use_id: 'child-ordinary-read',
-      tool_input: { file_path: path.join(process.cwd(), 'README.md') } }, { dataDir });
-    assert.equal(ordinaryRead, null, 'lack of PR109 APIs must not block an ordinary child read');
-    assert.equal(fs.statSync(parentFile).mtimeMs, beforeRead, 'ordinary child reads do not write the parent ledger');
-  }
-  if (!scopedStateAvailable) {
-    assert.equal(childPrompt.decision, 'block', 'unsupported child contract changes fail closed');
-  } else {
-    assert.notEqual(childPrompt?.hookSpecificOutput?.additionalContext, undefined);
-    const child = stateStore.readState(sessionId, dataDir, { agentId });
-    assert.equal(child.contract.mode, 'review');
-    assert.equal(child.contract.dependencyPolicy, 'deny');
-  }
+  assert.notEqual(childPrompt?.hookSpecificOutput?.additionalContext, undefined);
+  const child = stateStore.readState(sessionId, dataDir, { agentId });
+  assert.equal(child.contract.mode, 'review');
+  assert.equal(child.contract.dependencyPolicy, 'deny');
 
   const childAttempt = before('child-install', { agent_id: agentId });
-  if (scopedStateAvailable) {
-    assert.equal(childAttempt?.hookSpecificOutput?.permissionDecision, 'deny',
-      'the effective child contract must deny the dependency operation');
-  } else {
-    assert.equal(childAttempt, null,
-      'without child state APIs, retain the generic parent deps=allow decision without touching approval state');
-  }
+  assert.equal(childAttempt?.hookSpecificOutput?.permissionDecision, 'deny',
+    'the effective child contract must deny the dependency operation');
   assert.equal(before('parent-install'), null, 'the parent deps=allow contract continues to allow its operation');
 });
 
-test('without scoped APIs, child dependency intents retain generic parent decision semantics without approval state', t => {
+testWithoutScopedState('without scoped APIs, child contracts fail closed but ordinary child work and parent authority remain intact', t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-child-contract-fallback-'));
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const sessionId = 'parent-allow-no-child-api';
+  const base = { session_id: sessionId, turn_id: 'turn-1', cwd: process.cwd() };
+  const options = { dataDir };
+  handleHook({ ...base, hook_event_name: 'UserPromptSubmit',
+    prompt: '$stop-that-shit change deps=allow -- parent install' }, options);
+  const parentFile = stateStore.statePath(sessionId, dataDir);
+  const original = fs.readFileSync(parentFile, 'utf8');
+  const aged = new Date(Date.now() - 120000);
+  fs.utimesSync(parentFile, aged, aged);
+  const originalMtime = fs.statSync(parentFile).mtimeMs;
+  const child = { ...base, agent_id: 'child-without-scope' };
+  assert.equal(approvalScope.resolve({ sessionId, agent: { agentId: child.agent_id } }, options).available, false);
+  const childPrompt = handleHook({ ...child, hook_event_name: 'UserPromptSubmit',
+    prompt: '$stop-that-shit review deps=deny -- child install' }, options);
+  assert.equal(childPrompt?.decision, 'block', 'unsupported child contract changes fail closed');
+  assert.equal(handleHook({ ...child, hook_event_name: 'PreToolUse',
+    tool_name: 'request_user_input_async', tool_use_id: 'ordinary-question',
+    tool_input: { questions: [{ title: 'What should I inspect next?', options: ['Read the docs', 'Check the tests'] }] } }, options), null,
+  'lack of child APIs must not block an ordinary async clarification');
+  assert.equal(handleHook({ ...child, hook_event_name: 'PreToolUse',
+    tool_name: 'Read', tool_use_id: 'ordinary-read',
+    tool_input: { file_path: path.join(process.cwd(), 'README.md') } }, options), null,
+  'lack of child APIs must not block an ordinary child read');
+  assert.equal(handleHook({ ...child, hook_event_name: 'PreToolUse',
+    tool_name: 'Bash', tool_use_id: 'child-install',
+    tool_input: { command: 'pnpm install --offline --frozen-lockfile --ignore-scripts' } }, options), null,
+  'the generic parent deps=allow decision remains available without creating approval state');
+  assert.equal(fs.readFileSync(parentFile, 'utf8'), original, 'child fallback never rewrites the parent ledger');
+  assert.equal(fs.statSync(parentFile).mtimeMs, originalMtime, 'child fallback never touches the parent ledger');
+});
+
+testWithoutScopedState('without scoped APIs, child dependency intents retain generic parent decision semantics without approval state', t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-child-dependency-fallback-'));
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   const session_id = 'child-dependency-fallback-no-api';
   const agent_id = 'child-agent-dependency-fallback';
-  if (supportsScopedState(session_id, agent_id, dataDir)) {
-    t.skip('the generic fallback is only used by standalone PR120 without PR109 scoped APIs');
-    return;
-  }
   const base = { session_id, turn_id: 'turn-1', cwd: process.cwd() };
   const options = { dataDir };
   const prompt = (text, child = false) => handleHook({ ...base, ...(child ? { agent_id } : {}),
@@ -180,9 +211,7 @@ test('a parent approval is never a child approval', t => {
   const before = (id, tool_name = 'Bash', agent_id) => handleHook({ ...base, agent_id,
     hook_event_name: 'PreToolUse', tool_name, tool_use_id: id,
     tool_input: tool_name === 'Bash' ? { command } : { questions: [question] } }, { dataDir });
-  const scopedStateAvailable = typeof stateStore.childStatePath === 'function'
-    && typeof contracts.narrowContract === 'function'
-    && stateStore.childStatePath(session_id, agent_id, dataDir) !== stateStore.statePath(session_id, dataDir);
+  assertScopedState(session_id, agent_id, dataDir);
 
   prompt('$stop-that-shit change deps=ask -- exact install');
   handleHook({ ...base, agent_id, hook_event_name: 'UserPromptSubmit',
@@ -208,10 +237,8 @@ test('a parent approval is never a child approval', t => {
   const child = before('child-retry', 'Bash', agent_id);
   assert.equal(child?.hookSpecificOutput?.permissionDecision, 'deny', 'child cannot consume a parent-scoped approval');
   assert.equal(stateStore.readState(session_id, dataDir).actionApproval.status, 'approved');
-  if (scopedStateAvailable) {
-    assert.equal(stateStore.readState(session_id, dataDir, { agentId: agent_id }).actionApproval.status, 'pending',
-      'the child can receive a distinct proposal under its own ledger');
-  }
+  assert.equal(stateStore.readState(session_id, dataDir, { agentId: agent_id }).actionApproval.status, 'pending',
+    'the child can receive a distinct proposal under its own ledger');
 });
 
 test('an explicit child review contract denies dependency work while the parent change contract allows it', t => {
@@ -219,10 +246,7 @@ test('an explicit child review contract denies dependency work while the parent 
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   const session_id = 'parent-change-child-review';
   const agent_id = 'child-review-policy';
-  if (!supportsScopedState(session_id, agent_id, dataDir)) {
-    t.skip('requires PR109 scoped child-state APIs');
-    return;
-  }
+  assertScopedState(session_id, agent_id, dataDir);
   const base = { session_id, turn_id: 'turn-1', cwd: process.cwd() };
   const options = { dataDir };
   const prompt = (text, child = false) => handleHook({ ...base, ...(child ? { agent_id } : {}),
@@ -247,10 +271,7 @@ test('a fresh child partial directive preserves PR109 raw child defaults and sta
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   const session_id = 'child-partial-directive-inherit';
   const agent_id = 'child-agent-partial-directive';
-  if (!supportsScopedState(session_id, agent_id, dataDir)) {
-    t.skip('requires the real childStatePath and narrowContract APIs from PR109 integration');
-    return;
-  }
+  assertScopedState(session_id, agent_id, dataDir);
   const base = { session_id, turn_id: 'turn-1', cwd: process.cwd() };
   const options = { dataDir };
   const prompt = (text, child = false) => handleHook({ ...base, ...(child ? { agent_id } : {}),
@@ -292,41 +313,28 @@ test('an uninitialized child enforces parent deps=ask with an independent approv
   prompt('$stop-that-shit change deps=ask -- parent policy');
   assert.equal(parentAction()?.hookSpecificOutput?.permissionDecision, 'deny');
   const parentRecord = stateStore.readState(session_id, dataDir).actionApproval;
-  const { childStatePath } = stateStore;
-  const supported = typeof childStatePath === 'function' && typeof contracts.narrowContract === 'function'
-    && childStatePath(session_id, agent_id, dataDir) !== stateStore.statePath(session_id, dataDir);
-  const childRaw = supported ? stateStore.readState(session_id, dataDir, { agentId: agent_id }).contract : contracts.defaultContract();
+  assertScopedState(session_id, agent_id, dataDir);
+  const childRaw = stateStore.readState(session_id, dataDir, { agentId: agent_id }).contract;
   const parentContract = stateStore.readState(session_id, dataDir).contract;
-  const hostEffective = supported ? contracts.narrowContract(parentContract, childRaw) : parentContract;
+  const hostEffective = contracts.narrowContract(parentContract, childRaw);
   const childResult = childAction();
-  assert.deepEqual(supported ? approvalScope.effectiveChildContract(parentContract, childRaw) : parentContract, hostEffective);
-  if (supported) {
-    assert.equal(childResult?.hookSpecificOutput?.permissionDecision, 'deny',
-      'an unconfirmed child must not deactivate parent deps=ask enforcement');
-  } else {
-    assert.equal(childResult?.hookSpecificOutput?.permissionDecision, 'deny',
-      'without scoped APIs, the standalone fallback denies deps=ask without consuming parent approval');
-  }
+  assert.deepEqual(approvalScope.effectiveChildContract(parentContract, childRaw), hostEffective);
+  assert.equal(childResult?.hookSpecificOutput?.permissionDecision, 'deny',
+    'an unconfirmed child must not deactivate parent deps=ask enforcement');
   assert.equal(stateStore.readState(session_id, dataDir).contract.dependencyPolicy, 'ask');
-  if (supported) {
-    const childState = stateStore.readState(session_id, dataDir, { agentId: agent_id });
-    assert.equal(childState.contract.source, 'default', 'effective parent policy stays out of child state');
-    assert.equal(childState.actionApproval.status, 'pending', 'effective parent deps=ask creates a child-owned proposal');
-    assert.equal(childState.actionApproval.scopeAgentId, agent_id);
-    assert.deepEqual(stateStore.readState(session_id, dataDir).actionApproval, parentRecord,
-      'child default evaluation does not consume or rewrite a parent approval');
-  }
+  const childState = stateStore.readState(session_id, dataDir, { agentId: agent_id });
+  assert.equal(childState.contract.source, 'default', 'effective parent policy stays out of child state');
+  assert.equal(childState.actionApproval.status, 'pending', 'effective parent deps=ask creates a child-owned proposal');
+  assert.equal(childState.actionApproval.scopeAgentId, agent_id);
+  assert.deepEqual(stateStore.readState(session_id, dataDir).actionApproval, parentRecord,
+    'child default evaluation does not consume or rewrite a parent approval');
 });
 
-test('without scoped APIs, child delegation still shares the original parent budget', t => {
+testWithoutScopedState('without scoped APIs, child delegation still shares the original parent budget', t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-child-budget-fallback-'));
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   const session_id = 'child-budget-no-scope-api';
   const agent_id = 'child-agent-global-budget';
-  if (supportsScopedState(session_id, agent_id, dataDir)) {
-    t.skip('the shared-budget fallback is specific to standalone PR120 without scoped APIs');
-    return;
-  }
   const base = { session_id, turn_id: 'turn-1', cwd: process.cwd() };
   const options = { dataDir };
   handleHook({ ...base, hook_event_name: 'UserPromptSubmit', prompt: '$stop-that-shit change agents=1 -- child budget' }, options);
@@ -346,10 +354,7 @@ test('scoped answer and fresh runner process recheck the latest parent contract'
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   const session_id = 'scope-runner-policy-recheck';
   const agent_id = 'child:/子/δ';
-  if (!supportsScopedState(session_id, agent_id, dataDir)) {
-    t.skip('requires the real childStatePath and narrowContract APIs from PR109 integration');
-    return;
-  }
+  assertScopedState(session_id, agent_id, dataDir);
 
   const managerRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-scope-manager-'));
   t.after(() => fs.rmSync(managerRoot, { recursive: true, force: true }));
@@ -490,10 +495,7 @@ test('asynchronous proposal replies remain inside the registered child scope', t
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   const session_id = 'child-async-answer-scope';
   const agent_id = 'child-agent-async-answer';
-  if (!supportsScopedState(session_id, agent_id, dataDir)) {
-    t.skip('requires the real childStatePath and narrowContract APIs from PR109 integration');
-    return;
-  }
+  assertScopedState(session_id, agent_id, dataDir);
   const base = { session_id, turn_id: 'turn-1', cwd: process.cwd() };
   const options = { dataDir };
   const command = 'pnpm install --offline --frozen-lockfile --ignore-scripts';
