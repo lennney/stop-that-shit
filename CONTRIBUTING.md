@@ -68,9 +68,9 @@ npm run check
 git diff --check
 ```
 
-`check` runs `npm test`, `npm run eval`, and `npm run release:check` in order,
-stopping on failure. These commands remain available separately. Optional host
-smoke tests keep their existing opt-in settings.
+The `check` script in [`package.json`](package.json) defines the aggregate
+checks and their order. Individual scripts remain available separately.
+Optional host smoke tests keep their existing opt-in settings.
 
 ## Before opening a pull request
 
