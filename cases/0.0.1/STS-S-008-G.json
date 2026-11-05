@@ -1,0 +1,27 @@
+{
+  "id": "STS-S-008-G",
+  "kind": "good",
+  "family": "S",
+  "title": "Effective child file boundary allows normalized in-scope completion",
+  "input": {
+    "contract": {
+      "mode": "change",
+      "level": "guard",
+      "allowedPaths": [
+        "src/**"
+      ],
+      "agentBudget": 1
+    },
+    "action": {
+      "mutability": "write",
+      "affectedPaths": [
+        "src/lib/../config.cjs"
+      ]
+    }
+  },
+  "expected": {
+    "outcome": "allow",
+    "family": null,
+    "reasonCode": "WITHIN_CONTRACT"
+  }
+}

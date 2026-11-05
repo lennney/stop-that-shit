@@ -4,6 +4,14 @@ const path = require('node:path');
 const stateStore = require('./state.cjs');
 const contracts = require('./contracts.cjs');
 
+class ScopedStateUnavailableError extends Error {
+  constructor(storageError = { code: 'CHILD_SCOPE_UNAVAILABLE', message: 'Child-scoped policy state is unavailable.' }) {
+    super(storageError.message);
+    this.name = 'ScopedStateUnavailableError';
+    this.code = storageError.code;
+  }
+}
+
 function agentIdFor(event) {
   const value = event && event.agent && event.agent.agentId;
   return typeof value === 'string' && value.trim() && Buffer.byteLength(value, 'utf8') <= 4096 ? value : null;
@@ -52,14 +60,14 @@ function read(event, options) {
 function update(event, options, callback) {
   const scope = resolve(event, options);
   if (!scope.child) return stateStore.updateSession(event.sessionId, options.dataDir, callback);
-  if (!scope.available) throw new Error('Child-scoped policy state is unavailable.');
+  if (!scope.available) throw new ScopedStateUnavailableError();
   const { withCoordinationLock } = require('./dependency-handoff.cjs');
   return withCoordinationLock(event.sessionId, options.dataDir, () => {
     const parent = stateStore.readState(event.sessionId, options.dataDir);
-    if (parent.storageError) throw new Error('Parent policy state is unavailable.');
+    if (parent.storageError) throw new ScopedStateUnavailableError(parent.storageError);
     return stateStore.updateSession(event.sessionId, options.dataDir, child => {
       const scoped = read(event, options);
-      if (scoped.storageError) throw new Error('Child policy state is unavailable.');
+      if (scoped.storageError) throw new ScopedStateUnavailableError(scoped.storageError);
       scoped.actionApproval = child.actionApproval;
       scoped.expiredApprovalEventId = child.expiredApprovalEventId;
       scoped.delegation = child.delegation;
@@ -92,4 +100,4 @@ function policyDigest(contract) {
   return crypto.createHash('sha256').update(JSON.stringify(bound)).digest('hex');
 }
 
-module.exports = { agentIdFor, resolve, read, update, policyDigest, effectiveChildContract };
+module.exports = { ScopedStateUnavailableError, agentIdFor, resolve, read, update, policyDigest, effectiveChildContract };

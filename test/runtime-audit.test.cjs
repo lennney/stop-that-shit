@@ -109,6 +109,21 @@ test('runtime audit records delegation count without task input', (t) => {
   assert.equal(JSON.stringify(runtime).includes('PRIVATE_DELEGATION_GOAL'), false);
 });
 
+test('child runtime events stay in child logs and parent queries merge them by agent', (t) => {
+  const directory = dataDir(t);
+  const parent = recordDecision(facts(), { dataDir: directory });
+  const child = recordDecision(facts({ agent: { agentId: 'child-private-id' } }), { dataDir: directory });
+
+  const all = readRuntime({ sessionId: facts().sessionId }, { dataDir: directory });
+  assert.deepEqual(all.events.map(event => event.eventId), [parent.eventId, child.eventId]);
+  assert.equal(all.events[1].agent.agentKey, sessionKey('child-private-id'));
+  assert.equal(JSON.stringify(all).includes('child-private-id'), false);
+
+  const isolated = readRuntime({ sessionId: facts().sessionId, agentId: 'child-private-id' }, { dataDir: directory });
+  assert.deepEqual(isolated.events.map(event => event.eventId), [child.eventId]);
+  assert.equal(isolated.summary.checkedActions, 1);
+});
+
 test('runtime reader tolerates a damaged final JSONL record', (t) => {
   const directory = dataDir(t);
   const event = recordDecision(facts(), { dataDir: directory });

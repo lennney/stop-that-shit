@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { defaultContract, parseContractPrompt } = require('../src/contracts.cjs');
+const { defaultContract, narrowContract, parseContractPrompt } = require('../src/contracts.cjs');
 
 test('Chinese observation objects preserve an existing change contract across heartbeat deliveries', () => {
   const previous = parseContractPrompt('$stop-that-shit change -- 检查同步，必要时修复或回滚。').contract;
@@ -28,6 +28,15 @@ test('standalone Chinese observation instructions still withdraw change authorit
   assert.equal(parseContractPrompt('只观察，不要修改代码', previous).contract.mode, 'review');
 });
 
+test('direct Chinese review corrections with polite and attention prefixes withdraw change authority', () => {
+  const previous = parseContractPrompt('$stop-that-shit change -- task').contract;
+  for (const prompt of ['你不要修改代码', '你只审查', '你只看不改', '请你不要修改代码', '注意：不要修改代码']) {
+    const result = parseContractPrompt(prompt, previous);
+    assert.equal(result.contract.mode, 'review', prompt);
+    assert.equal(result.contract.source, 'natural-explicit', prompt);
+  }
+});
+
 test('spaces before a Chinese observation object do not revoke change', () => {
   const previous = parseContractPrompt('$stop-that-shit change -- implement').contract;
   for (const prompt of ['只观察 实际定时轮次，按授权修复', '请只观察失败任务，按授权修复']) {
@@ -48,6 +57,38 @@ test('explicit review directive enables guard by default', () => {
   assert.equal(result.contract.mode, 'review');
   assert.equal(result.contract.level, 'guard');
   assert.equal(result.contract.hashPolicy, 'deny');
+});
+
+test('child contracts keep the stricter value for every authority field', () => {
+  const parent = parseContractPrompt(
+    '$stop-that-shit lock review agents=2 files=src/** hash=ask deps=ask -- inspect'
+  ).contract;
+  const child = parseContractPrompt(
+    '$stop-that-shit change agents=4 files=src/config.cjs|test/** hash=allow deps=deny -- work'
+  ).contract;
+  const effective = narrowContract(parent, child);
+  assert.equal(effective.mode, 'review');
+  assert.equal(effective.level, 'lock');
+  assert.equal(effective.agentBudget, 2);
+  assert.deepEqual(effective.allowedPaths, ['src/config.cjs']);
+  assert.equal(effective.hashPolicy, 'ask');
+  assert.equal(effective.dependencyPolicy, 'deny');
+});
+
+test('a disabled parent contract stays disabled for children', () => {
+  const parent = parseContractPrompt('$stop-that-shit off -- disabled').contract;
+  const child = parseContractPrompt('$stop-that-shit lock review -- inspect').contract;
+  assert.equal(narrowContract(parent, child).level, 'off');
+});
+
+test('equal read-only modes keep the parent meaning', () => {
+  for (const parentMode of ['answer', 'review', 'monitor']) {
+    const parent = parseContractPrompt(`$stop-that-shit ${parentMode} -- parent`).contract;
+    for (const childMode of ['answer', 'review', 'monitor']) {
+      const child = parseContractPrompt(`$stop-that-shit ${childMode} -- child`).contract;
+      assert.equal(narrowContract(parent, child).mode, parentMode, `${parentMode} + ${childMode}`);
+    }
+  }
 });
 
 test('Codex namespaced directives match short directives and preserve field boundaries', () => {
@@ -304,4 +345,48 @@ test('natural corrections ignore quoted examples without disabling real task cor
   assert.equal(parseContractPrompt('Fix "src/config.cjs" now.', review).contract.mode, 'change');
   assert.equal(parseContractPrompt('"Fix the bug" is an example.', review).contract.mode, 'review');
   assert.equal(parseContractPrompt("Don't edit anything.", previous).contract.mode, 'review');
+});
+
+test('Chinese role-scoped review wording and quoted examples do not withdraw change authority', () => {
+  const previous = parseContractPrompt('$stop-that-shit change -- task').contract;
+  for (const prompt of [
+    '主不要修改代码，执行器继续实现。',
+    '主：只审查；执行器继续修改。',
+    '示例：请你不要修改代码',
+    '请你继续执行任务。\n引用：注意：不要修改代码'
+  ]) {
+    const result = parseContractPrompt(prompt, previous);
+    assert.equal(result.contract.mode, 'change', prompt);
+    assert.equal(result.correction, false, prompt);
+  }
+});
+
+test('an unconfirmed child cannot deactivate a confirmed parent', () => {
+  const parent = parseContractPrompt('$stop-that-shit change files=src/** agents=1 deps=deny hash=deny').contract;
+  for (const prompt of ['$stop-that-shit files=src/a.cjs', '$stop-that-shit watch', '$stop-that-shit off']) {
+    const child = parseContractPrompt(prompt).contract;
+    const effective = narrowContract(parent, child);
+    assert.equal(effective.mode, 'change');
+    assert.equal(effective.level, 'guard');
+    assert.equal(effective.agentBudget, 1);
+    assert.equal(effective.dependencyPolicy, 'deny');
+  }
+});
+
+test('file intersection normalizes traversal and retains the narrower overlap', () => {
+  const parent = parseContractPrompt('$stop-that-shit change files=src/**').contract;
+  const child = paths => ({ ...defaultContract(), allowedPaths: paths });
+  assert.deepEqual(narrowContract(parent, child(['src/../private/**'])).allowedPaths, []);
+  assert.deepEqual(narrowContract(parent, child(['src/lib/../a.cjs'])).allowedPaths, ['src/lib/../a.cjs']);
+  assert.deepEqual(narrowContract({ ...parent, allowedPaths: ['src/a.cjs'] }, child(['src/**'])).allowedPaths, ['src/a.cjs']);
+});
+
+test('only a pristine default child inherits all parent permissions', () => {
+  const parent = parseContractPrompt('$stop-that-shit change deps=allow hash=allow files=src/** agents=2').contract;
+  assert.deepEqual(narrowContract(parent, defaultContract()), parent);
+  const explicit = parseContractPrompt('$stop-that-shit deps=deny').contract;
+  assert.equal(narrowContract(parent, explicit).dependencyPolicy, 'deny');
+  assert.equal(narrowContract(parent, { ...defaultContract(), dependencyPolicy: 'deny' }).dependencyPolicy, 'deny');
+  assert.equal(narrowContract(parent, { ...defaultContract(), allowedPaths: ['src/a.cjs'] }).allowedPaths[0], 'src/a.cjs');
+  assert.equal(narrowContract(parent, { ...defaultContract(), agentBudget: 0 }).agentBudget, 0);
 });

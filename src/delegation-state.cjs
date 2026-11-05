@@ -14,6 +14,12 @@ function stoppedAgentIds(state) {
   return Array.isArray(state && state.stoppedAgentIds) ? state.stoppedAgentIds : [];
 }
 
+function isActiveAgent(state, agentId) {
+  if (typeof agentId !== 'string' || !agentId || stoppedAgentIds(state).includes(agentId)) return false;
+  return Object.values(reservationsOf(state)).some((reservation) =>
+    Array.isArray(reservation.agentIds) && reservation.agentIds.includes(agentId));
+}
+
 function acceptedActions(state) {
   return state && state.acceptedActions && typeof state.acceptedActions === 'object'
     ? state.acceptedActions
@@ -250,6 +256,7 @@ module.exports = {
   activeDelegationCount,
   bindSubagent,
   clearDelegations,
+  isActiveAgent,
   markReservationAsync,
   releaseReservation,
   releaseSubagent,

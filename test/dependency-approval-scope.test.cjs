@@ -270,12 +270,13 @@ test('a fresh child partial directive preserves PR109 raw child defaults and sta
     contracts.narrowContract(parentContract, child.contract));
   assert.equal(stateStore.readState(session_id, dataDir).contract.dependencyPolicy, 'allow',
     'the child directive does not mutate parent state');
-  assert.equal(action('child-unconfirmed', true), null,
-    'a partial directive does not activate a child change approval or inherit the parent change mode');
+  assert.equal(action('child-unconfirmed', true)?.hookSpecificOutput?.permissionDecision, 'deny',
+    'a partial directive cannot deactivate the parent Guard or bypass its own deps=deny');
+  assert.equal(stateStore.readState(session_id, dataDir, { agentId: agent_id }).actionApproval, null);
   assert.equal(action('parent-allowed'), null);
 });
 
-test('an uninitialized child matches the host narrowContract default without creating an approval', t => {
+test('an uninitialized child enforces parent deps=ask with an independent approval', t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-approval-scope-inherit-'));
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   const session_id = 'parent-ask-child-default';
@@ -300,8 +301,8 @@ test('an uninitialized child matches the host narrowContract default without cre
   const childResult = childAction();
   assert.deepEqual(supported ? approvalScope.effectiveChildContract(parentContract, childRaw) : parentContract, hostEffective);
   if (supported) {
-    assert.equal(childResult, null,
-      'a fresh child remains at the host default; it does not automatically open a deps=ask approval card');
+    assert.equal(childResult?.hookSpecificOutput?.permissionDecision, 'deny',
+      'an unconfirmed child must not deactivate parent deps=ask enforcement');
   } else {
     assert.equal(childResult?.hookSpecificOutput?.permissionDecision, 'deny',
       'without scoped APIs, the standalone fallback denies deps=ask without consuming parent approval');
@@ -310,7 +311,8 @@ test('an uninitialized child matches the host narrowContract default without cre
   if (supported) {
     const childState = stateStore.readState(session_id, dataDir, { agentId: agent_id });
     assert.equal(childState.contract.source, 'default', 'effective parent policy stays out of child state');
-    assert.equal(childState.actionApproval, null, 'fresh child default creates no child approval proposal');
+    assert.equal(childState.actionApproval.status, 'pending', 'effective parent deps=ask creates a child-owned proposal');
+    assert.equal(childState.actionApproval.scopeAgentId, agent_id);
     assert.deepEqual(stateStore.readState(session_id, dataDir).actionApproval, parentRecord,
       'child default evaluation does not consume or rewrite a parent approval');
   }
