@@ -96,6 +96,7 @@ test('hermes:check detects a missing generated Windows runner helper', t => {
   fs.mkdirSync(path.join(tempRoot, '.hermes-plugin', 'runtime'), { recursive: true });
   fs.copyFileSync(path.join(root, 'package.json'), path.join(tempRoot, 'package.json'));
   fs.copyFileSync(path.join(root, 'scripts', 'build-hermes-plugin.cjs'), path.join(tempRoot, 'scripts', 'build-hermes-plugin.cjs'));
+  fs.cpSync(path.dirname(require.resolve('acorn/package.json')), path.join(tempRoot, 'node_modules/acorn'), { recursive: true });
   fs.copyFileSync(runtimePath, path.join(tempRoot, '.hermes-plugin', 'runtime', 'stop-that-shit.cjs'));
   const result = spawnSync(process.execPath, ['scripts/build-hermes-plugin.cjs', '--check'], {
     cwd: tempRoot, encoding: 'utf8'
@@ -116,6 +117,7 @@ test('hermes:check is invariant to CRLF checkout conversion', (t) => {
     path.join(root, 'scripts', 'build-hermes-plugin.cjs'),
     path.join(tempRoot, 'scripts', 'build-hermes-plugin.cjs')
   );
+  fs.cpSync(path.dirname(require.resolve('acorn/package.json')), path.join(tempRoot, 'node_modules/acorn'), { recursive: true });
   fs.copyFileSync(
     runtimePath,
     path.join(tempRoot, '.hermes-plugin', 'runtime', 'stop-that-shit.cjs')

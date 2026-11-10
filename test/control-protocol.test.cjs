@@ -161,9 +161,11 @@ test('shell analysis reasons accept only optional fixed string codes', () => {
   }
 });
 
-test('all shell adapters preserve paired argument facts and diagnostic reasons', () => {
+test('all seven shell adapters preserve paired argument facts and available diagnostic reasons', t => {
   const claude = require('../src/adapters/claude-hooks.cjs');
+  const dsh = require('../src/adapters/dsh-hooks.cjs');
   const hermes = require('../src/adapters/hermes-hooks.cjs');
+  const omp = require('../src/adapters/omp-hooks.cjs');
   const opencode = require('../src/adapters/opencode-hooks.cjs');
   const pi = require('../src/adapters/pi-hooks.cjs');
   const hook = (name, command) => ({
@@ -172,10 +174,28 @@ test('all shell adapters preserve paired argument facts and diagnostic reasons',
   const adapters = [
     ...['Bash', 'exec_command', 'shell_command'].map(name => [name, command => toControlEvent(hook(name, command))]),
     ...['Bash', 'PowerShell', 'Monitor'].map(name => [`Claude ${name}`, command => claude.toControlEvent(hook(name, command))]),
+    ...['bash', 'pwsh'].map(name => [`DSH ${name}`, command => dsh.toControlEvent('tools/pre-execute',
+      dsh.fromNativeEvent('tools/pre-execute', {
+        name, arguments: { command }, callId: 'analysis-call',
+        agent: { session: { id: 'analysis-session', header: { cwd: '/repo' } } }
+      }))]),
     ['Hermes terminal', command => hermes.toControlEvent({ ...hook('terminal', command), hook_event_name: 'pre_tool_call' })],
     ['OpenCode bash', command => opencode.toActionEvent({ tool: 'bash', sessionID: 'analysis-session' }, { args: { command } })],
     ...['bash', 'powershell'].map(name => [`Pi ${name}`, command => pi.toActionEvent({ toolName: name, input: { command } }, { sessionId: 'analysis-session' })])
   ];
+  // OMP has no exported event translator. Exercise its real handler and inspect
+  // the recorded facts instead of constructing a synthetic ControlEvent.
+  const options = { dataDir: dataDir(t), now: () => new Date('2026-01-01T00:00:00Z') };
+  const ompAdapters = ['bash', 'powershell'].map(name => {
+    const context = { sessionId: `analysis-omp-${name}`, cwd: '/repo' };
+    omp.handleOmpPrompt({ text: '$stop-that-shit guard review hash=deny deps=deny' }, context, options);
+    return [name, context];
+  });
+  assert.deepEqual([...adapters.map(([name]) => name), ...ompAdapters.map(([name]) => `OMP ${name}`)], [
+    'Bash', 'exec_command', 'shell_command', 'Claude Bash', 'Claude PowerShell', 'Claude Monitor',
+    'DSH bash', 'DSH pwsh', 'Hermes terminal', 'OpenCode bash', 'Pi bash', 'Pi powershell',
+    'OMP bash', 'OMP powershell'
+  ]);
   const cases = [
     ['git status', 'read'],
     ["rg -n 'npm install' README.md", 'read'],
@@ -197,13 +217,64 @@ test('all shell adapters preserve paired argument facts and diagnostic reasons',
     ["rg 'a\"b' README.md", 'unknown', 'native_quotes_unproven'],
     ['git status > marker.txt', 'write', 'shell_redirection']
   ];
-  for (const [command, mutability, analysisReason, hashIntent = false, dependencyIntent = false] of cases) {
+  for (const [index, [command, mutability, analysisReason, hashIntent = false, dependencyIntent = false]] of cases.entries()) {
     for (const [adapter, translate] of adapters) {
       const event = translate(command);
       assertControlEvent(event);
       const actual = Object.fromEntries(['mutability', 'analysisReason', 'hashIntent', 'dependencyIntent'].map(key => [key, event.action[key]]));
       assert.deepEqual(actual, { mutability, analysisReason, hashIntent, dependencyIntent }, `${adapter}: ${command}`);
     }
+    for (const [toolName, context] of ompAdapters) {
+      const label = `OMP ${toolName}: ${command}`;
+      const result = omp.handleOmpTool({
+        type: 'tool_call', toolCallId: `analysis-${index}`, toolName, input: { command }
+      }, context, options);
+      assert.equal(result.kind, mutability === 'read' ? 'none' : 'deny', label);
+      if (mutability !== 'read') {
+        assert.equal(result.decision.reasonCode,
+          mutability === 'write' ? 'MODE_FORBIDS_MUTATION' : 'MUTABILITY_UNPROVEN', label);
+      }
+      const runtime = readRuntime({ sessionId: context.sessionId }, options);
+      assert.equal(runtime.events.length, index + 1, label);
+      const recorded = runtime.events.at(-1);
+      const actual = Object.fromEntries(['mutability', 'hashIntent', 'dependencyIntent'].map(key => [key, recorded.action[key]]));
+      assert.deepEqual(actual, { mutability, hashIntent, dependencyIntent }, label);
+      // OMP currently omits this optional diagnostic. Preserve that limitation
+      // rather than changing policy or claiming diagnostic parity with it.
+      assert.equal(Object.hasOwn(recorded.action, 'analysisReason'), false, label);
+      assert.equal(recorded.decision.responseOutcome,
+        mutability === 'read' ? 'none' : 'execution_denial_returned', label);
+      assert.equal(recorded.decision.hostEffect, 'unobserved', label);
+    }
+  }
+});
+
+test('OMP shell gates preserve paired reads and allow the requested result after explicit authority', t => {
+  const { handleOmpPrompt, handleOmpTool } = require('../src/adapters/omp-hooks.cjs');
+  const options = { dataDir: dataDir(t) };
+  for (const toolName of ['bash', 'powershell']) {
+    const context = { sessionId: `paired-omp-${toolName}`, cwd: '/repo' };
+    const prompt = text => handleOmpPrompt({ text }, context, options);
+    const call = (id, command) => handleOmpTool({
+      type: 'tool_call', toolCallId: id, toolName, input: { command }
+    }, context, options);
+    prompt('$stop-that-shit guard change hash=deny deps=deny');
+    const pairs = [
+      ['hash', 'Get-FileHash README.md', "rg 'Get-FileHash' README.md", 'HASH_NOT_AUTHORIZED'],
+      ['dependency', 'git status; npm install example-package', "rg -n 'npm install' README.md", 'DEPENDENCY_NOT_AUTHORIZED']
+    ];
+    for (const [id, blocked, read, reason] of pairs) {
+      const result = call(`${id}-denied`, blocked);
+      assert.equal(result.kind, 'deny', `${toolName}: ${blocked}`);
+      assert.equal(result.decision.reasonCode, reason, `${toolName}: ${blocked}`);
+      assert.equal(call(`${id}-read`, read).kind, 'none', `${toolName}: ${read}`);
+    }
+    prompt('$stop-that-shit guard change hash=allow deps=allow');
+    for (const [id, command] of pairs) {
+      assert.equal(call(`${id}-authorized`, command).kind, 'none', `${toolName}: ${command}`);
+    }
+    assert.equal(call('requested-output', 'git diff --output=marker.txt').kind, 'none', toolName);
+    assert.equal(call('final-read', 'git status').kind, 'none', toolName);
   }
 });
 
