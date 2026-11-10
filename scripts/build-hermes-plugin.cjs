@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { parse } = require('acorn');
 
 const root = path.resolve(__dirname, '..');
 const outputPath = path.join(root, '.hermes-plugin', 'runtime', 'stop-that-shit.cjs');
@@ -24,27 +25,79 @@ function resolveModule(request, fromFile) {
   throw new Error(`Cannot resolve bundled module ${request} from ${fromFile}`);
 }
 
+function staticString(node) {
+  if (node?.type === 'Literal' && typeof node.value === 'string') return node.value;
+  if (node?.type === 'TemplateLiteral' && node.expressions.length === 0) return node.quasis[0].value.cooked;
+  return null;
+}
+
+function memberName(node) {
+  return node?.type === 'MemberExpression' ? node.computed ? staticString(node.property) : node.property.name : null;
+}
+
+function isEntrypointComparison(node) {
+  if (node?.type !== 'BinaryExpression' || !['===', '!==', '==', '!='].includes(node.operator)) return false;
+  return [[node.left, node.right], [node.right, node.left]].some(([main, module]) =>
+    main.type === 'MemberExpression' && main.object.type === 'Identifier' && main.object.name === 'require'
+      && memberName(main) === 'main' && module.type === 'Identifier' && module.name === 'module');
+}
+
+function isPropertyName(node, parent) {
+  return parent?.type === 'MemberExpression' && !parent.computed && parent.property === node
+    || parent?.type === 'Property' && !parent.computed && !parent.shorthand && parent.key === node
+    || ['MethodDefinition', 'PropertyDefinition'].includes(parent?.type) && !parent.computed && parent.key === node;
+}
+
 function collect(file, modules) {
   const id = path.relative(root, file).split(path.sep).join('/');
   if (modules.has(id)) return id;
   const source = normalizeNewlines(fs.readFileSync(file, 'utf8'));
-  const module = { id, file, source, dependencies: new Map() };
+  const module = { id, file, source, imports: [] };
   modules.set(id, module);
   if (file.endsWith('.json')) return id;
-  const requirePattern = /require\((['"])([^'"]+)\1\)/g;
-  for (const match of source.matchAll(requirePattern)) {
-    const dependency = resolveModule(match[2], file);
-    if (dependency) module.dependencies.set(match[2], collect(dependency, modules));
+  const syntax = parse(source, { ecmaVersion: 'latest', sourceType: 'script', allowReturnOutsideFunction: true });
+  function unsupported(node) {
+    const line = source.slice(0, node.start).split('\n').length;
+    throw new Error(`Unsupported CommonJS require or module usage in ${id}:${line}; use a direct static require, module.exports, or a require.main comparison.`);
   }
+  function walk(node, parent, grandparent) {
+    if (!node || typeof node.type !== 'string') return;
+    if (node.type === 'CallExpression' && node.callee.type === 'Identifier' && node.callee.name === 'require') {
+      const argument = node.arguments[0];
+      const request = staticString(argument);
+      if (node.optional || node.arguments.length !== 1 || typeof request !== 'string') unsupported(node);
+      const dependency = resolveModule(request, file);
+      if (dependency) module.imports.push({ start: node.start, end: node.end, id: collect(dependency, modules) });
+    }
+    if (node.type === 'Identifier' && node.name === 'module') {
+      const exportsAccess = parent?.type === 'MemberExpression' && parent.object === node && memberName(parent) === 'exports';
+      // The module shim supports exports and entrypoint comparisons, not
+      // alternate loaders or aliases that escape static import discovery.
+      if (!exportsAccess && !isEntrypointComparison(parent) && !isPropertyName(node, parent)) unsupported(node);
+    }
+    if (node.type === 'Identifier' && node.name === 'require') {
+      const directCall = parent?.type === 'CallExpression' && parent.callee === node;
+      const entrypointCheck = parent?.type === 'MemberExpression' && parent.object === node
+        && isEntrypointComparison(grandparent);
+      // Aliases and shadowed bindings cannot use the bundle's module loader.
+      if (!directCall && !entrypointCheck && !isPropertyName(node, parent)) unsupported(node);
+    }
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) for (const child of value) walk(child, node, parent);
+      else if (value && typeof value === 'object') walk(value, node, parent);
+    }
+  }
+  walk(syntax);
   return id;
 }
 
 function renderModule(module) {
   if (module.file.endsWith('.json')) return `module.exports = ${module.source.trim()};`;
   let source = module.source;
-  for (const [request, id] of module.dependencies) {
-    const escaped = request.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    source = source.replace(new RegExp(`require\\((['"])${escaped}\\1\\)`, 'g'), `__require(${JSON.stringify(id)})`);
+  // Replace actual call ranges from right to left, never text in comments,
+  // strings, regexes or template text. Native module imports stay untouched.
+  for (const entry of module.imports.sort((a, b) => b.start - a.start)) {
+    source = source.slice(0, entry.start) + `__require(${JSON.stringify(entry.id)})` + source.slice(entry.end);
   }
   return source;
 }

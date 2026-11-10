@@ -2210,6 +2210,7 @@ module.exports = {
     }
   },
   "devDependencies": {
+    "acorn": "8.17.0",
     "ajv": "^8.20.0"
   },
   "dependencies": {
@@ -4613,6 +4614,7 @@ __modules["package.json"] = function(module) { module.exports = {
     }
   },
   "devDependencies": {
+    "acorn": "8.17.0",
     "ajv": "^8.20.0"
   },
   "dependencies": {
