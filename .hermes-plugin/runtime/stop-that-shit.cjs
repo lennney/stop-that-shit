@@ -3274,11 +3274,21 @@ function analyzeShell(command) {
     ...shellClassification(analysis?.redirected ? 'write' : 'unknown', analysis?.redirected ? 'shell_redirection' : 'shell_syntax_unproven'),
     hashIntent: HASH_COMMAND.test(text), dependencyIntent: DEPENDENCY_COMMAND.test(text)
   };
-  const commands = analysis.commands.map(command => ({
+  // Only a static two-stage echo -> named Node script pipe treats stdin as
+  // data. CMD ignores single quotes, so reject execution/expansion characters
+  // in either stage even when quoted. A named script does not establish a read
+  // or an allow decision; its internals remain unknown and its argv is scanned.
+  const [producer, consumer] = analysis.commands;
+  const literalStdin = analysis.hasPipe && analysis.commands.length === 2
+    && String(producer.args[0]).toLowerCase() === 'echo'
+    && !/[&|<>^%!\r\n()$`]/.test([...producer.args.slice(1), ...consumer.args].join(' '))
+    && !consumer.nativeQuotes && /^(?:node|node\.exe)$/i.test(consumer.args[0] || '')
+    && /^[^-].*\.(?:cjs|mjs|js)$/i.test(consumer.args[1] || '');
+  const commands = analysis.commands.map((command, index) => ({
     ...classifyStaticCommand(command), text: command.args.join(' '),
     // Static PowerShell content cmdlets receive their literal arguments as data.
     // Dynamic syntax is rejected by staticShellCommands before this point.
-    literalContent: analysis.commands.length === 1 && !analysis.hasPipe && ['set-content', 'add-content'].includes(String(command.args[0] || '').toLowerCase())
+    literalContent: literalStdin && index === 0 || analysis.commands.length === 1 && !analysis.hasPipe && ['set-content', 'add-content'].includes(String(command.args[0] || '').toLowerCase())
   }));
   // Proven reads treat their arguments as data. Keep the existing intent checks
   // for writes and unproven programs, independently for each command in a chain.
