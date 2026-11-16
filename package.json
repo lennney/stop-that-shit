@@ -80,7 +80,7 @@
     }
   },
   "devDependencies": {
-    "acorn": "8.17.0",
+    "acorn": "8.19.0",
     "ajv": "^8.20.0"
   },
   "dependencies": {
