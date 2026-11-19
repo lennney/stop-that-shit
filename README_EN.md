@@ -139,7 +139,7 @@ Expand your host. For guidance without runtime enforcement, [install only the Sk
 <details>
 <summary>Claude Code</summary>
 
-Download and extract the [0.2.5 source](https://github.com/lennney/stop-that-shit/archive/refs/tags/0.2.5.zip), then run from the checkout root:
+Download and extract the [0.2.6 source](https://github.com/lennney/stop-that-shit/archive/refs/tags/0.2.6.zip), then run from the checkout root:
 
 ```bash
 claude plugin validate .
@@ -159,7 +159,7 @@ Restart Claude Code or run `/reload-plugins`, then invoke:
 <summary>Codex</summary>
 
 ```bash
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.5
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.6
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
@@ -173,9 +173,9 @@ non-interactive steps.
 </details>
 
 <details>
-<summary>OpenCode from GitHub</summary>
+<summary>OpenCode V1 / V2</summary>
 
-OpenCode 1.18.18 or newer can install this repository globally without cloning it:
+OpenCode V1 1.18.18 or newer can install this repository globally without cloning it:
 
 ```bash
 opencode plugin github:lennney/stop-that-shit -g
@@ -185,6 +185,8 @@ Restart OpenCode and use `$stop-that-shit review -- ...`. The command installs
 the Guard; the bundled Skill and optional `/sts` alias are not registered
 automatically. See [INSTALL.md](INSTALL.md#opencode-install-from-github) for
 details.
+
+OpenCode V2 uses a different install command. See the [V2 install steps](INSTALL.md#opencode-v2).
 
 </details>
 
@@ -238,7 +240,7 @@ The pinned tag includes the Pi adapter and both Skills. See [INSTALL.md](INSTALL
 <summary>Oh My Pi</summary>
 
 The separate Extension was checked with `@oh-my-pi/pi-coding-agent` `18.4.4`.
-Version `0.2.5` includes the separate OMP Extension. Start from the tagged
+Version `0.2.6` includes the separate OMP Extension. Start from the tagged
 checkout or extracted release package:
 
 ```bash
@@ -251,6 +253,10 @@ RPC. The TUI also accepts first-line `$stop-that-shit` directives.
 See [INSTALL.md](INSTALL.md#oh-my-pi).
 
 </details>
+
+### DeepSeek Harness (preview)
+
+Use DSH `0.2.2-rc.3` with the Web Standard preset. See the [DSH install steps](INSTALL.md#deepseek-harness-preview).
 
 ## Use it
 
@@ -370,7 +376,8 @@ state before sharing plugin data. See [PRIVACY.md](PRIVACY.md).
 
 **How do I update, uninstall, or work on it?**
 
-See [update checks](INSTALL.md#check-for-updates),
+See [host upgrade steps](INSTALL.md#upgrade),
+[update checks](INSTALL.md#check-for-updates),
 [disabling and uninstalling](INSTALL.md#disable-or-uninstall),
 [local development](INSTALL.md#local-guard-development), and the
 [changelog](CHANGELOG.md).

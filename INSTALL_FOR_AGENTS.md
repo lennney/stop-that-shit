@@ -43,7 +43,7 @@ general improvement in model behavior.
 2. Run these commands one at a time:
 
    ```powershell
-   codex plugin marketplace add lennney/stop-that-shit --ref 0.2.5
+   codex plugin marketplace add lennney/stop-that-shit --ref 0.2.6
    codex plugin add stop-that-shit@stop-that-shit
    ```
 
@@ -51,13 +51,21 @@ general improvement in model behavior.
 4. Ask the user to open a fresh Codex CLI TUI and enter `/hooks`.
 5. Stop and let the user inspect and trust the Hook commands.
 
-Compare the installed tag's `hooks/codex-hooks.json` with the entries shown by
+Compare the installed tag's `codex-plugin/hooks/codex-hooks.json` with the entries shown by
 `/hooks`, then let the user review and trust those commands. Other plugins can
 add entries. Subagent events from older configurations remain ignored and do
 not prove delegation completion or release capacity.
 An update can require another review because Codex records trust for the Hook
 definition. Do not disable or work around this review. See
 [upgrade notes](INSTALL.md#upgrade) for version and state migration.
+
+## OpenCode
+
+Check the installed OpenCode version. Follow the
+[V1 GitHub install](INSTALL.md#opencode-install-from-github) or the
+[V2 package-directory instructions](INSTALL.md#opencode-v2). Restart OpenCode,
+then run the [smoke test](#smoke-test). Use `$stop-that-shit` directly in the
+first line of the prompt.
 
 ## Hermes Agent CLI
 
@@ -100,7 +108,7 @@ claim that the optional `subagent` child processes inherit the root contract.
 
 ## Oh My Pi
 
-Use OMP `18.4.4` for the checked baseline. STS `0.2.5` includes this adapter.
+Use OMP `18.4.4` for the checked baseline. STS `0.2.6` includes this adapter.
 From the tagged checkout or extracted release package, start OMP with its
 explicit Extension and Skills paths:
 
@@ -117,6 +125,21 @@ and child-executor effects were checked with a deterministic local provider.
 Interactive TUI checks also passed the tested control and task paths with a
 deterministic local provider. Git-source installation remains unverified.
 See [INSTALL.md](INSTALL.md#oh-my-pi).
+
+## DeepSeek Harness preview
+
+Use the DSH `0.2.2-rc.3` executable with the `web` profile and the Standard
+preset. Follow [the DSH install steps](INSTALL.md#deepseek-harness-preview)
+to install the prebuilt archive. Restart the profile and verify a permitted
+read and a denied `review lock` write in a disposable workspace. Check that
+the denied call leaves its target absent.
+
+## Check for updates
+
+When asked to check, run `npm run sts -- doctor --check-update` from a source
+checkout. Report the latest release and verify the installed version in the
+user's host before recommending an upgrade. Follow the [host upgrade steps](INSTALL.md#upgrade)
+when the user asks to update.
 
 ## Smoke test
 
@@ -144,7 +167,7 @@ general improvement in model behavior.
 If the user does not want Hooks, install the advisory Skill instead:
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.5/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.6/skills/stop-that-shit
 ```
 
 If the user asks for only Stop That Shit Slop, run this from the tagged checkout:

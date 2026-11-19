@@ -11,6 +11,45 @@ actions, context responses, and permission denies. It records host effect as
 `unobserved`; a returned permission deny is not evidence that the host skipped
 the action.
 
+Version: 0.2.6 Task boundaries and DeepSeek Harness
+Release candidate: https://github.com/lennney/stop-that-shit/releases/tag/0.2.6
+Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.5
+
+The defensible 0.2.6 claim is: the Guard checks task authority on covered
+tool paths. Codex child work keeps confirmed parent limits. A supported
+Codex dependency approval applies to one operation. The DSH Standard
+adapter uses the same task contract to check write paths against the
+root workspace.
+The package test extracts and loads the standalone archive outside the
+repository. It checks a denied review write and a permitted read using
+fixture events. These checks make no model-effectiveness claim.
+
+The Windows candidate passed 846 source tests, with zero failures and three
+optional host checks skipped. All 24 offline paired-case arms passed. The
+generated Codex and Hermes packages and the release allowlist passed their
+checks.
+
+The integration includes the static Node stdin classification fix and the
+isolated lock-cleanup failure test. Focused checks passed 76 tests. Independent
+checks covered seven host adapters and confirmed that review mode and file
+scope still require their existing authority. The proposed workflow guidance
+from PR #143 is deferred for product review; the core Skill is unchanged.
+Acorn is `8.19.0`, OpenCode schema is `2.2.5`, and Effect remains `4.0.0-rc.112`.
+
+On Windows, the DSH `0.2.2-rc.3` CLI installed the archive into a clean
+`web` profile. The installed bridge processed a contract in the Standard
+preset. The actual tool pipeline allowed a read, refused a review write and
+an out-of-scope change, and wrote the expected contents inside scope. The
+denied targets remained absent. The test used a local probe with no model call.
+The probe then enabled the official optional `apply_patch` tool for the same
+agent. An out-of-scope patch left its target absent and an in-scope patch
+produced the expected contents.
+
+The integrated `0.2.6` package passed both Windows OpenCode host checks with
+`1.18.18` and `2.0.18`, with no skips. Each suite checked review denial,
+continued reads, a restart without new authorization, and an explicit change.
+The checks use a local model stand-in.
+
 Version: 0.2.5 OMP and recovery
 Release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.5
 Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.4

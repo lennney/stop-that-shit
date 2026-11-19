@@ -951,7 +951,7 @@ test('Regression: the documented bridge refuses a nested call with no root suppl
   assert.equal(payload.requiresVerifiedRoot, true);
   const decision = handleDshHook('tools/pre-execute', payload, { dataDir: mkdtempSync(path.join(os.tmpdir(), 'sts-noroot-')) });
   assert.equal(decision.kind, 'deny');
-  assert.match(decision.reason, /rootSessionId/);
+  assert.match(decision.reason, /verified root session/);
 });
 
 test('Regression: root lineage resolves through nested delegation without a manually supplied root', (t) => {

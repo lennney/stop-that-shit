@@ -179,7 +179,7 @@ const currentVersionSurfaces = new Set([
   'README_CN.md',
   'SECURITY.md'
 ]);
-const releaseReference = /(?:--ref\s+|--branch\s+|stop-that-shit@|\/(?:releases\/tag|releases\/download|blob|tree|archive\/refs\/tags)\/)(\d+\.\d+\.\d+)(?=[\s/.)?#]|$)/g;
+const releaseReference = /(?:--ref\s+|--branch\s+|stop-that-shit@|\/(?:releases\/tag|releases\/download|blob|tree|archive\/refs\/tags)\/)(\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?=[\s/.)?#]|$)/g;
 const privatePath = /(?:[A-Za-z]:[\\/](?:Users|object)[\\/]|\/Users\/|\/home\/)/;
 const mojibake = /(?:\uFFFD|\u9225|\u6E1F|\u951F)/;
 
@@ -190,8 +190,9 @@ for (const file of selectedFiles) {
   if (staleVersion.test(content)) fail(`stale public version marker in ${relative}`);
   if (currentVersionSurfaces.has(relative)) {
     for (const match of content.matchAll(releaseReference)) {
-      if (match[1] !== expectedVersion) {
-        fail(`versioned install reference in ${relative} uses ${match[1]}, expected ${expectedVersion}`);
+      const referencedVersion = match[1].replace(/\.(?:zip|tar\.gz)$/, '');
+      if (referencedVersion !== expectedVersion) {
+        fail(`versioned install reference in ${relative} uses ${referencedVersion}, expected ${expectedVersion}`);
       }
     }
   }

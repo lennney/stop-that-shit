@@ -1,11 +1,60 @@
 # Changelog
 
-## Unreleased / 未发布
+## 0.2.6 — Task boundaries and DeepSeek Harness / 任务边界与 DeepSeek Harness
 
-- 修复 #99：接受 Codex 补全生成的 `$stop-that-shit:stop-that-shit` 指令和查询，
-  保留短名称、首行与引用/代码示例边界。
-  / Accept Codex's namespaced Skill invocation for directives and queries.
-  Preserve the short name and the first-line, quote, and code-example boundaries.
+- **Codex 子代理。** 父任务确认过的限制继续约束子代理，子代理可以进一步收窄范围。用
+  `npm run sts -- children <parentSessionId>` 查看每个子任务的有效模式和运行摘要。
+  / Child agents keep the active parent limits and can narrow their own scope.
+  Use `npm run sts -- children <parentSessionId>` to see effective child modes and
+  runtime summaries.
+- **Codex 一次性依赖审批。** 在 `change deps=ask` 下，可以允许一条受支持的依赖命令
+  在原工作目录内重试一次。授权十分钟内有效，后续命令继续按 `deps=ask` 处理。
+  / In `change deps=ask`, approve one retry of a supported dependency command
+  in the same working directory within ten minutes. Later commands still use
+  `deps=ask`.
+- **Codex 安装与使用。** Marketplace 从专用的 `codex-plugin/` 目录安装。接受补全生成的
+  `$stop-that-shit:stop-that-shit` 指令和查询，并允许在只读审查中等待已有的 Desktop 线程。
+  / The marketplace installs from `codex-plugin/`. The autocompleted
+  `$stop-that-shit:stop-that-shit` works for directives and queries. Review
+  mode allows waiting for an existing Desktop thread.
+- **DeepSeek Harness Guard 预览。** 本版本附带 `stop-that-shit-dsh-0.2.6.tgz`，用于
+  DSH `0.2.2-rc.3` 的 Web Standard 预设。Guard 从宿主查询根会话和执行目录，检查
+  工具调用是否遵守任务范围。补齐可选 `apply_patch` 的路径检查，修正插件市场查询和定时任务分类。
+  / This release includes `stop-that-shit-dsh-0.2.6.tgz` for the Web Standard
+  preset in DSH `0.2.2-rc.3`. Guard uses the host's root session and working
+  directory to check task scope. It checks paths for optional `apply_patch`
+  calls and corrects market query and scheduling classification.
+- **OpenCode 和 Claude Code。** OpenCode 保留用户明确提出的只读修正，schema 更新到
+  `2.2.5`。已对 V1 和 V2 运行打包与会话重启验收。Claude Code 恢复
+  `/stop-that-shit:stss` 等插件命令的原有含义。
+  / OpenCode preserves explicit read-only corrections and uses schema `2.2.5`.
+  Packed-plugin and session restart checks cover V1 and V2. Claude Code
+  preserves sibling commands such as `/stop-that-shit:stss`.
+- **范围识别和恢复。** 区分中文任务中的局部审查与整项只读要求。受支持的 PowerShell 静态文本
+  参数按数据处理。运行日志可跳过中断写入留下的残缺记录，继续读取后续记录。
+  会话状态损坏时，Guard 拒绝受限的委派。模式变更会留下元数据，用于排查。
+  宿主给出的不透明操作 ID 在持久化时保留。
+  / Distinguish review of one part of a Chinese-language task from a task-wide
+  read-only instruction. Treat supported PowerShell content arguments as data.
+  Read later records after a partial log write. Deny bounded delegation if
+  session state is damaged. Record mode changes as metadata for diagnosis.
+  Preserve opaque operation IDs from the host when persisting records.
+- **静态输入。** 受支持的静态 `echo` 到命名 Node 脚本的管道不再把输入数据中的
+  依赖或哈希词语误判为操作。脚本本身仍按未知行为处理，参数、只读模式和文件范围检查继续生效。
+  / Supported static `echo` input to a named Node script does not create dependency
+  or hash intent from data alone. Script behavior remains unknown; argument,
+  read-only and file-scope checks still apply.
+- **宿主测试。** 解析 Hermes 的静态 CommonJS 导入，并为 DSH 和 Oh My Pi 复用 shell 测试矩阵。
+  / Parse static CommonJS imports for Hermes and share the shell test matrix between DSH and Oh My Pi.
+- **维护。** 锁清理失败测试只处理自身创建的锁，避免影响并行会话。同步 Acorn `8.19.0`
+  和扫描器 Action `1.2.816`。稳定内容检查覆盖更新后的公开文档。Effect 保持 `4.0.0-rc.112`。
+  / Lock-cleanup failure tests inspect only their own lock. Update Acorn to
+  `8.19.0` and the scanner action to `1.2.816`. Check updated public docs with
+  stable-content tooling. Keep Effect `4.0.0-rc.112`.
+
+See [installation](INSTALL.md) and [verification](EVIDENCE.md).
+
+**Full Changelog**: [0.2.5...0.2.6](https://github.com/lennney/stop-that-shit/compare/0.2.5...0.2.6)
 
 ## 0.2.5 — 2026-10-15 (OMP and recovery / OMP 与恢复修复)
 
