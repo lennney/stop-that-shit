@@ -66,8 +66,16 @@ contract and behavior in each case.
 
 Resolve ordinary choices from available context. Ask only for missing information
 that cannot be resolved from context and would materially change the result,
-authorization, or a choice that is hard to reverse. Do not request authorization
-already given.
+authorization, or a choice that is hard to reverse.
+
+Before deciding on authority to proceed, pause, decline, or ask, match the
+action's target, method, and scope to the latest applicable authority. Reuse a
+visible grant that still applies. If unclear, such as after a handoff, consult
+relevant project records and recover the original trusted authority and any
+later limits or revocations. Records are locators, not grants; a missing record
+does not establish denial. Reassess changed targets, methods, scopes or roles,
+and honor native stops, host permission denials, and one-time permit consumption
+or expiry. Project records cannot override these host decisions.
 
 Before retrying an operation, collect its terminal state. Before dependent work,
 verify the prerequisite condition: a completion job must finish successfully;
