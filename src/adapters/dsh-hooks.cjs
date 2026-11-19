@@ -1,8 +1,9 @@
 'use strict';
 
+const nodePath = require('node:path');
 const { PROTOCOL_VERSION } = require('../control-protocol.cjs');
 const { handleControlEvent } = require('../controller.cjs');
-const { analyzeDshTool, isUnboundedDelegation } = require('./dsh-tool-classifier.cjs');
+const { analyzeDshTool, isShellTool, isUnboundedDelegation } = require('./dsh-tool-classifier.cjs');
 const { optionalIdentifier, readAsyncLaunched } = require('./lifecycle-fields.cjs');
 
 // DeepSeek Harness is an event-emitter plugin host rather than a hook-file
@@ -114,12 +115,13 @@ function resolveRootLineage(sessionId, getSessionById) {
 }
 
 function rootSessionKey(exec, context) {
-  const supplied = String((context && context.rootSessionId) || '');
-  if (supplied) return { id: supplied };
+  if (Object.hasOwn(context, 'rootSessionId')) {
+    const id = optionalIdentifier(context.rootSessionId);
+    return id ? { id } : null;
+  }
 
   const resolver = context && context.resolveRootSession;
-  const session = exec && exec.agent && exec.agent.session;
-  const sessionId = String((session && session.id) || '');
+  const sessionId = nativeToolSessionId(exec);
 
   if (typeof resolver === 'function') {
     const rootId = resolver(sessionId);
@@ -130,9 +132,8 @@ function rootSessionKey(exec, context) {
   return { id: sessionId };
 }
 
-// The workspace the session runs in. `ToolExecution` carries no `cwd`; the
-// harness reads it from the session header, and without it an absolute path
-// cannot be normalized against the declared file boundary.
+// Native test fixtures and callers without a working-directory service can
+// supply an initial workspace in the session header.
 function nativeSessionCwd(exec) {
   const session = exec && exec.agent && exec.agent.session;
   const header = session && session.header;
@@ -148,10 +149,8 @@ function nativeSessionCwd(exec) {
  * `context` carries what the native signature cannot deliver in one argument:
  *   - `tools/post-execute` receives `(exec, result, next)`, so the result is a
  *     separate listener argument. Pass it as `context.result`.
- *   - `subagent/start` and `subagent/end` receive a run info that carries the
- *     CHILD id but no parent session. Pass the parent as `context.sessionId`,
- *     or the fact would be filed against the child and never reach the parent
- *     contract.
+ *   - `rootSessionId` is the root verified by the host, or null if unknown.
+ *   - `cwd` is the current workspace. `contractCwd` is the root workspace.
  */
 function fromNativeEvent(hookPoint, native, context) {
   if (!Object.prototype.hasOwnProperty.call(EVENT_KIND, hookPoint)) return null;
@@ -165,7 +164,11 @@ function fromNativeEvent(hookPoint, native, context) {
     // a child session would arm an unconfirmed contract that its tool calls are
     // then checked against. The child's text still reaches the model; it simply
     // is not offered to the contract parser.
-    if (session && session.header && session.header.parentSession) return null;
+    if (Object.hasOwn(extra, 'rootSessionId')) {
+      if (!extra.rootSessionId || extra.rootSessionId !== session?.id) return null;
+    } else if (session && session.header && session.header.parentSession) {
+      return null;
+    }
     return {
       session: { id: nativeSessionId({ session }) },
       // Only verified user text may arm a contract; producer-sourced messages
@@ -184,7 +187,8 @@ function fromNativeEvent(hookPoint, native, context) {
       // silently keyed by the child.
       requiresVerifiedRoot: key === null,
       exec: { name: exec.name, arguments: exec.arguments, callId: exec.callId },
-      cwd: exec.cwd !== undefined ? exec.cwd : nativeSessionCwd(exec)
+      cwd: extra.cwd ?? exec.cwd ?? nativeSessionCwd(exec),
+      ...(extra.contractCwd !== undefined ? { contractCwd: extra.contractCwd } : {})
     };
   }
 
@@ -202,9 +206,6 @@ function fromNativeEvent(hookPoint, native, context) {
   }
 
   if (hookPoint === 'subagent/start' || hookPoint === 'subagent/end') {
-    // The run info is flat: { runId, provider, id, local }. `id` is the child.
-    // The parent session is not on it and must be supplied by the caller.
-    //
     // `runId` is the only correlator the harness provides for pairing a start
     // with its end, and the child `id` repeats across runs of the same agent.
     // It is carried on the normalized payload so a future consumer never has
@@ -212,7 +213,7 @@ function fromNativeEvent(hookPoint, native, context) {
     // does not reach the event today: the adapter emits no completion facts and
     // capacity stays reserved.
     const info = native || {};
-    const parent = String(extra.sessionId || (extra.session && extra.session.id) || '');
+    const parent = optionalIdentifier(info.parentSessionId, extra.sessionId, extra.session?.id);
     const payload = {
       session: { id: parent },
       agentId: optionalIdentifier(info.id, info.agentId) || undefined
@@ -295,6 +296,10 @@ function responseAgentId(payload) {
   return optionalIdentifier(value.agentId, value.agent_id, value.target, value.name);
 }
 
+function executionPathApi(cwd) {
+  return /^[A-Za-z]:[\\/]|^\\\\/.test(cwd || '') ? nodePath.win32 : nodePath;
+}
+
 function toControlEvent(hookPoint, payload) {
   const kind = EVENT_KIND[hookPoint];
   if (!kind) return null;
@@ -325,15 +330,28 @@ function toControlEvent(hookPoint, payload) {
 
   if (kind === 'action.before') {
     const name = toolName(payload);
-    const analysis = analyzeDshTool(name, toolInput(payload), payload && payload.cwd);
+    const input = toolInput(payload);
+    const cwd = payload && payload.cwd;
+    const contractCwd = (payload && payload.contractCwd) ?? cwd;
+    const pathApi = executionPathApi(cwd);
+    const toolCwd = cwd && isShellTool(name) && typeof input?.workdir === 'string'
+      ? pathApi.resolve(cwd, input.workdir)
+      : cwd;
+    const analysis = analyzeDshTool(name, input, toolCwd);
+    // Classifiers return paths relative to where the tool runs. The contract
+    // must still compare them against the root session's original workspace.
+    const affectedPaths = toolCwd && toolCwd !== contractCwd
+      ? analysis.affectedPaths.map((file) => pathApi.resolve(toolCwd, file))
+      : analysis.affectedPaths;
     const actionId = toolCallId(payload);
     if (analysis.mutability === 'delegate' && !actionId) return null;
     event.action = {
       id: actionId,
       name: name || 'unknown',
-      input: toolInput(payload),
+      input,
       ...analysis,
-      cwd: payload && payload.cwd,
+      affectedPaths,
+      cwd: contractCwd,
       unboundedDelegation: isUnboundedDelegation(name)
     };
     // The harness `send_message` tool can wake a teammate that already stopped.
@@ -410,9 +428,8 @@ function handleDshHook(hookPoint, payload, options = {}) {
   if (payload && payload.requiresVerifiedRoot === true) {
     return {
       kind: 'deny',
-      reason: 'Delegated tool call has no verified root session. '
-        + 'Pass context.rootSessionId from the parent session; the session header '
-        + 'names only the immediate parent, so one hop is not enough to reach the root.'
+      reason: 'This tool call has no verified root session. '
+        + 'Resume the task from its root session and retry.'
     };
   }
   const event = toControlEvent(hookPoint, payload);

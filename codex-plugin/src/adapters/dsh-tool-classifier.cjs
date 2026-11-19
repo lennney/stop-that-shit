@@ -32,6 +32,8 @@ const DSH_READ_TOOLS = new Set([
   'read',
   'read_image',
   'read_mcp_resource',
+  'schedule_list',
+  'schedule_view',
   'session_event_read',
   'session_event_search',
   'session_event_trace',
@@ -52,14 +54,10 @@ const DSH_CONTROL_TOOLS = new Set([
   'job_list',
   'job_output',
   'present',
-  'schedule_create',
   // Delivering a message to an agent writes nothing to the workspace. The
   // generic name heuristic matches `send` and would classify it as a write,
   // which under any file boundary denies a routine status update.
   'send_message',
-  'schedule_delete',
-  'schedule_list',
-  'schedule_update',
   'skill',
   'team_task_create',
   'team_task_get',
@@ -72,6 +70,13 @@ const DSH_CONTROL_TOOLS = new Set([
   'todo_write',
   'update_goal',
   'wait_agent'
+]);
+
+const DSH_SCHEDULE_WRITE_TOOLS = new Set([
+  'schedule_create',
+  'schedule_edit',
+  'schedule_delete',
+  'schedule_update'
 ]);
 
 // The harness exposes delegation under four names. `subagent` runs one scoped
@@ -139,6 +144,12 @@ const PLUGIN_MANAGER_READ_ACTIONS = new Set([
   'list_version_exemptions'
 ]);
 
+const PLUGIN_MARKET_READ_ACTIONS = new Set([
+  'list_indexes',
+  'list_plugins',
+  'list_versions'
+]);
+
 const PLUGIN_MANAGER_WRITE_ACTIONS = new Set([
   'install_bundle',
   'remove_bundle',
@@ -160,8 +171,8 @@ function classifyPluginManager(toolInput) {
   return 'write';
 }
 
-function isShellTool(name) {
-  return SHELL_TOOLS.has(name);
+function isShellTool(toolName) {
+  return SHELL_TOOLS.has(normalizeToolName(toolName));
 }
 
 function isEditorTool(name) {
@@ -215,18 +226,44 @@ function normalizePath(value, cwd) {
   return normalized.replace(/^\.\//, '');
 }
 
-function inputText(toolInput) {
+function normalizeLiteralPath(value, cwd) {
+  if (typeof value !== 'string' || !value || value !== value.trim()) return '';
+
+  const windows = cwd ? isWindowsAbsolute(cwd) : process.platform === 'win32';
+  // The shared decision compares slash-separated paths. A literal backslash
+  // on Unix cannot be represented without changing the workspace target.
+  if (!windows && value.includes('\\')) return '';
+  const pathApi = windows ? nodePath.win32 : nodePath.posix;
+  const relative = cwd && pathApi.isAbsolute(value) ? pathApi.relative(cwd, value) : value;
+  return windows ? relative.replace(/\\/g, '/') : relative;
+}
+
+function patchInput(toolInput) {
   if (typeof toolInput === 'string') return toolInput;
-  if (!toolInput || typeof toolInput !== 'object') return '';
-  return String(
-    toolInput.command
-      || toolInput.patch
-      || toolInput.content
-      || toolInput.new_string
-      || toolInput.file_text
-      || toolInput.new_str
-      || ''
-  );
+  if (typeof toolInput?.input === 'string') return toolInput.input;
+  return String(toolInput?.command || toolInput?.patch || toolInput?.content || toolInput?.new_string || '');
+}
+
+function dshPatchDetails(toolInput, cwd) {
+  let updating = false;
+  const paths = [];
+  const lines = patchInput(toolInput).split(/\r?\n/).map(line => {
+    // DSH trims leading header whitespace outside an update hunk. In an
+    // update a leading space denotes file context and must be preserved.
+    const header = updating
+      ? line.replace(/\p{White_Space}+$/u, '')
+      : line.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, '');
+    const match = /^\*\*\* (Add File|Delete File|Update File|Move to): (.+)$/s.exec(header);
+    if (!match || match[1] === 'Move to' && !updating) return line;
+
+    updating = match[1] === 'Update File' || match[1] === 'Move to';
+    paths.push(normalizeLiteralPath(match[2], cwd));
+    return header;
+  });
+  return {
+    text: lines.join('\n'),
+    affectedPaths: paths.every(Boolean) ? [...new Set(paths)] : []
+  };
 }
 
 // The file editor's `command` is a selector (`view`, `create`, `str_replace`,
@@ -249,6 +286,10 @@ function classifyDshTool(toolName, toolInput) {
   const name = normalizeToolName(toolName);
 
   if (name === 'plugin_manager') return classifyPluginManager(toolInput);
+  if (name === 'plugin_market') {
+    return PLUGIN_MARKET_READ_ACTIONS.has(toolInput?.action) ? 'read' : 'unknown';
+  }
+  if (DSH_SCHEDULE_WRITE_TOOLS.has(name)) return 'write';
 
   if (isEditorTool(name)) {
     // `view` only observes the file. Every other editor command writes.
@@ -286,6 +327,12 @@ function classifyDshTool(toolName, toolInput) {
 
 function extractAffectedPaths(toolName, toolInput, cwd, mutability) {
   const name = normalizeToolName(toolName);
+  if (name === 'apply_patch') {
+    return dshPatchDetails(toolInput, cwd).affectedPaths;
+  }
+  // Scheduled tasks mutate host state and have no workspace file target.
+  if (DSH_SCHEDULE_WRITE_TOOLS.has(name)) return [];
+
   let value = '';
 
   if (isEditorTool(name)) {
@@ -302,7 +349,9 @@ function extractAffectedPaths(toolName, toolInput, cwd, mutability) {
     value = toolInput.file_path || toolInput.path || '';
   }
 
-  const normalized = normalizePath(value, cwd);
+  const normalized = isEditorTool(name) || name === 'write' || name === 'edit'
+    ? normalizeLiteralPath(value, cwd)
+    : normalizePath(value, cwd);
   return normalized ? [normalized] : [];
 }
 
@@ -316,6 +365,7 @@ function detectHashIntent(toolName, toolInput) {
     return HASH_API.test(editorContentText(toolInput));
   }
   if (isRunCode(name)) return false;
+  if (name === 'apply_patch') return detectCodexHashIntent(name, patchInput(toolInput));
   // The shared detector matches the `Write`/`Edit` names exactly, so map the
   // harness lowercase names onto them instead of forking the rule.
   return detectCodexHashIntent(DSH_TO_SHARED_NAME.get(name) || name, toolInput);
@@ -346,6 +396,7 @@ function detectDependencyIntent(toolName, toolInput, cwd) {
     return editorManifestIntent(toolInput, cwd);
   }
   if (isRunCode(name)) return false;
+  if (name === 'apply_patch') return detectCodexDependencyIntent(name, dshPatchDetails(toolInput, cwd).text);
 
   const shared = DSH_TO_SHARED_NAME.get(name);
   if (!shared) return false;
@@ -358,6 +409,16 @@ function detectDependencyIntent(toolName, toolInput, cwd) {
 
 function analyzeDshTool(toolName, toolInput, cwd) {
   const name = normalizeToolName(toolName);
+  if (name === 'apply_patch') {
+    const { text, affectedPaths } = dshPatchDetails(toolInput, cwd);
+    return {
+      mutability: 'write',
+      hashIntent: detectCodexHashIntent(name, text),
+      dependencyIntent: detectCodexDependencyIntent(name, text),
+      affectedPaths
+    };
+  }
+
   let analysis;
   if (isShellTool(name)) {
     analysis = analyzeCodexTool('Bash', toolInput, cwd);
@@ -382,6 +443,7 @@ module.exports = {
   detectDependencyIntent,
   detectHashIntent,
   extractAffectedPaths,
+  isShellTool,
   // The harness `workflow` tool has no bounded fan-out argument, so a directive
   // that caps delegation cannot be proven for it.
   isUnboundedDelegation: (toolName) => normalizeToolName(toolName) === 'workflow',

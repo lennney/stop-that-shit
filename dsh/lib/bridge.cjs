@@ -15,13 +15,7 @@
  *   subagent/start     -> subagent.start     (emit, observes only)
  *   subagent/end       -> subagent.stop      (emit, observes only)
  *
- * All tool calls are keyed by the ROOT session of the calling session. The
- * bridge walks the live session store's parent chain, so a delegated child
- * (root → child → grandchild) is checked against the root contract, which is
- * the requirement the P1 review fix implements.
- *
- * Without a contract armed by an explicit prompt directive, every decision is
- * a pass and the bridge costs nothing the model can see.
+ * DSH owns live delegation identity and the session's working directory.
  */
 
 const os = require('node:os');
@@ -31,8 +25,7 @@ const { randomUUID } = require('node:crypto');
 const {
   applyDshDecision,
   fromNativeEvent,
-  handleDshHook,
-  resolveRootLineage
+  handleDshHook
 } = require('../../src/adapters/dsh-hooks.cjs');
 
 /** Source tag carried by every message this bridge folds into a decision. */
@@ -41,42 +34,17 @@ const SOURCE = { kind: 'stop-that-shit' };
 function plugin(ctx, config = {}) {
   const dataDir = typeof config.dataDir === 'string' && config.dataDir.trim()
     ? config.dataDir.trim()
-    : path.join(os.homedir(), '.dsh', 'stop-that-shit');
+    : path.join(process.env.DSH_HOME || path.join(os.homedir(), '.dsh'), 'stop-that-shit');
 
   const options = { dataDir };
 
-  // ---- Session lookup: walks parent lineage from the live store ----
-
-  function getSessionById(sessionId) {
-    const sessions = ctx.sessions;
-    if (!sessions || typeof sessions.get !== 'function') return null;
-    let session;
+  function rootSession(agent) {
     try {
-      session = sessions.get(sessionId);
-    } catch {
-      return null;
+      return ctx.subagents.rootOf(agent).session;
+    } catch (error) {
+      if (error?.code === 'UNAUTHORIZED') return null;
+      throw error;
     }
-    if (!session) return null;
-    return { id: session.id, header: session.header };
-  }
-
-  /**
-   * Root session id for a tool call. Follows the full parent chain (the
-   * header only names the IMMEDIATE parent, so child → root must be walked
-   * explicitly, and a grandchild needs two walks). Returns null when the
-   * chain cannot reach an unparented session: the adapter then refuses the
-   * call instead of trusting an intermediate child as authority.
-   */
-  const rootOf = (sessionId) => resolveRootLineage(sessionId, getSessionById);
-
-  function gateContext(exec) {
-    const sessionId = exec && exec.agent && exec.agent.session
-      ? String(exec.agent.session.id || '')
-      : '';
-    return {
-      rootSessionId: rootOf(sessionId) || undefined,
-      resolveRootSession: rootOf
-    };
   }
 
   // ---- message helpers ----
@@ -127,9 +95,8 @@ function plugin(ctx, config = {}) {
   });
 
   ctx.on('agent/pre-step', async (payload, next) => {
-    const normalized = fromNativeEvent('agent/pre-step', payload);
-    // A delegated child prompt is not translated at all: the parent already
-    // holds the contract governing the delegation.
+    const root = rootSession(payload.agent);
+    const normalized = fromNativeEvent('agent/pre-step', payload, { rootSessionId: root?.id ?? null });
     if (!normalized) return next();
     const result = handleDshHook('agent/pre-step', normalized, options);
     if (!result) return next();
@@ -137,43 +104,42 @@ function plugin(ctx, config = {}) {
   });
 
   ctx.on('tools/pre-execute', async (exec, next) => {
-    const payload = fromNativeEvent('tools/pre-execute', exec, gateContext(exec));
+    if (!exec.agent) return next();
+    const root = rootSession(exec.agent);
+    const payload = fromNativeEvent('tools/pre-execute', exec, {
+      rootSessionId: root?.id ?? null,
+      contractCwd: root?.header.cwd,
+      cwd: ctx.workingDirectory.get(exec.agent.session)
+    });
     if (!payload) return next();
     const result = handleDshHook('tools/pre-execute', payload, options);
     return applyDshDecision('tools/pre-execute', result, next);
   });
 
   ctx.on('tools/post-execute', async (exec, result, next) => {
-    const payload = fromNativeEvent('tools/post-execute', exec, Object.assign(
-      { result },
-      gateContext(exec)
-    ));
-    if (payload) handleDshHook('tools/post-execute', payload, options);
+    if (!exec.agent) return next();
+    const root = rootSession(exec.agent);
+    if (root) {
+      const payload = fromNativeEvent('tools/post-execute', exec, { result, rootSessionId: root.id });
+      handleDshHook('tools/post-execute', payload, options);
+    }
     return next();
   });
 
-  // Subagent lifecycle: run info is flat { runId, provider, id, local } and the
-  // parent must be resolved from the live session store via the CHILD id.
-  function parentOfChild(childId) {
-    const session = getSessionById(childId);
-    const header = session && session.header;
-    return header && header.parentSession ? String(header.parentSession) : undefined;
-  }
-
   ctx.on('subagent/start', (info) => {
-    const payload = fromNativeEvent('subagent/start', info, { sessionId: parentOfChild(info && info.id) });
+    const payload = fromNativeEvent('subagent/start', info);
     if (payload) handleDshHook('subagent/start', payload, options);
   });
 
   ctx.on('subagent/end', (info) => {
-    const payload = fromNativeEvent('subagent/end', info, { sessionId: parentOfChild(info && info.id) });
+    const payload = fromNativeEvent('subagent/end', info);
     if (payload) handleDshHook('subagent/end', payload, options);
   });
 }
 
 const bridgeExports = {
   name: 'stop-that-shit',
-  inject: ['sessions'],
+  inject: ['subagents', 'workingDirectory'],
   apply: plugin
 };
 module.exports = bridgeExports;
