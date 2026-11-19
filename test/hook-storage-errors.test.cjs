@@ -121,11 +121,15 @@ for (const target of ['session', 'coordination']) {
     const before = id => send('action.before', { id, name: 'Agent', mutability: 'delegate' });
     const original = fs.rmdirSync;
     let failures = 0;
+    let failedCleanupLock;
     fs.rmdirSync = function (directory, ...args) {
       const relevant = target === 'session'
         ? String(directory) === `${statePath(sessionId, dataDir)}.lock`
         : String(directory).includes('stop-that-shit-coordination');
-      if (relevant && failures++ === 0) throw Object.assign(new Error('cleanup failure'), { code: 'EIO' });
+      if (relevant && failures++ === 0) {
+        failedCleanupLock = directory;
+        throw Object.assign(new Error('cleanup failure'), { code: 'EIO' });
+      }
       return original.call(this, directory, ...args);
     };
     try {
@@ -137,15 +141,11 @@ for (const target of ['session', 'coordination']) {
     assert.equal(inspectDelegation(readState(sessionId, dataDir).delegation).reservedUpperBound, 1);
     // The empty lock container is retained conservatively until stale. Age only
     // this empty container, never bypassing a live owner's marker.
-    const lockRoot = target === 'session' ? path.dirname(statePath(sessionId, dataDir))
-      : path.join(os.tmpdir(), 'stop-that-shit-coordination', 'sessions');
-    for (const name of fs.readdirSync(lockRoot).filter(name => name.endsWith('.lock'))) {
-      const lock = path.join(lockRoot, name);
-      if (fs.readdirSync(lock).length === 0) {
-        const old = new Date(Date.now() - 20000);
-        fs.utimesSync(lock, old, old);
-      }
-    }
+    // Inspect only the lock whose cleanup this test deliberately failed. Other
+    // sessions may legitimately create/remove their own locks concurrently.
+    assert.deepEqual(fs.readdirSync(failedCleanupLock), []);
+    const old = new Date(Date.now() - 20000);
+    fs.utimesSync(failedCleanupLock, old, old);
     assert.equal(before('B').decision.reasonCode, 'AGENT_BUDGET_EXHAUSTED');
     send('action.after', { id: 'A', lifecycle: 'joined' });
     assert.equal(before('C').kind, 'none');

@@ -302,3 +302,11 @@ the failed cell. Reserve the full matrix for a public comparative claim.
 This is still a small synthetic corpus. Model behavior varies, `codex exec`
 support for plugin Hooks can change, and a deterministic check is not proof of
 general effectiveness.
+
+## Workflow forward-review material
+
+[Workflow evidence and lifecycle cases](workflow-cases.md) provides named Bad/Good
+pairs and legitimate counterexamples for semantic evidence, role, search, execution,
+cleanup and sensitive-UI decisions. These are reviewer-scored forward tasks, not
+registered deterministic CaseBundles or evidence that the default matrix passed
+them. Keep their scoring notes separate from the evaluating model's task.
