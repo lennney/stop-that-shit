@@ -16,7 +16,7 @@
 
 <p align="center">
 <!-- sts:stable-summary:start -->
-  <strong>Stable release 0.2.5</strong> — A Skill, Guard, and STSS for completing the current task and removing unused work and defensive prose.<br>
+  <strong>Stable release 0.2.6</strong> — A Skill, Guard, and STSS for completing the current task and removing unused work and defensive prose.<br>
   Codex · Claude Code · OpenCode · Hermes Agent CLI · Pi · Oh My Pi<br>
 <!-- sts:stable-summary:end -->
   <a href="#the-shit-philosophy">SHIT philosophy</a> ·
