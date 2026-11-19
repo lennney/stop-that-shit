@@ -7,7 +7,7 @@
 <p align="center">
   <strong>수정은 끝났는데, AI는 아직도 확인 중인가요?</strong><br>
 <!-- sts:stable-summary:start -->
-  <strong>안정 릴리스 0.2.5</strong> — Skill, Guard, STSS로 현재 작업을 완성하고 불필요한 추가 작업과 방어적인 문장을 줄입니다.<br>
+  <strong>안정 릴리스 0.2.6</strong> — Skill, Guard, STSS로 현재 작업을 완성하고 불필요한 추가 작업과 방어적인 문장을 줄입니다.<br>
   Codex · Claude Code · OpenCode · Hermes Agent CLI · Pi · Oh My Pi<br>
 <!-- sts:stable-summary:end -->
   <a href="#설치">설치</a> · <a href="#사용법">사용법</a> ·
