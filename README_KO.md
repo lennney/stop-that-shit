@@ -128,7 +128,7 @@ Codex를 다시 시작하고 새 CLI TUI에서 `/hooks`를 엽니다.
 | Hermes Agent CLI | [플러그인 설치·활성화](INSTALL.md#hermes-agent-cli) — 활성화 후 CLI 또는 Gateway를 다시 시작합니다. |
 | Oh My Pi | [OMP 설치 안내](INSTALL.md#oh-my-pi) — 독립 Extension의 검증 대상은 18.4.4입니다. |
 | Pi Coding Agent | [Pi 설치 안내](INSTALL.md#pi-coding-agent) — 현재 어댑터의 검증 대상은 0.84.4입니다. |
-| DeepSeek Harness (미리 보기) | [DSH 설치 안내](INSTALL.md#deepseek-harness-preview) — DSH `0.2.2-rc.3`의 Web Standard 프리셋을 지원합니다. |
+| DeepSeek Harness (미리 보기) | DeepSeek Harness `0.2.2-rc.3`의 Web Standard 프리셋을 지원합니다. [미리보기 패키지 다운로드](https://github.com/lennney/stop-that-shit/releases/download/0.2.6/stop-that-shit-dsh-0.2.6.tgz) · [DSH 설치 안내](INSTALL.md#deepseek-harness-preview) |
 
 ## 사용법
 

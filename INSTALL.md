@@ -437,6 +437,10 @@ profile and the Standard preset. Download `stop-that-shit-dsh-0.2.6.tgz` from th
 `0.2.6` release, or run `npm ci` and `npm run dsh:build` in this checkout.
 The build writes the archive to `dist/`.
 
+The standalone DSH CLI uses pnpm for plugin installation. Before continuing,
+check that `pnpm --version` runs in the same terminal as `dsh --version`.
+See the [DSH 0.2.2-rc.3 CLI source](https://github.com/deepseek-ai/deepseek-harness/blob/38a6a5c965aa99ab525161efb7cc5cf1fe62fced/apps/cli/src/plugin.ts#L84-L99).
+
 Install the archive with the DSH executable for that version:
 
 ```sh

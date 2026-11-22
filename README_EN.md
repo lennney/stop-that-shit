@@ -256,7 +256,7 @@ See [INSTALL.md](INSTALL.md#oh-my-pi).
 
 ### DeepSeek Harness (preview)
 
-Use DSH `0.2.2-rc.3` with the Web Standard preset. See the [DSH install steps](INSTALL.md#deepseek-harness-preview).
+Use DeepSeek Harness `0.2.2-rc.3` with the Web Standard preset. [Download the preview package](https://github.com/lennney/stop-that-shit/releases/download/0.2.6/stop-that-shit-dsh-0.2.6.tgz) or see the [DSH install steps](INSTALL.md#deepseek-harness-preview).
 
 ## Use it
 
