@@ -3,10 +3,14 @@
   "version": "0.0.0-development",
   "private": true,
   "description": "Keep DeepSeek Harness tasks inside the scope you authorize.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lennney/stop-that-shit.git"
+  },
   "main": "lib/bridge.cjs",
   "engines": {
     "node": ">=24.9.0",
-    "dsh": "0.2.2-rc.3"
+    "dsh": "0.2.2-rc.3 || 0.2.2-rc.5"
   },
   "dsh": {
     "bundle": {
