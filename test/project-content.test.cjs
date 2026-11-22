@@ -41,7 +41,9 @@ test('0.2.6 content keeps DSH preview scope explicit in every language', () => {
   for (const [locale, preview] of [['zh', '预览'], ['en', 'preview'], ['ko', '미리보기']]) {
     const copy = content.locales[locale];
     assert.ok(copy.description.includes(preview));
-    for (const requirement of ['DSH', '24.9.0', '0.2.2-rc.3', 'web', 'Standard'])
+    assert.ok(copy.metaTitle.includes('DeepSeek Harness'), `${locale}: DSH title`);
+    assert.ok(copy.metaDescription.includes('DeepSeek Harness Web Standard'), `${locale}: DSH description`);
+    for (const requirement of ['DSH', '24.9.0', '0.2.2-rc.3', 'web', 'Standard', 'pnpm --version'])
       assert.ok(copy.requirements.includes(requirement), `${locale}: ${requirement}`);
   }
 });
