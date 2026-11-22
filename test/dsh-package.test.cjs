@@ -6,8 +6,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const test = require('node:test');
-const { version } = require('../package.json');
-const { engines, repository } = require('../dsh/package.json');
+const { version: releaseVersion } = require('../package.json');
+const { engines, repository, version: dshVersion } = require('../dsh/package.json');
+const version = dshVersion === '0.0.0-development' ? releaseVersion : dshVersion;
 
 test('the DSH bundle targets only accepted host versions', () => {
   assert.equal(engines.dsh, '0.2.2-rc.3 || 0.2.2-rc.5');

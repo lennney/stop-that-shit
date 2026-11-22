@@ -1,6 +1,6 @@
 {
   "name": "stop-that-shit-dsh",
-  "version": "0.0.0-development",
+  "version": "0.2.7-dsh.1",
   "private": true,
   "description": "Keep DeepSeek Harness tasks inside the scope you authorize.",
   "repository": {

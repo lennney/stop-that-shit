@@ -6,8 +6,10 @@ const { spawnSync } = require('node:child_process');
 
 const root = path.join(__dirname, '..');
 const source = path.join(root, 'dsh');
-const { version, license } = require('../package.json');
+const { version: releaseVersion, license } = require('../package.json');
 const manifest = require('../dsh/package.json');
+// A DSH-only prerelease can be built without changing the stable product version.
+const version = manifest.version === '0.0.0-development' ? releaseVersion : manifest.version;
 const outputDirectory = path.resolve(process.argv[2] || path.join(root, 'dist'));
 const archiveName = `${manifest.name}-${version}.tgz`;
 
