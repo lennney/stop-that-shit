@@ -8,6 +8,7 @@
   <a href="https://github.com/lennney/stop-that-shit/releases"><img src="https://img.shields.io/github/v/release/lennney/stop-that-shit?include_prereleases&sort=semver&style=flat-square&color=111111&label=release" alt="最新版本"></a>
   <a href="https://github.com/lennney/stop-that-shit/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/lennney/stop-that-shit/ci.yml?branch=main&style=flat-square&label=build" alt="构建状态"></a>
   <img src="https://img.shields.io/github/license/lennney/stop-that-shit?style=flat-square&color=111111" alt="MIT 许可证">
+  <a href="#dsh-preview"><img src="https://img.shields.io/badge/DSH-Web_Standard_preview-555?style=flat-square" alt="DSH Web Standard 兼容预览"></a>
 </p>
 
 <p align="center">
@@ -207,9 +208,13 @@ omp -e /absolute/path/to/stop-that-shit/omp/stop-that-shit.ts --skills /absolute
 
 </details>
 
+<a name="dsh-preview"></a>
+
 ### DeepSeek Harness（预览）
 
 支持 DeepSeek Harness `0.2.2-rc.3` 的 Web Standard 预设。[下载预览安装包](https://github.com/lennney/stop-that-shit/releases/download/0.2.6/stop-that-shit-dsh-0.2.6.tgz)，或查看 [DSH 安装步骤](INSTALL.md#deepseek-harness-preview)。
+
+**`0.2.2-rc.5`：候选包已在 Linux 上通过 Web Standard 实测，尚未发布。** 上面的 STS `0.2.6` 安装包只支持 `rc.3`。查看 [rc.5 测试记录（#149）](https://github.com/lennney/stop-that-shit/pull/149)。
 
 下载后，在安装包所在目录运行以下命令，然后重启 DSH：
 
