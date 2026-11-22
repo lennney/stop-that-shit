@@ -179,6 +179,13 @@ const currentVersionSurfaces = new Set([
   'README_CN.md',
   'SECURITY.md'
 ]);
+// A published, standalone DSH preview is not the main package version. Allow only
+// its exact canonical Markdown destinations, and only in the three product READMEs.
+const dshPreviewSurfaces = new Set(['README.md', 'README_EN.md', 'README_KO.md']);
+const dshPreviewLinks = [
+  'https://github.com/lennney/stop-that-shit/releases/tag/0.2.7-dsh.1',
+  'https://github.com/lennney/stop-that-shit/releases/download/0.2.7-dsh.1/stop-that-shit-dsh-0.2.7-dsh.1.tgz'
+];
 const releaseReference = /(?:--ref\s+|--branch\s+|stop-that-shit@|\/(?:releases\/tag|releases\/download|blob|tree|archive\/refs\/tags)\/)(\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?=[\s/.)?#]|$)/g;
 const privatePath = /(?:[A-Za-z]:[\\/](?:Users|object)[\\/]|\/Users\/|\/home\/)/;
 const mojibake = /(?:\uFFFD|\u9225|\u6E1F|\u951F)/;
@@ -189,7 +196,10 @@ for (const file of selectedFiles) {
   const content = fs.readFileSync(file, 'utf8');
   if (staleVersion.test(content)) fail(`stale public version marker in ${relative}`);
   if (currentVersionSurfaces.has(relative)) {
-    for (const match of content.matchAll(releaseReference)) {
+    const versionedContent = dshPreviewSurfaces.has(relative)
+      ? dshPreviewLinks.reduce((text, url) => text.replaceAll('](' + url + ')', ']()'), content)
+      : content;
+    for (const match of versionedContent.matchAll(releaseReference)) {
       const referencedVersion = match[1].replace(/\.(?:zip|tar\.gz)$/, '');
       if (referencedVersion !== expectedVersion) {
         fail(`versioned install reference in ${relative} uses ${referencedVersion}, expected ${expectedVersion}`);

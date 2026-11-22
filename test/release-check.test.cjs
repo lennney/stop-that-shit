@@ -22,6 +22,31 @@ test('release text checks cover packaged formats and Windows path separators', a
   const baseline = check();
   assert.equal(baseline.status, 0, baseline.stderr);
 
+  const preview = 'https://github.com/lennney/stop-that-shit/releases';
+  const previewTag = '0.2.7-dsh.1';
+  const previewAsset = 'stop-that-shit-dsh-0.2.7-dsh.1.tgz';
+  for (const [relative, reference] of [
+    ['README.md', '[Next preview](' + preview + '/tag/0.2.7-dsh.2)'],
+    ['README_EN.md', '[Other asset](' + preview + '/download/' + previewTag + '/stop-that-shit-0.2.7-dsh.1.zip)'],
+    ['README_KO.md', '[Different source](https://example.invalid/releases/download/' + previewTag + '/' + previewAsset + ')'],
+    ['README.md', 'codex plugin marketplace add lennney/stop-that-shit --ref ' + previewTag],
+    ['INSTALL.md', '[Preview in stable guide](' + preview + '/tag/' + previewTag + ')'],
+    ['README_CN.md', '[Preview outside reviewed locales](' + preview + '/tag/' + previewTag + ')']
+  ]) {
+    await t.test('unexpected preview reference in ' + relative + ': ' + reference, () => {
+      const target = path.join(fixture, relative);
+      const original = fs.readFileSync(target);
+      try {
+        fs.appendFileSync(target, '\n' + reference + '\n');
+        const result = check();
+        assert.equal(result.status, 1, result.stdout + result.stderr);
+        assert.ok(result.stderr.includes('versioned install reference in ' + relative), result.stderr);
+      } finally {
+        fs.writeFileSync(target, original);
+      }
+    });
+  }
+
   const privatePosixPath = ['', 'home', 'example', 'private'].join('/');
   const cases = ['.mjs', '.py', '.svg', '.csv'].map((extension) => ({
     name: `private path in ${extension}`, extension, content: privatePosixPath
