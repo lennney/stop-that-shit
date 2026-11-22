@@ -8,6 +8,7 @@
   <a href="https://github.com/lennney/stop-that-shit/releases"><img src="https://img.shields.io/github/v/release/lennney/stop-that-shit?include_prereleases&sort=semver&style=flat-square&color=111111&label=release" alt="Latest release"></a>
   <a href="https://github.com/lennney/stop-that-shit/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/lennney/stop-that-shit/ci.yml?branch=main&style=flat-square&label=build" alt="Build status"></a>
   <img src="https://img.shields.io/github/license/lennney/stop-that-shit?style=flat-square&color=111111" alt="MIT license">
+  <a href="#dsh-preview"><img src="https://img.shields.io/badge/DSH-Web_Standard_preview-555?style=flat-square" alt="DSH Web Standard compatibility preview"></a>
 </p>
 
 <p align="center">
@@ -254,9 +255,13 @@ See [INSTALL.md](INSTALL.md#oh-my-pi).
 
 </details>
 
+<a name="dsh-preview"></a>
+
 ### DeepSeek Harness (preview)
 
 Use DeepSeek Harness `0.2.2-rc.3` with the Web Standard preset. [Download the preview package](https://github.com/lennney/stop-that-shit/releases/download/0.2.6/stop-that-shit-dsh-0.2.6.tgz) or see the [DSH install steps](INSTALL.md#deepseek-harness-preview).
+
+**`0.2.2-rc.5`: the candidate passed Web Standard testing on Linux and is not released.** The STS `0.2.6` archive above supports `rc.3` only. See the [rc.5 test evidence (#149)](https://github.com/lennney/stop-that-shit/pull/149).
 
 ## Use it
 
