@@ -211,6 +211,12 @@ omp -e /absolute/path/to/stop-that-shit/omp/stop-that-shit.ts --skills /absolute
 
 支持 DeepSeek Harness `0.2.2-rc.3` 的 Web Standard 预设。[下载预览安装包](https://github.com/lennney/stop-that-shit/releases/download/0.2.6/stop-that-shit-dsh-0.2.6.tgz)，或查看 [DSH 安装步骤](INSTALL.md#deepseek-harness-preview)。
 
+下载后，在安装包所在目录运行以下命令，然后重启 DSH：
+
+```sh
+dsh plugin --profile web add ./stop-that-shit-dsh-0.2.6.tgz
+```
+
 ## 使用
 
 在 Codex 或支持宿主无关指令的 prompt 中，把一条指令放在消息首个非空行，不要包在引用或代码块里。用 `--` 分隔任务正文：
