@@ -259,9 +259,15 @@ See [INSTALL.md](INSTALL.md#oh-my-pi).
 
 ### DeepSeek Harness (preview)
 
-Use DeepSeek Harness `0.2.2-rc.3` with the Web Standard preset. [Download the preview package](https://github.com/lennney/stop-that-shit/releases/download/0.2.6/stop-that-shit-dsh-0.2.6.tgz) or see the [DSH install steps](INSTALL.md#deepseek-harness-preview).
+The [standalone STS DSH prerelease `0.2.7-dsh.1`](https://github.com/lennney/stop-that-shit/releases/tag/0.2.7-dsh.1) supports DeepSeek Harness `0.2.2-rc.5` and `0.2.2-rc.3` with the Standard preset in the `web` profile. Both passed native tests in clean Linux x86_64 profiles; the rc.5 tests also covered the optional `apply_patch` tool. Windows rc.5, Desktop, other presets, and in-place upgrades were not tested.
 
-**`0.2.2-rc.5`: the candidate passed Web Standard testing on Linux and is not released.** The STS `0.2.6` archive above supports `rc.3` only. See the [rc.5 test evidence (#149)](https://github.com/lennney/stop-that-shit/pull/149).
+[Download the preview archive (TGZ)](https://github.com/lennney/stop-that-shit/releases/download/0.2.7-dsh.1/stop-that-shit-dsh-0.2.7-dsh.1.tgz). Use Node.js 24.9+ and confirm that `pnpm --version` works in the same terminal. From the download directory, run:
+
+```sh
+dsh plugin --profile web add ./stop-that-shit-dsh-0.2.7-dsh.1.tgz
+```
+
+Restart DSH and open a fresh session. No compatibility exemption is needed. STS `0.2.6` is still the latest stable release; [its DSH archive](https://github.com/lennney/stop-that-shit/releases/download/0.2.6/stop-that-shit-dsh-0.2.6.tgz) remains rc.3-only. See the [stable install guide](INSTALL.md#deepseek-harness-preview).
 
 ## Use it
 

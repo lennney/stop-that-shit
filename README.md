@@ -212,15 +212,15 @@ omp -e /absolute/path/to/stop-that-shit/omp/stop-that-shit.ts --skills /absolute
 
 ### DeepSeek Harness（预览）
 
-支持 DeepSeek Harness `0.2.2-rc.3` 的 Web Standard 预设。[下载预览安装包](https://github.com/lennney/stop-that-shit/releases/download/0.2.6/stop-that-shit-dsh-0.2.6.tgz)，或查看 [DSH 安装步骤](INSTALL.md#deepseek-harness-preview)。
+[STS 的 DSH 独立预览版 `0.2.7-dsh.1`](https://github.com/lennney/stop-that-shit/releases/tag/0.2.7-dsh.1)适用于 DeepSeek Harness `0.2.2-rc.5` 和 `0.2.2-rc.3`，限定 `web` profile 的 Standard 预设。两个版本均已在 Linux x86_64 的干净 profile 中通过原生验证，rc.5 另验证了可选 `apply_patch`。未验证 Windows rc.5、Desktop、其他预设或原位升级。
 
-**`0.2.2-rc.5`：候选包已在 Linux 上通过 Web Standard 实测，尚未发布。** 上面的 STS `0.2.6` 安装包只支持 `rc.3`。查看 [rc.5 测试记录（#149）](https://github.com/lennney/stop-that-shit/pull/149)。
-
-下载后，在安装包所在目录运行以下命令，然后重启 DSH：
+[下载预览安装包（TGZ）](https://github.com/lennney/stop-that-shit/releases/download/0.2.7-dsh.1/stop-that-shit-dsh-0.2.7-dsh.1.tgz)。使用 Node.js 24.9+，确认同一终端的 `pnpm --version` 可运行。在下载目录执行：
 
 ```sh
-dsh plugin --profile web add ./stop-that-shit-dsh-0.2.6.tgz
+dsh plugin --profile web add ./stop-that-shit-dsh-0.2.7-dsh.1.tgz
 ```
+
+随后重启 DSH 并开启一个新会话，无需兼容性豁免。STS 最新正式版仍为 `0.2.6`；[其 DSH 安装包](https://github.com/lennney/stop-that-shit/releases/download/0.2.6/stop-that-shit-dsh-0.2.6.tgz)仍仅适用于 `rc.3`，见[原版安装说明](INSTALL.md#deepseek-harness-preview)。
 
 ## 使用
 
