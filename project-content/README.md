@@ -4,18 +4,20 @@
 introductions. It contains reviewed facts about a published release, with Chinese,
 English, and Korean copy. Host IDs and names are maintained once.
 
-The initial baseline describes release `0.2.5`, published on October 15, 2026.
+The current baseline describes release `0.2.6`, published on November 19, 2026.
 Its annotated tag resolves to commit
-`8bc1ac558167121e7f28d9fb0bec05c039952206`. The `evidence` paths are relative to
-that commit. This baseline was added after the release; it does not modify the
-old tag or claim that this content file existed in the release.
+`8d50e944fde93b7f59e2620a36ccdcaaddb964cd`. The `evidence` paths are relative to
+that commit. Reviewed content is maintained after publication without changing
+the release tag.
 
-The release includes six Host adapters, including the explicit Oh My Pi
-Extension. Its README header had an older five-Host list; the tagged INSTALL.md,
-EVIDENCE.md, and package manifest establish OMP support. DSH and later dependency
-approval changes on main are not stable-release capabilities. Core Node
-requirements, Pi requirements, and the runtime used for OMP verification are
-described separately.
+The six Host integrations remain separate from the DeepSeek Harness preview.
+The preview targets DSH `0.2.2-rc.3`, the `web` profile and Standard preset,
+requires Node.js 24.9.0+, and uses a separate TGZ release asset. Its Windows
+local-probe checks include optional `apply_patch`; they do not establish model
+effectiveness or other DSH presets. Codex parent-boundary inheritance and
+single-use dependency approval are released in 0.2.6. PR #143's proposed
+workflow guidance is not included. Core Node requirements, Pi requirements,
+and the runtime used for OMP verification remain described separately.
 
 ## Update after review
 

@@ -1,6 +1,6 @@
 # Install Stop That Shit
 
-These instructions target [`0.2.5`](https://github.com/lennney/stop-that-shit/releases/tag/0.2.5).
+These instructions target [`0.2.6`](https://github.com/lennney/stop-that-shit/releases/tag/0.2.6).
 
 For local checkout validation, use the flow under
 [Local Guard development](#local-guard-development).
@@ -45,18 +45,38 @@ The Guard requires Node.js 18 or newer. Add the repository as a Codex
 marketplace, then install the plugin:
 
 ```powershell
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.5
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.6
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
 Restart Codex after installation.
+
+### Single-use dependency approvals
+
+In a Codex session using `change deps=ask`, review the offered command and
+working directory before approving. Approval lets Codex retry that supported
+command once within ten minutes. The session keeps `deps=ask` for later commands.
+See [Codex approval internals](#codex-approval-internals) for host and runner details.
+
+### Inspect Codex child contracts
+
+From a full STS checkout or extracted release package, run:
+
+```sh
+npm run sts -- children <parentSessionId>
+```
+
+Use the parent session ID supplied by Codex. The hashed `sessionKey` in runtime
+output is not this ID. The command reports effective child contracts, active
+reservations, and runtime summaries. Add `--data-dir /absolute/path/to/plugin-data`
+if the plugin uses a different data directory from the CLI default.
 
 ## Verify the source
 
 Inspect these executable surfaces before trusting them:
 
 - `hooks/hooks.json` and `hooks/stop-that-shit-claude.cjs` for Claude Code;
-- `hooks/codex-hooks.json` and `hooks/stop-that-shit.cjs` for Codex;
+- `codex-plugin/hooks/codex-hooks.json` and `codex-plugin/hooks/stop-that-shit.cjs` for Codex;
 - `src/adapters/`;
 - `src/`
 
@@ -74,7 +94,7 @@ npm run release:check
 Codex records trust for the Hook definition hash, so inspect each Stop That Shit
 command before trusting it. Start a fresh Codex CLI TUI and enter `/hooks`.
 
-Compare the plugin's entries with [`hooks/codex-hooks.json`](hooks/codex-hooks.json).
+Compare the plugin's entries with the [packaged Codex Hooks](codex-plugin/hooks/codex-hooks.json).
 Review the handlers in the installed tag's manifest. The current entries cover:
 
 - `UserPromptSubmit` reads the task mode and explicit boundaries;
@@ -143,8 +163,27 @@ does not change the previous contract or the shared watch/off policy.
 ## Upgrade
 
 Update the plugin or standalone Skill through its host installation flow, then
-restart or reload. Checking a version is not an update. Codex users must inspect
-and trust new or changed Hook definitions before those handlers can run.
+restart or reload.
+
+- **Codex.** If you added the marketplace with `--ref`, switch its source to
+  the new release tag using the [Codex installation steps](#codex-skill--guard). Refreshing
+  the marketplace keeps the selected ref. Inspect and trust new or changed
+  Hook definitions before those handlers can run.
+- **Claude Code.** If your marketplace points to a local checkout, update
+  that checkout first. Refresh the marketplace, update the plugin, then
+  reload. Claude Code offers [marketplace auto-update](https://code.claude.com/docs/en/discover-plugins#keep-plugins-updated).
+- **OpenCode.** Follow the installation path for your host major version:
+  [V1 GitHub install](#opencode-install-from-github) or
+  [V2 package-directory install](#opencode-v2). For a local package, update it
+  at the configured directory, keep the same `dataDir`, and restart OpenCode.
+  The packed-host checks cover local packages and session restarts;
+  GitHub-source upgrades remain unverified.
+- **DeepSeek Harness.** Download the new DSH archive from the release. Run
+  `dsh plugin --profile web add ./<new-archive>.tgz` with the same profile
+  you used to install STS, then restart DSH. DSH's version checks apply to
+  registry bundles.
+- **Pi.** For a pinned Git install, run the [Pi installation command](#pi-coding-agent)
+  with the new release tag in the same scope, then restart or reload.
 
 `agents=N` now means reserved concurrent capacity, not cumulative calls. New
 sessions default to unlimited; migration preserves valid existing limits,
@@ -374,7 +413,7 @@ Add `-l` for a project-scoped installation. The tagged release contains
 the Pi adapter; use this pinned Git ref instead of an unpinned branch:
 
 ```bash
-pi install git:github.com/lennney/stop-that-shit@0.2.5
+pi install git:github.com/lennney/stop-that-shit@0.2.6
 ```
 
 Start a new Pi process, or run `/reload` in the TUI after changing package
@@ -391,6 +430,35 @@ budgeting for the documented optional `subagent` tool, but does not claim that
 separate child Pi processes inherit the contract. Remove the same source with
 `pi remove <source>`.
 
+## DeepSeek Harness preview
+
+Use Node.js 24.9.0 or later and DeepSeek Harness `0.2.2-rc.3` with the `web`
+profile and the Standard preset. Download `stop-that-shit-dsh-0.2.6.tgz` from the
+`0.2.6` release, or run `npm ci` and `npm run dsh:build` in this checkout.
+The build writes the archive to `dist/`.
+
+The standalone DSH CLI uses pnpm for plugin installation. Before continuing,
+check that `pnpm --version` runs in the same terminal as `dsh --version`.
+See the [DSH 0.2.2-rc.3 CLI source](https://github.com/deepseek-ai/deepseek-harness/blob/38a6a5c965aa99ab525161efb7cc5cf1fe62fced/apps/cli/src/plugin.ts#L84-L99).
+
+Install the archive with the DSH executable for that version:
+
+```sh
+dsh plugin --profile web add ./stop-that-shit-dsh-0.2.6.tgz
+```
+
+Restart DSH and open a fresh session. Set the contract on the first line of your
+prompt. Use a disposable workspace to try both examples:
+
+```text
+$stop-that-shit review lock -- Read notes.md and report what you find.
+$stop-that-shit change lock files=docs/** -- Update docs/notes.md.
+```
+
+The first contract allows reading and rejects a write. The second permits
+writes within `docs/`. Remove the bundle with
+`dsh plugin --profile web remove stop-that-shit-dsh`, then restart DSH.
+
 ## Optional: Skill only
 
 If you do not want command Hooks, install only the advisory Skill. For Claude
@@ -404,7 +472,7 @@ cp skills/stop-that-shit/SKILL.md ~/.claude/skills/stop-that-shit/SKILL.md
 For Codex, ask the built-in Skill Installer to install the shared Skill folder:
 
 ```text
-$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.5/skills/stop-that-shit
+$skill-installer Install stop-that-shit from https://github.com/lennney/stop-that-shit/tree/0.2.6/skills/stop-that-shit
 ```
 
 To install only Stop That Shit Slop from the tagged checkout:
@@ -443,7 +511,7 @@ Live runs require a dedicated Codex home with only this plugin enabled.
 
 ## Check for updates
 
-With the package executable installed:
+If the full STS package provides `sts` on your PATH:
 
 ```bash
 sts doctor --check-update
@@ -455,10 +523,12 @@ From a source checkout:
 npm run sts -- doctor --check-update
 ```
 
-Only this explicit command queries GitHub Releases. It returns `installed`,
-`latest`, and `releaseUrl`. It does not install updates or display reminders
-during startup or tasks. Standalone STSS updates remain under the host or Skill
-Installer update flow.
+The CLI queries GitHub Releases on request. It reports `installed` (the
+version of the package running the command), `latest` (the latest GitHub
+release), and `releaseUrl`. Check the version in your host's plugin manager
+or installation source before upgrading. Use a source checkout to run this
+command if you installed only the Codex bundle, DSH archive, or a standalone
+Skill. See [Upgrade](#upgrade) for installation steps.
 
 ## Disable or uninstall
 
@@ -471,16 +541,17 @@ codex plugin remove stop-that-shit@stop-that-shit
 codex plugin marketplace remove stop-that-shit
 ```
 
-For a Skill-only installation, remove its exact installed directory, then start
-a new Codex task:
+For a Skill-only installation, check the resolved directory before removing it,
+then start a new Codex task:
 
 ```powershell
-Remove-Item -LiteralPath "$env:CODEX_HOME\skills\stop-that-shit" -Recurse -Force
+$stsCodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' }
+$stsSkillPath = Join-Path $stsCodexHome 'skills/stop-that-shit'
+Remove-Item -LiteralPath $stsSkillPath -Recurse -Force
 ```
 
 If `CODEX_HOME` is unset, the default Skills directory is
-`$HOME\.codex\skills\stop-that-shit`. Check the resolved path before removing
-it.
+`$HOME\.codex\skills\stop-that-shit`.
 
 Claude Code plugins are removed with the host's plugin controls. Claude Code
 cleans up `CLAUDE_PLUGIN_DATA` when the plugin is uninstalled from its last
@@ -495,7 +566,7 @@ for the distinction between session state and runtime events.
 ## Oh My Pi
 
 The OMP Extension is checked with `@oh-my-pi/pi-coding-agent` `18.4.4`.
-STS `0.2.5` includes it. Use the tagged checkout or extracted release package
+STS `0.2.6` includes it. Use the tagged checkout or extracted release package
 that contains `omp/stop-that-shit.ts`:
 
 ```bash
@@ -534,6 +605,8 @@ and a permitted child write. These checks use a deterministic local provider.
 The interactive TUI also passed these paths with a local provider, including
 native task completion and rejection of a reused task execution ID.
 Git-source installation remains unverified.
+
+## Codex approval internals
 
 For a direct, statically parsed dependency command denied under `deps=ask`, Codex Guard can offer a single-use approval question. The model fills an absolute, existing working directory into the provided question. The question displays the exact argument vector, resolved package manager entry, event ID, a 24-hour reply deadline, and a ten-minute validity window after approval. Only the matching top-level reply to the registered `request_user_input_async` question or the exact answer to a registered native `request_user_input` question can authorize one controlled child operation with those arguments and that directory. A completed native question with an empty answer grants nothing and is retired so a later attempt can receive a fresh proposal; a denial remains consumed. The original tool call is rewritten to a local runner within the host sandbox; it is not a claim about the original call's hidden working directory. The runner rechecks the private contract and operation facts, then consumes a one-time handoff from the host's existing writable temporary root before spawning. It does not need to write the private session store from inside the sandbox. A missing, replaced, copied, or already consumed handoff fails closed. The session dependency policy remains `ask`, and other policy gates still apply. Mixed commands, dynamic shell syntax, unknown programs, and `deps=deny` do not receive this approval path. The first denied action is not automatically retried.
 

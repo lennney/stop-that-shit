@@ -5,9 +5,13 @@
 <h1 align="center">Stop That Shit</h1>
 
 <p align="center">
+  <a href="#dsh-preview"><img src="https://img.shields.io/badge/DSH-Web_Standard_preview-555?style=flat-square" alt="DSH Web Standard 호환성 미리보기"></a>
+</p>
+
+<p align="center">
   <strong>수정은 끝났는데, AI는 아직도 확인 중인가요?</strong><br>
 <!-- sts:stable-summary:start -->
-  <strong>안정 릴리스 0.2.5</strong> — Skill, Guard, STSS로 현재 작업을 완성하고 불필요한 추가 작업과 방어적인 문장을 줄입니다.<br>
+  <strong>안정 릴리스 0.2.6</strong> — Skill, Guard, STSS로 현재 작업을 완성하고 불필요한 추가 작업과 방어적인 문장을 줄입니다.<br>
   Codex · Claude Code · OpenCode · Hermes Agent CLI · Pi · Oh My Pi<br>
 <!-- sts:stable-summary:end -->
   <a href="#설치">설치</a> · <a href="#사용법">사용법</a> ·
@@ -70,7 +74,7 @@ Event: evt_...
 
 아래 명령은 고정된 버전 tag를 기준으로 합니다. 대부분의 호스트에는 Node.js 18 이상이 필요하며,
 Pi 0.84.4에는 Node.js 22.19 이상이 필요합니다.
-호스트별 설정과 업데이트 절차는 [설치 문서](INSTALL.md)를 확인하세요.
+호스트별 설정은 [설치 문서](INSTALL.md), 업데이트 절차는 [업그레이드 안내](INSTALL.md#upgrade)를 확인하세요.
 
 ### Claude Code
 
@@ -82,7 +86,7 @@ Skill은 에이전트가 참고하는 작업 지침입니다.
 **1. 저장소 받기.** 터미널에서 실행합니다.
 
 ```bash
-git clone --branch 0.2.5 https://github.com/lennney/stop-that-shit.git
+git clone --branch 0.2.6 https://github.com/lennney/stop-that-shit.git
 cd stop-that-shit
 ```
 
@@ -111,7 +115,7 @@ claude plugin install stop-that-shit@stop-that-shit
 ### Codex
 
 ```bash
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.5
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.6
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
@@ -123,10 +127,18 @@ Codex를 다시 시작하고 새 CLI TUI에서 `/hooks`를 엽니다.
 
 | 호스트 | 설치 안내 |
 | --- | --- |
-| OpenCode | [GitHub에서 설치](INSTALL.md#opencode-install-from-github) — Guard 설치 후 Skill 등록은 별도로 확인하세요. |
+| OpenCode V1 | [GitHub에서 설치](INSTALL.md#opencode-install-from-github) — 1.18.18 이상. Guard 설치 후 Skill 등록은 별도로 확인하세요. |
+| OpenCode V2 | [V2 설치 안내](INSTALL.md#opencode-v2) — 검증 대상은 2.0.18입니다. |
 | Hermes Agent CLI | [플러그인 설치·활성화](INSTALL.md#hermes-agent-cli) — 활성화 후 CLI 또는 Gateway를 다시 시작합니다. |
 | Oh My Pi | [OMP 설치 안내](INSTALL.md#oh-my-pi) — 독립 Extension의 검증 대상은 18.4.4입니다. |
 | Pi Coding Agent | [Pi 설치 안내](INSTALL.md#pi-coding-agent) — 현재 어댑터의 검증 대상은 0.84.4입니다. |
+| DeepSeek Harness (미리 보기) | DeepSeek Harness `0.2.2-rc.3`의 Web Standard 프리셋을 지원합니다. [미리보기 패키지 다운로드](https://github.com/lennney/stop-that-shit/releases/download/0.2.6/stop-that-shit-dsh-0.2.6.tgz) · [DSH 설치 안내](INSTALL.md#deepseek-harness-preview) |
+
+<a name="dsh-preview"></a>
+
+### DeepSeek Harness (DSH) 호환성
+
+**`0.2.2-rc.5`: 후보 패키지는 Linux의 Web Standard에서 검증했으며 아직 출시되지 않았습니다.** 위 STS `0.2.6` 설치 패키지는 `rc.3`만 지원합니다. [rc.5 검증 기록 (#149)](https://github.com/lennney/stop-that-shit/pull/149)을 참고하세요.
 
 ## 사용법
 

@@ -8,6 +8,7 @@
   <a href="https://github.com/lennney/stop-that-shit/releases"><img src="https://img.shields.io/github/v/release/lennney/stop-that-shit?include_prereleases&sort=semver&style=flat-square&color=111111&label=release" alt="Latest release"></a>
   <a href="https://github.com/lennney/stop-that-shit/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/lennney/stop-that-shit/ci.yml?branch=main&style=flat-square&label=build" alt="Build status"></a>
   <img src="https://img.shields.io/github/license/lennney/stop-that-shit?style=flat-square&color=111111" alt="MIT license">
+  <a href="#dsh-preview"><img src="https://img.shields.io/badge/DSH-Web_Standard_preview-555?style=flat-square" alt="DSH Web Standard compatibility preview"></a>
 </p>
 
 <p align="center">
@@ -16,7 +17,7 @@
 
 <p align="center">
 <!-- sts:stable-summary:start -->
-  <strong>Stable release 0.2.5</strong> — A Skill, Guard, and STSS for completing the current task and removing unused work and defensive prose.<br>
+  <strong>Stable release 0.2.6</strong> — A Skill, Guard, and STSS for completing the current task and removing unused work and defensive prose.<br>
   Codex · Claude Code · OpenCode · Hermes Agent CLI · Pi · Oh My Pi<br>
 <!-- sts:stable-summary:end -->
   <a href="#the-shit-philosophy">SHIT philosophy</a> ·
@@ -139,7 +140,7 @@ Expand your host. For guidance without runtime enforcement, [install only the Sk
 <details>
 <summary>Claude Code</summary>
 
-Download and extract the [0.2.5 source](https://github.com/lennney/stop-that-shit/archive/refs/tags/0.2.5.zip), then run from the checkout root:
+Download and extract the [0.2.6 source](https://github.com/lennney/stop-that-shit/archive/refs/tags/0.2.6.zip), then run from the checkout root:
 
 ```bash
 claude plugin validate .
@@ -159,7 +160,7 @@ Restart Claude Code or run `/reload-plugins`, then invoke:
 <summary>Codex</summary>
 
 ```bash
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.5
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.6
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
@@ -173,9 +174,9 @@ non-interactive steps.
 </details>
 
 <details>
-<summary>OpenCode from GitHub</summary>
+<summary>OpenCode V1 / V2</summary>
 
-OpenCode 1.18.18 or newer can install this repository globally without cloning it:
+OpenCode V1 1.18.18 or newer can install this repository globally without cloning it:
 
 ```bash
 opencode plugin github:lennney/stop-that-shit -g
@@ -185,6 +186,8 @@ Restart OpenCode and use `$stop-that-shit review -- ...`. The command installs
 the Guard; the bundled Skill and optional `/sts` alias are not registered
 automatically. See [INSTALL.md](INSTALL.md#opencode-install-from-github) for
 details.
+
+OpenCode V2 uses a different install command. See the [V2 install steps](INSTALL.md#opencode-v2).
 
 </details>
 
@@ -238,7 +241,7 @@ The pinned tag includes the Pi adapter and both Skills. See [INSTALL.md](INSTALL
 <summary>Oh My Pi</summary>
 
 The separate Extension was checked with `@oh-my-pi/pi-coding-agent` `18.4.4`.
-Version `0.2.5` includes the separate OMP Extension. Start from the tagged
+Version `0.2.6` includes the separate OMP Extension. Start from the tagged
 checkout or extracted release package:
 
 ```bash
@@ -251,6 +254,14 @@ RPC. The TUI also accepts first-line `$stop-that-shit` directives.
 See [INSTALL.md](INSTALL.md#oh-my-pi).
 
 </details>
+
+<a name="dsh-preview"></a>
+
+### DeepSeek Harness (preview)
+
+Use DeepSeek Harness `0.2.2-rc.3` with the Web Standard preset. [Download the preview package](https://github.com/lennney/stop-that-shit/releases/download/0.2.6/stop-that-shit-dsh-0.2.6.tgz) or see the [DSH install steps](INSTALL.md#deepseek-harness-preview).
+
+**`0.2.2-rc.5`: the candidate passed Web Standard testing on Linux and is not released.** The STS `0.2.6` archive above supports `rc.3` only. See the [rc.5 test evidence (#149)](https://github.com/lennney/stop-that-shit/pull/149).
 
 ## Use it
 
@@ -370,7 +381,8 @@ state before sharing plugin data. See [PRIVACY.md](PRIVACY.md).
 
 **How do I update, uninstall, or work on it?**
 
-See [update checks](INSTALL.md#check-for-updates),
+See [host upgrade steps](INSTALL.md#upgrade),
+[update checks](INSTALL.md#check-for-updates),
 [disabling and uninstalling](INSTALL.md#disable-or-uninstall),
 [local development](INSTALL.md#local-guard-development), and the
 [changelog](CHANGELOG.md).

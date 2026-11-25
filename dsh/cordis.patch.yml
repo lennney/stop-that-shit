@@ -6,8 +6,7 @@
 # (src/adapters/dsh-hooks.cjs). Contracts only apply to sessions the user
 # arms explicitly, so unrelated sessions are unaffected.
 #
-# `projectsRoot` bounds where file operations may legally land when a contract
-# is armed; state lives under ~/.dsh/stop-that-shit by default.
+# Set dataDir to override the STS state location.
 - insert:
     - id: sts-bridge
       name: stop-that-shit-dsh

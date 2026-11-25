@@ -8,6 +8,7 @@
   <a href="https://github.com/lennney/stop-that-shit/releases"><img src="https://img.shields.io/github/v/release/lennney/stop-that-shit?include_prereleases&sort=semver&style=flat-square&color=111111&label=release" alt="最新版本"></a>
   <a href="https://github.com/lennney/stop-that-shit/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/lennney/stop-that-shit/ci.yml?branch=main&style=flat-square&label=build" alt="构建状态"></a>
   <img src="https://img.shields.io/github/license/lennney/stop-that-shit?style=flat-square&color=111111" alt="MIT 许可证">
+  <a href="#dsh-preview"><img src="https://img.shields.io/badge/DSH-Web_Standard_preview-555?style=flat-square" alt="DSH Web Standard 兼容预览"></a>
 </p>
 
 <p align="center">
@@ -16,7 +17,7 @@
 
 <p align="center">
 <!-- sts:stable-summary:start -->
-  <strong>正式版 0.2.5</strong> — 用 Skill、Guard 和 STSS，帮助 AI 完成当前任务，删去没有用途的额外工作和防御性文字。<br>
+  <strong>正式版 0.2.6</strong> — 用 Skill、Guard 和 STSS，帮助 AI 完成当前任务，删去没有用途的额外工作和防御性文字。<br>
   Codex · Claude Code · OpenCode · Hermes Agent CLI · Pi · Oh My Pi<br>
 <!-- sts:stable-summary:end -->
   <a href="#shit-是哪四种">SHIT 哲学</a> ·
@@ -106,7 +107,7 @@ await writeFile("report.csv", csv);
 <details>
 <summary>Claude Code</summary>
 
-下载并解压 [0.2.5 源码](https://github.com/lennney/stop-that-shit/archive/refs/tags/0.2.5.zip)，在仓库根目录执行：
+下载并解压 [0.2.6 源码](https://github.com/lennney/stop-that-shit/archive/refs/tags/0.2.6.zip)，在仓库根目录执行：
 
 ```bash
 claude plugin validate .
@@ -126,7 +127,7 @@ claude plugin install stop-that-shit@stop-that-shit
 <summary>Codex</summary>
 
 ```bash
-codex plugin marketplace add lennney/stop-that-shit --ref 0.2.5
+codex plugin marketplace add lennney/stop-that-shit --ref 0.2.6
 codex plugin add stop-that-shit@stop-that-shit
 ```
 
@@ -135,15 +136,17 @@ codex plugin add stop-that-shit@stop-that-shit
 </details>
 
 <details>
-<summary>OpenCode 从 GitHub 安装</summary>
+<summary>OpenCode V1 / V2</summary>
 
-OpenCode 1.18.18 或更高版本可以全局安装这个仓库，无需 clone：
+OpenCode V1 1.18.18 或更高版本可以全局安装这个仓库，无需 clone：
 
 ```bash
 opencode plugin github:lennney/stop-that-shit -g
 ```
 
 重启 OpenCode 后用 `$stop-that-shit review -- ...` 设置契约。该命令安装 Guard；内置 Skill 和可选 `/sts` 别名不会自动注册。详见 [INSTALL.md](INSTALL.md#opencode-install-from-github)。
+
+OpenCode V2 使用不同的安装命令，见 [V2 安装步骤](INSTALL.md#opencode-v2)。
 
 </details>
 
@@ -193,7 +196,7 @@ pi install /absolute/path/to/stop-that-shit
 <summary>Oh My Pi</summary>
 
 已在 `@oh-my-pi/pi-coding-agent` `18.4.4` 验证独立 Extension。
-0.2.5 包含 OMP 独立 Extension；从该版本源码或解压后的发布包启动：
+0.2.6 包含 OMP 独立 Extension；从该版本源码或解压后的发布包启动：
 
 ```bash
 omp -e /absolute/path/to/stop-that-shit/omp/stop-that-shit.ts --skills /absolute/path/to/stop-that-shit/skills --sts-contract "review agents=0 -- inspect"
@@ -204,6 +207,20 @@ omp -e /absolute/path/to/stop-that-shit/omp/stop-that-shit.ts --skills /absolute
 详见 [INSTALL.md](INSTALL.md#oh-my-pi)。
 
 </details>
+
+<a name="dsh-preview"></a>
+
+### DeepSeek Harness（预览）
+
+支持 DeepSeek Harness `0.2.2-rc.3` 的 Web Standard 预设。[下载预览安装包](https://github.com/lennney/stop-that-shit/releases/download/0.2.6/stop-that-shit-dsh-0.2.6.tgz)，或查看 [DSH 安装步骤](INSTALL.md#deepseek-harness-preview)。
+
+**`0.2.2-rc.5`：候选包已在 Linux 上通过 Web Standard 实测，尚未发布。** 上面的 STS `0.2.6` 安装包只支持 `rc.3`。查看 [rc.5 测试记录（#149）](https://github.com/lennney/stop-that-shit/pull/149)。
+
+下载后，在安装包所在目录运行以下命令，然后重启 DSH：
+
+```sh
+dsh plugin --profile web add ./stop-that-shit-dsh-0.2.6.tgz
+```
 
 ## 使用
 
@@ -298,7 +315,7 @@ Runtime 事件不保存代码或对话正文；会话状态另存显式路径、
 
 **怎么更新、卸载或参与开发？**
 
-见[更新检查](INSTALL.md#check-for-updates)、[停用与卸载](INSTALL.md#disable-or-uninstall)、[本地开发](INSTALL.md#local-guard-development)和[更新记录](CHANGELOG.md)。
+见[宿主升级步骤](INSTALL.md#upgrade)、[更新检查](INSTALL.md#check-for-updates)、[停用与卸载](INSTALL.md#disable-or-uninstall)、[本地开发](INSTALL.md#local-guard-development)和[更新记录](CHANGELOG.md)。
 
 ## 把反例发过来
 

@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "id": "stop-that-shit",
   "repositoryUrl": "https://github.com/lennney/stop-that-shit",
-  "reviewedAt": "2026-10-31",
+  "reviewedAt": "2026-11-22",
   "release": {
-    "version": "0.2.5",
-    "tag": "0.2.5",
-    "commit": "8bc1ac558167121e7f28d9fb0bec05c039952206",
-    "publishedAt": "2026-10-15T12:31:31Z"
+    "version": "0.2.6",
+    "tag": "0.2.6",
+    "commit": "8d50e944fde93b7f59e2620a36ccdcaaddb964cd",
+    "publishedAt": "2026-11-19T14:17:31Z"
   },
   "evidence": [
     "INSTALL.md",
@@ -50,10 +50,10 @@
   ],
   "locales": {
     "zh": {
-      "metaTitle": "Stop That Shit：Codex 插件、任务边界与 STSS 指南",
+      "metaTitle": "Stop That Shit：Codex Guard 与 DeepSeek Harness 预览",
       "tagline": "把任务做完，也知道何时停下。",
       "limitations": "它只能检查 Host 已提供、并且输入足够明确的 Hook 事件，不是安全沙箱，也不会看到 migration、retry 或 cache 就自动判定多余。Guard 返回拒绝只说明它发出了拒绝响应，不证明已观察到 Host 的最终执行结果。",
-      "installationDescription": "Codex 安装命令固定到下方版本。重启后，在 CLI TUI 的 /hooks 中对照该 tag 的 Hook 清单检查并信任命令；完整变更见 GitHub Release。STSS Skill 也可以单独安装。",
+      "installationDescription": "Codex 安装命令固定到下方版本。重启后，在 CLI TUI 的 /hooks 中对照该 tag 的 Hook 清单检查并信任命令；完整变更见 GitHub Release。STSS Skill 也可以单独安装。DSH 预览使用 Release 中单独的 stop-that-shit-dsh-0.2.6.tgz，通过 dsh plugin --profile web add 安装并重启；具体命令见该版本 INSTALL.md。",
       "installationNote": "完成 Hook 检查后，在新任务里用 $stop-that-shit review 或 $stop-that-shit change 写明授权。",
       "faq": [
         {
@@ -110,12 +110,17 @@
           "question": "支持哪些编码助手？",
           "group": "start",
           "answer": "当前稳定版提供下方 Host 列表中的 Adapter，包括 Oh My Pi 独立 Extension；OpenCode 包含 V1 与 V2。各 Host 的安装、信任、重启与事件覆盖不同。Pi 的独立子进程不继承父任务合同；完整要求见安装区与版本化 INSTALL.md。"
+        },
+        {
+          "question": "DeepSeek Harness 预览覆盖哪些范围？",
+          "group": "start",
+          "answer": "DSH 预览与上方六种 Host 接入分开提供，限定 DeepSeek Harness 0.2.2-rc.3 的 web profile、Standard 预设和 Node.js 24.9.0+。Windows 本地探针验收覆盖只读拒写、继续读取、工作区文件边界及可选 apply_patch，没有调用模型。使用独立 TGZ 安装包；完整步骤与限制见 0.2.6 的 INSTALL.md 和 EVIDENCE.md。"
         }
       ],
       "shortDescription": "用 Skill、Guard 和 STSS，帮助 AI 完成当前任务，删去没有用途的额外工作和防御性文字。",
-      "description": "Stop That Shit 是面向 AI coding agent 的任务边界 Skill + Guard。Skill 用 Stop Ladder 指导实现与验收；Guard 在受支持的 Host 路径上检查明确的任务、文件、依赖、hash 和 subagent 边界。STSS 为提案、文章、案例和图注提供重写、审稿与新稿生成指导。",
-      "metaDescription": "Stop That Shit（别再造史了）的稳定版说明、{count} 种 Host 接入、Codex 安装与 STSS 指南，说明 Skill、Guard 的能力、运行要求和验证边界。",
-      "requirements": "核心 Guard 需要 Node.js 18+。Pi 0.84.4 自身需要 Node.js 22.19+；Oh My Pi 18.4.4 的已记录验证使用 Bun 1.3.14。各 Host 的要求和安装步骤见版本化 INSTALL.md。",
+      "description": "Stop That Shit 是面向 AI coding agent 的任务边界 Skill + Guard。Skill 用 Stop Ladder 指导实现与验收；Guard 在受支持的 Host 路径上检查明确的任务、文件、依赖、hash 和 subagent 边界。STSS 为提案、文章、案例和图注提供重写、审稿与新稿生成指导。在受支持的 Hook 路径上，Codex 子任务继承已确认的父任务边界；受支持的依赖命令可获得单次批准。另提供 DeepSeek Harness（DSH）Web Standard 适配器预览。",
+      "metaDescription": "Stop That Shit（别再造史了）为 AI 编程助手设定任务边界。查看 Codex 等 {count} 种 Host 接入、STSS 和单独提供的 DeepSeek Harness Web Standard 预览。",
+      "requirements": "核心 Guard 需要 Node.js 18+。Pi 0.84.4 自身需要 Node.js 22.19+；Oh My Pi 18.4.4 的已记录验证使用 Bun 1.3.14。各 Host 的要求和安装步骤见版本化 INSTALL.md。DSH 预览另需 Node.js 24.9.0+、DeepSeek Harness 0.2.2-rc.3，限定 web profile 的 Standard 预设。 使用独立 DSH CLI 安装时，确认同一终端能运行 pnpm --version。",
       "hostsTitle": "同一套任务边界，{count} 种 Host 接入",
       "stss": "STSS 是独立写作 Skill。它为提案、文章、案例、图注和新稿生成提供指导；rewrite 修改文字，audit 报告问题。Sentence Consumer Test、Claim Ledger 和 Claim Diff 帮助删改无用途的免责声明、堆叠保留与自我辩护，并保留影响读者判断的条件、来源和责任。",
       "guardCaption": "Skill 提供实现与验收的判断建议；Guard 默认观察，明确任务模式启用后才检查受支持的 Host 动作路径。",
@@ -133,10 +138,10 @@
       }
     },
     "en": {
-      "metaTitle": "Stop That Shit — Codex Plugin, Task Boundaries, and STSS",
+      "metaTitle": "Stop That Shit: Codex Guard & DeepSeek Harness Preview",
       "tagline": "Finish the task. Know when to stop.",
       "limitations": "It can inspect only Hook events that the Host exposes with enough input. It is not a security sandbox and does not label every migration, retry, or cache as unnecessary. A returned denial records the Guard response; it is not observation of the Host's final effect.",
-      "installationDescription": "The Codex commands below pin a release tag. After restart, compare /hooks in the CLI TUI with that tag's Hook manifest and trust the commands you reviewed. GitHub Release has the complete changes. STSS can also be installed on its own.",
+      "installationDescription": "The Codex commands below pin a release tag. After restart, compare /hooks in the CLI TUI with that tag's Hook manifest and trust the commands you reviewed. GitHub Release has the complete changes. STSS can also be installed on its own. The DSH preview uses the separate stop-that-shit-dsh-0.2.6.tgz release asset, installed with dsh plugin --profile web add followed by a restart; see the versioned INSTALL.md for the complete command.",
       "installationNote": "After Hook review, use $stop-that-shit review or $stop-that-shit change in a new task to make authority explicit.",
       "faq": [
         {
@@ -193,12 +198,17 @@
           "question": "Which coding agents are supported?",
           "group": "start",
           "answer": "The stable release provides the adapters listed in the installation section, including the explicit Oh My Pi Extension and OpenCode V1 and V2. Installation, trust, restart, and event coverage differ by Host. Separate Pi child processes do not inherit the parent contract; see the installation section and versioned INSTALL.md."
+        },
+        {
+          "question": "What does the DeepSeek Harness preview cover?",
+          "group": "start",
+          "answer": "The DSH preview is separate from the six Host integrations above. It targets DeepSeek Harness 0.2.2-rc.3, the Standard preset in the web profile, and Node.js 24.9.0+. Windows local-probe acceptance covers review-write denial, continued reads, workspace file boundaries, and optional apply_patch, with no model calls. Install the separate TGZ; see the 0.2.6 INSTALL.md and EVIDENCE.md for steps and limits."
         }
       ],
       "shortDescription": "A Skill, Guard, and STSS for completing the current task and removing unused work and defensive prose.",
-      "description": "Stop That Shit is a task-boundary Skill + Guard for AI coding agents. The Skill uses the Stop Ladder to guide implementation and acceptance; the Guard checks explicit task, file, dependency, hash, and subagent boundaries on supported Host paths. STSS guides rewriting, auditing, and drafting proposals, articles, case studies, and captions.",
-      "metaDescription": "Read the stable Stop That Shit guide: {count} Host adapters, Codex installation, STSS, runtime requirements, and the coverage and limits of the Skill and Guard.",
-      "requirements": "The core Guard needs Node.js 18+. Pi 0.84.4 itself needs Node.js 22.19+; the recorded Oh My Pi 18.4.4 checks used Bun 1.3.14. See the versioned INSTALL.md for each Host’s requirements and installation steps.",
+      "description": "Stop That Shit is a task-boundary Skill + Guard for AI coding agents. The Skill uses the Stop Ladder to guide implementation and acceptance; the Guard checks explicit task, file, dependency, hash, and subagent boundaries on supported Host paths. STSS guides rewriting, auditing, and drafting proposals, articles, case studies, and captions. On supported Hook paths, Codex child tasks inherit confirmed parent boundaries, and supported dependency commands can receive one-time approval. A separate DeepSeek Harness (DSH) Web Standard adapter preview is also available.",
+      "metaDescription": "Set task boundaries for AI coding agents with Stop That Shit. Explore {count} Host integrations including Codex, the STSS writing skill, and the separate DeepSeek Harness Web Standard preview.",
+      "requirements": "The core Guard needs Node.js 18+. Pi 0.84.4 itself needs Node.js 22.19+; the recorded Oh My Pi 18.4.4 checks used Bun 1.3.14. See the versioned INSTALL.md for each Host’s requirements and installation steps. The separate DSH preview requires Node.js 24.9.0+, DeepSeek Harness 0.2.2-rc.3, and the Standard preset in the web profile. For a standalone DSH CLI install, make sure pnpm --version works in the same terminal.",
       "hostsTitle": "One task boundary, {count} Host adapters",
       "stss": "STSS is a standalone writing Skill for proposals, articles, case studies, captions, and new drafts. Use rewrite to edit text and audit to report problems. Its Sentence Consumer Test, Claim Ledger, and Claim Diff help remove unused disclaimers, hedge stacks, and self-defense while preserving conditions, attribution, and responsibility that affect the reader’s decision.",
       "guardCaption": "The Skill guides implementation and acceptance. The Guard observes by default and checks supported Host action paths after an explicit task mode is armed.",
@@ -216,16 +226,16 @@
       }
     },
     "ko": {
-      "metaTitle": "Stop That Shit: Claude Code·Codex 설치와 STSS 안내",
+      "metaTitle": "Stop That Shit: Codex Guard·DeepSeek Harness 미리보기",
       "tagline": "부탁한 작업을 끝내고, 불필요한 일은 멈추세요.",
       "limitations": "Guard는 호스트가 충분한 입력과 함께 제공한 이벤트만 검사합니다. 보안 샌드박스가 아니며 거부 응답만으로 호스트의 최종 실행 결과를 관찰했다고 볼 수 없습니다. 기록된 테스트는 일반적인 모델 성능 향상이나 모든 호스트 경로를 입증하지 않습니다.",
-      "installationDescription": "설치 기준은 공개 안정 릴리스입니다. 호스트별 설치·신뢰·재시작 단계는 해당 버전 INSTALL.md를 확인하세요.",
+      "installationDescription": "설치 기준은 공개 안정 릴리스입니다. 호스트별 설치·신뢰·재시작 단계는 해당 버전 INSTALL.md를 확인하세요. DSH 미리보기는 별도 릴리스 파일 stop-that-shit-dsh-0.2.6.tgz를 dsh plugin --profile web add로 설치한 뒤 다시 시작합니다. 전체 명령은 해당 버전 INSTALL.md를 확인하세요.",
       "installationNote": "Codex를 다시 시작한 뒤 CLI TUI의 /hooks에서 해당 태그의 Hook 목록을 확인하고 신뢰하세요. 새 작업에서는 review 또는 change로 권한을 명시하세요.",
       "faq": [],
       "shortDescription": "Skill, Guard, STSS로 현재 작업을 완성하고 불필요한 추가 작업과 방어적인 문장을 줄입니다.",
-      "description": "Stop That Shit는 AI 코딩 에이전트의 작업 범위를 관리하는 Skill + Guard입니다. Skill은 Stop Ladder로 구현과 검증을 안내하고, Guard는 지원되는 호스트 경로에서 작업 모드, 파일, 의존성, 해시, 하위 에이전트 경계를 확인합니다. STSS는 제안서, 기사, 사례, 캡션의 수정·검토와 새 초안 작성을 돕습니다.",
-      "metaDescription": "Stop That Shit 안정 릴리스의 {count}개 호스트, Claude Code·Codex 설치, STSS, 실행 환경 요구사항과 Skill·Guard의 검증 범위를 안내합니다.",
-      "requirements": "핵심 Guard는 Node.js 18 이상이 필요합니다. Pi 0.84.4 자체는 Node.js 22.19 이상이 필요하며, 기록된 Oh My Pi 18.4.4 검증에는 Bun 1.3.14를 사용했습니다. 호스트별 요구사항과 설치 방법은 해당 버전 INSTALL.md를 확인하세요.",
+      "description": "Stop That Shit는 AI 코딩 에이전트의 작업 범위를 관리하는 Skill + Guard입니다. Skill은 Stop Ladder로 구현과 검증을 안내하고, Guard는 지원되는 호스트 경로에서 작업 모드, 파일, 의존성, 해시, 하위 에이전트 경계를 확인합니다. STSS는 제안서, 기사, 사례, 캡션의 수정·검토와 새 초안 작성을 돕습니다. 지원되는 Hook 경로에서 Codex 하위 작업은 확인된 상위 작업 경계를 상속하며 지원되는 의존성 명령은 일회성 승인을 받을 수 있습니다. DeepSeek Harness(DSH) Web Standard 어댑터 미리보기도 별도로 제공합니다.",
+      "metaDescription": "AI 코딩 에이전트의 작업 범위를 정하는 Stop That Shit. Codex 등 {count}개 호스트 설치, STSS 및 별도로 제공하는 DeepSeek Harness Web Standard 미리보기를 안내합니다.",
+      "requirements": "핵심 Guard는 Node.js 18 이상이 필요합니다. Pi 0.84.4 자체는 Node.js 22.19 이상이 필요하며, 기록된 Oh My Pi 18.4.4 검증에는 Bun 1.3.14를 사용했습니다. 호스트별 요구사항과 설치 방법은 해당 버전 INSTALL.md를 확인하세요. DSH 미리보기는 위의 6개 호스트와 별도로 제공하며 Node.js 24.9.0 이상, DeepSeek Harness 0.2.2-rc.3, web 프로필의 Standard 프리셋으로 범위를 한정합니다. Windows 로컬 프로브로 읽기 전용 쓰기 거부, 읽기 지속, 작업 공간 파일 경계와 선택적 apply_patch를 검증했으며 모델 호출은 사용하지 않았습니다. 독립 DSH CLI로 설치하는 경우 같은 터미널에서 pnpm --version이 실행되는지 확인하세요.",
       "hostsTitle": "하나의 작업 경계, {count}개 호스트",
       "stss": "STSS는 제안서, 기사, 사례, 캡션과 새 초안 작성을 위한 독립적인 글쓰기 Skill입니다. rewrite는 문장을 수정하고 audit는 문제를 보고합니다. Sentence Consumer Test, Claim Ledger, Claim Diff로 불필요한 면책 문구와 겹친 유보, 자기변호를 줄이되 독자 판단에 필요한 조건, 출처, 책임은 보존합니다.",
       "guardCaption": "Skill은 구현과 검증의 판단을 돕습니다. Guard는 기본적으로 관찰하며 명시적인 작업 모드가 설정된 뒤 지원되는 호스트 실행 경로를 확인합니다.",

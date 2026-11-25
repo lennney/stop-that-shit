@@ -13,7 +13,7 @@ test('the multilingual stable baseline has a complete release record', () => {
   validateContent(content);
   validateRelease(content, proof);
   assert.ok(content.hosts.some(host => host.id === 'omp'));
-  assert.ok(!content.hosts.some(host => host.id === 'dsh'), 'DSH is not in this reviewed release');
+  assert.ok(!content.hosts.some(host => host.id === 'dsh'), 'DSH preview must remain separate from the six Host integrations');
 });
 
 test('content validation rejects missing translations and duplicate Hosts', () => {
@@ -31,4 +31,19 @@ test('stable content cannot use a development version or a different released co
   assert.throws(() => validateContent(development));
   assert.throws(() => validateRelease(content, { ...proof, commit: 'a'.repeat(40) }));
   assert.throws(() => validateRelease(content, { ...proof, prerelease: true }));
+});
+
+
+
+test('0.2.6 content keeps DSH preview scope explicit in every language', () => {
+  assert.equal(content.release.version, '0.2.6');
+  assert.equal(content.hosts.length, 6);
+  for (const [locale, preview] of [['zh', '预览'], ['en', 'preview'], ['ko', '미리보기']]) {
+    const copy = content.locales[locale];
+    assert.ok(copy.description.includes(preview));
+    assert.ok(copy.metaTitle.includes('DeepSeek Harness'), `${locale}: DSH title`);
+    assert.ok(copy.metaDescription.includes('DeepSeek Harness Web Standard'), `${locale}: DSH description`);
+    for (const requirement of ['DSH', '24.9.0', '0.2.2-rc.3', 'web', 'Standard', 'pnpm --version'])
+      assert.ok(copy.requirements.includes(requirement), `${locale}: ${requirement}`);
+  }
 });

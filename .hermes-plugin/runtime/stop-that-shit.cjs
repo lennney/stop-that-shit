@@ -2130,7 +2130,7 @@ module.exports = { readRuntime, recordDecision, recordModeChange };
 "package.json": function(module, exports, __require) {
 module.exports = {
   "name": "stop-that-shit",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": true,
   "description": "Keep agent work bounded and reduce defensive wording in Codex, Claude Code, OpenCode, Hermes Agent CLI, Pi, and Oh My Pi",
   "keywords": [
@@ -2190,6 +2190,7 @@ module.exports = {
     "eval:host-smoke": "node scripts/run-paired-eval.cjs --host-smoke --runs 1",
     "release:check": "npm run schema:check && npm run codex:check && node scripts/release-check.cjs",
     "release:build": "node scripts/build-release.cjs",
+    "dsh:build": "node scripts/build-dsh-bundle.cjs",
     "test:omp": "node --test test/omp-adapter.test.cjs test/omp-extension.test.cjs test/omp-package.test.cjs",
     "test:hosts": "node scripts/test-hosts.cjs",
     "codex:build": "node scripts/build-codex-plugin.cjs",
@@ -2210,11 +2211,11 @@ module.exports = {
     }
   },
   "devDependencies": {
-    "acorn": "8.17.0",
+    "acorn": "8.19.0",
     "ajv": "^8.20.0"
   },
   "dependencies": {
-    "@opencode/schema": "2.2.2",
+    "@opencode/schema": "2.2.5",
     "effect": "4.0.0-rc.112"
   }
 };
@@ -3274,11 +3275,21 @@ function analyzeShell(command) {
     ...shellClassification(analysis?.redirected ? 'write' : 'unknown', analysis?.redirected ? 'shell_redirection' : 'shell_syntax_unproven'),
     hashIntent: HASH_COMMAND.test(text), dependencyIntent: DEPENDENCY_COMMAND.test(text)
   };
-  const commands = analysis.commands.map(command => ({
+  // Only a static two-stage echo -> named Node script pipe treats stdin as
+  // data. CMD ignores single quotes, so reject execution/expansion characters
+  // in either stage even when quoted. A named script does not establish a read
+  // or an allow decision; its internals remain unknown and its argv is scanned.
+  const [producer, consumer] = analysis.commands;
+  const literalStdin = analysis.hasPipe && analysis.commands.length === 2
+    && String(producer.args[0]).toLowerCase() === 'echo'
+    && !/[&|<>^%!\r\n()$`]/.test([...producer.args.slice(1), ...consumer.args].join(' '))
+    && !consumer.nativeQuotes && /^(?:node|node\.exe)$/i.test(consumer.args[0] || '')
+    && /^[^-].*\.(?:cjs|mjs|js)$/i.test(consumer.args[1] || '');
+  const commands = analysis.commands.map((command, index) => ({
     ...classifyStaticCommand(command), text: command.args.join(' '),
     // Static PowerShell content cmdlets receive their literal arguments as data.
     // Dynamic syntax is rejected by staticShellCommands before this point.
-    literalContent: analysis.commands.length === 1 && !analysis.hasPipe && ['set-content', 'add-content'].includes(String(command.args[0] || '').toLowerCase())
+    literalContent: literalStdin && index === 0 || analysis.commands.length === 1 && !analysis.hasPipe && ['set-content', 'add-content'].includes(String(command.args[0] || '').toLowerCase())
   }));
   // Proven reads treat their arguments as data. Keep the existing intent checks
   // for writes and unproven programs, independently for each command in a chain.
@@ -4534,7 +4545,7 @@ module.exports = { optionalIdentifier, readAsyncLaunched };
 };
 __modules["package.json"] = function(module) { module.exports = {
   "name": "stop-that-shit",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": true,
   "description": "Keep agent work bounded and reduce defensive wording in Codex, Claude Code, OpenCode, Hermes Agent CLI, Pi, and Oh My Pi",
   "keywords": [
@@ -4594,6 +4605,7 @@ __modules["package.json"] = function(module) { module.exports = {
     "eval:host-smoke": "node scripts/run-paired-eval.cjs --host-smoke --runs 1",
     "release:check": "npm run schema:check && npm run codex:check && node scripts/release-check.cjs",
     "release:build": "node scripts/build-release.cjs",
+    "dsh:build": "node scripts/build-dsh-bundle.cjs",
     "test:omp": "node --test test/omp-adapter.test.cjs test/omp-extension.test.cjs test/omp-package.test.cjs",
     "test:hosts": "node scripts/test-hosts.cjs",
     "codex:build": "node scripts/build-codex-plugin.cjs",
@@ -4614,11 +4626,11 @@ __modules["package.json"] = function(module) { module.exports = {
     }
   },
   "devDependencies": {
-    "acorn": "8.17.0",
+    "acorn": "8.19.0",
     "ajv": "^8.20.0"
   },
   "dependencies": {
-    "@opencode/schema": "2.2.2",
+    "@opencode/schema": "2.2.5",
     "effect": "4.0.0-rc.112"
   }
 }; };
