@@ -3361,7 +3361,7 @@ function classifyCommandArguments(name, args) {
   if (name === 'git') {
     // Only these global options preserve the supported command interpretation.
     while (args.length) {
-      if (args[0] === '--no-pager' || args[0] === '--literal-pathspecs') args.shift();
+      if (['--no-pager', '--literal-pathspecs', '--no-optional-locks'].includes(args[0])) args.shift();
       else if (args[0] === '-C' && args.length > 1) args.splice(0, 2);
       else break;
     }
@@ -3371,7 +3371,25 @@ function classifyCommandArguments(name, args) {
       const mutability = classifyGitBranchArguments(args);
       return shellClassification(mutability, mutability === 'unknown' ? 'git_arguments_unproven' : undefined);
     }
+    if (subcommand === 'worktree' && args[0] === 'list'
+        && args.slice(1).every(arg => ['--porcelain', '-z', '-v', '--verbose'].includes(arg))) {
+      return shellClassification('read');
+    }
+    if (subcommand === 'merge-base'
+        && args.filter(arg => !arg.startsWith('-')).length >= 2
+        && args.every(arg => !arg.startsWith('-') || ['--is-ancestor', '--all', '-a'].includes(arg))) {
+      return shellClassification('read');
+    }
+    if (subcommand === 'cat-file' && args.length === 2
+        && ['-e', '-t', '-s', '-p'].includes(args[0]) && !args[1].startsWith('-')) {
+      return shellClassification('read');
+    }
     if (['status', 'diff', 'log', 'show', 'rev-parse'].includes(subcommand)) return classifyGitQueryArguments(args);
+    // Listing formats is local. Generating an archive can invoke a configured
+    // format command, whose side effects cannot be established from argv.
+    if (subcommand === 'archive' && args.length === 1 && ['--list', '-l'].includes(args[0])) {
+      return shellClassification('read');
+    }
     return shellClassification('unknown', 'git_arguments_unproven');
   }
   if (['npm', 'pnpm', 'yarn'].includes(name) && ['add', 'install', 'remove', 'uninstall', 'publish'].includes(args[0])) return shellClassification('write');

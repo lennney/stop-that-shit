@@ -3,6 +3,8 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { analyzeShell } = require('../src/shell-analysis.cjs');
+const { decide } = require('../src/decision.cjs');
+const { analyzeDshTool } = require('../src/adapters/dsh-tool-classifier.cjs');
 const codex = require('../src/adapters/codex-tool-classifier.cjs');
 const claude = require('../src/adapters/claude-tool-classifier.cjs');
 const hermes = require('../src/adapters/hermes-tool-classifier.cjs');
@@ -23,6 +25,14 @@ const hosts = {
 const cases = [
   ['git branch --list -- -D', 'read', false, false],
   ['git branch -D scratch', 'write', false, false],
+  ['git --no-optional-locks status --short', 'read', false, false],
+  ['git --no-optional-locks diff --output=review.patch', 'write', false, false, 'git_output_file'],
+  ['git -C fixture worktree list --porcelain -z', 'read', false, false],
+  ['git -C fixture worktree prune', 'unknown', false, false, 'git_arguments_unproven'],
+  ['git merge-base --is-ancestor HEAD main', 'read', false, false],
+  ['git merge-base --future-option HEAD main', 'unknown', false, false, 'git_arguments_unproven'],
+  ['git cat-file -p HEAD', 'read', false, false],
+  ['git cat-file --batch-command', 'unknown', false, false, 'git_arguments_unproven'],
   ['git status --short && git diff --stat', 'read', false, false],
   ['git status --short > status.txt', 'write', false, false, 'shell_redirection'],
   ["rg --fixed-strings 'npm install sha256sum' README.md", 'read', false, false],
@@ -50,6 +60,17 @@ for (const [command, mutability, hashIntent, dependencyIntent, analysisReason] o
   });
 }
 
+test('reviewing worktree layout allows listing and requires approval for pruning', () => {
+  const contract = { mode: 'review', level: 'guard' };
+  for (const [host, analyze] of Object.entries(hosts)) {
+    const listing = decide({ contract, action: analyze('git worktree list --porcelain') });
+    const pruning = decide({ contract, action: analyze('git worktree prune') });
+    assert.equal(listing.outcome, 'allow', host);
+    assert.equal(pruning.outcome, 'require_user_approval', host);
+    assert.equal(pruning.reasonCode, 'MUTABILITY_UNPROVEN', host);
+  }
+});
+
 test('legacy shell payloads retain intent without proving a command is read-only', () => {
   const analyze = [
     input => codex.analyzeCodexTool('Bash', input),
@@ -65,5 +86,46 @@ test('legacy shell payloads retain intent without proving a command is read-only
     }
     assert.equal(read({ new_source: 'npm install example-package' }).dependencyIntent, false);
     assert.equal(read({ command: 'git status', content: 'npm install example-package' }).dependencyIntent, false);
+  }
+});
+
+test('Guard review permits listing local archive formats and requires approval for archive creation', () => {
+  const contract = { mode: 'review', level: 'guard' };
+  const listing = ['git archive --list', 'git archive -l'];
+  const unproven = [
+    'git archive --output=bundle.tar HEAD',
+    'git archive --format=tar -o bundle.tar HEAD',
+    'git archive --format=tar HEAD',
+    'git archive --remote=fixture --list',
+    'git archive --list --output=bundle.tar'
+  ];
+  for (const [host, analyze] of Object.entries(hosts)) {
+    for (const command of listing) {
+      const action = analyze(command);
+      assert.equal(action.mutability, 'read', `${host}: ${command}`);
+      assert.equal(decide({ contract, action }).outcome, 'allow', `${host}: ${command}`);
+    }
+    for (const command of unproven) {
+      const action = analyze(command);
+      assert.equal(action.mutability, 'unknown', `${host}: ${command}`);
+      assert.equal(decide({ contract, action }).reasonCode, 'MUTABILITY_UNPROVEN', `${host}: ${command}`);
+    }
+  }
+});
+
+test('shell path metadata cannot authorize archive output under a file-scoped Guard contract', () => {
+  const cwd = '/repo';
+  const contract = { mode: 'change', level: 'guard', allowedPaths: ['src/**'] };
+  const input = { command: 'git archive --output=outside/bundle.tar HEAD', path: 'src/hint' };
+  const actions = [
+    claude.analyzeClaudeTool('Bash', input, cwd),
+    opencode.analyzeOpenCodeTool('bash', input, cwd),
+    analyzeDshTool('bash', input, cwd)
+  ];
+  for (const action of actions) {
+    assert.deepEqual(action.affectedPaths, []);
+    const result = decide({ contract, action: { ...action, cwd } });
+    assert.equal(result.outcome, 'require_user_approval');
+    assert.equal(result.reasonCode, 'WRITE_PATH_UNPROVEN');
   }
 });
