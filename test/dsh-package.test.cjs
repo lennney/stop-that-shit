@@ -7,7 +7,11 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 const { version } = require('../package.json');
-const { engines } = require('../dsh/package.json');
+const { engines, repository } = require('../dsh/package.json');
+
+test('the DSH bundle targets only accepted host versions', () => {
+  assert.equal(engines.dsh, '0.2.2-rc.3 || 0.2.2-rc.5');
+});
 
 test('the packed DSH bundle runs its bridge outside the STS checkout', async (t) => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'sts-dsh-package-'));
@@ -29,6 +33,8 @@ test('the packed DSH bundle runs its bridge outside the STS checkout', async (t)
   const manifest = JSON.parse(fs.readFileSync(path.join(installed, 'package.json'), 'utf8'));
   assert.equal(manifest.version, version);
   assert.deepEqual(manifest.engines, engines);
+  assert.deepEqual(manifest.repository, repository);
+  assert.equal(manifest.repository.url, 'https://github.com/lennney/stop-that-shit.git');
   for (const field of ['private', 'dependencies', 'peerDependencies', 'scripts']) {
     assert.equal(manifest[field], undefined, `bundle has no ${field} field`);
   }

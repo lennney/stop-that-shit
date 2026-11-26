@@ -11,6 +11,30 @@ actions, context responses, and permission denies. It records host effect as
 `unobserved`; a returned permission deny is not evidence that the host skipped
 the action.
 
+## Unreleased DeepSeek Harness 0.2.2-rc.5 acceptance
+
+On 2026-11-22 a local candidate built from STS main
+`1ee118ffb8345d8dc133874eb75b80c3ec8c38d9` plus the DSH manifest changes
+in this patch was tested on Debian 13 x86_64. The candidate archive SHA-256 was
+`b16e33bdf4bfa7d09119891a4217901b12a7de4cd1e1c86ae0af6a7ebfd6ba03`.
+The host was the published `@deepseek-ai/dsh@0.2.2-rc.5` npm package,
+with Node.js 24.22.3 and pnpm 11.25.0. The published STS 0.2.6 archive
+was rejected on rc.5 without a version exemption; the candidate installed in
+a separate clean `web` profile via the ordinary DSH CLI.
+
+The Web host booted on loopback with the Standard preset. A local probe sent
+review/change directives through the real agent event dispatcher and
+used the native DSH tool pipeline, without a model call or network egress.
+The no-STS control allowed a read and a write. With the candidate, the read
+returned the expected text; a review write and a scoped change outside
+`docs/**` were denied and left both targets absent; a scoped change inside
+`docs/**` wrote the exact expected bytes. With the official optional
+`apply_patch` tool enabled in an otherwise unchanged Standard preset, the
+out-of-scope patch left its target absent and the in-scope patch wrote the
+expected bytes. This does not establish rc.5 support on Windows, Desktop,
+other presets, or an in-place upgrade. It does not change the published
+0.2.6 artifact or its rc.3 release scope documented below.
+
 Version: 0.2.6 Task boundaries and DeepSeek Harness
 Release candidate: https://github.com/lennney/stop-that-shit/releases/tag/0.2.6
 Previous release: https://github.com/lennney/stop-that-shit/releases/tag/0.2.5
