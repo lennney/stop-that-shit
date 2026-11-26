@@ -138,7 +138,15 @@ Codex를 다시 시작하고 새 CLI TUI에서 `/hooks`를 엽니다.
 
 ### DeepSeek Harness (DSH) 호환성
 
-**`0.2.2-rc.5`: 후보 패키지는 Linux의 Web Standard에서 검증했으며 아직 출시되지 않았습니다.** 위 STS `0.2.6` 설치 패키지는 `rc.3`만 지원합니다. [rc.5 검증 기록 (#149)](https://github.com/lennney/stop-that-shit/pull/149)을 참고하세요.
+[STS DSH 독립 시험판 `0.2.7-dsh.1`](https://github.com/lennney/stop-that-shit/releases/tag/0.2.7-dsh.1)은 DeepSeek Harness `0.2.2-rc.5`와 `0.2.2-rc.3`의 `web` 프로필 Standard 프리셋을 지원합니다. Linux x86_64에서 두 버전을 새 프로필로 검증했으며, rc.5에서는 선택 기능인 `apply_patch`도 확인했습니다. Windows rc.5, Desktop, 다른 프리셋 및 기존 프로필에서의 업그레이드는 검증하지 않았습니다.
+
+[미리보기 패키지 다운로드 (TGZ)](https://github.com/lennney/stop-that-shit/releases/download/0.2.7-dsh.1/stop-that-shit-dsh-0.2.7-dsh.1.tgz). Node.js 24.9 이상을 사용하고 같은 터미널에서 `pnpm --version`이 실행되는지 확인하세요. 파일을 내려받은 폴더에서 다음 명령을 실행하세요.
+
+```sh
+dsh plugin --profile web add ./stop-that-shit-dsh-0.2.7-dsh.1.tgz
+```
+
+DSH를 다시 시작하고 새 세션을 여세요. 호환성 예외는 필요하지 않습니다. 최신 안정 릴리스는 여전히 STS `0.2.6`이며, [이 버전의 DSH 패키지](https://github.com/lennney/stop-that-shit/releases/download/0.2.6/stop-that-shit-dsh-0.2.6.tgz)는 rc.3만 지원합니다. [안정 릴리스 설치 안내](INSTALL.md#deepseek-harness-preview)를 참고하세요.
 
 ## 사용법
 
